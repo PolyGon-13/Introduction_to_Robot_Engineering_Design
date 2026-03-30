@@ -46,5 +46,5 @@ while True:
         continue  
     # 장애물 조건: 각도 ±30도 범위, 거리 300mm 이하
     #*********아래의 if 조건문을 완성하시오***********
-    if ():
+    if (distance <= 300) and (angle <= 30 or angle >= 330):
         print(f"Obstacle detected! Angle: {angle:.2f}°, Distance: {distance:.2f} mm")
