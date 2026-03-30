@@ -22,3 +22,4 @@ git commit -m "commit message"
 # 3. GitHub에 업로드
 git push
 ```
+deajun
