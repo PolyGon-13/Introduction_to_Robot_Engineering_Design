@@ -40,7 +40,7 @@ void loop() {
 
   // 1초마다 RPM 계산
   if (currentMillis - lastMillis1 >= 1000) {
-    float pulses = elcnt - lastE1Cnt;
+    float pulses = e1cnt - lastE1Cnt;
     rpm1 = pulses * 60.0 / PULSES_PER_ROTATION; // rpm 코드 작성
     lastE1Cnt = e1cnt;
     lastMillis1 = currentMillis;
