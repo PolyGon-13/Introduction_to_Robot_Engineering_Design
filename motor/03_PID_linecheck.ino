@@ -1,9 +1,9 @@
 #define pi 3.1416
 
 // ************ PID ************
-float kp = 0.0;
-float ki = 0.000;
-float kd = 0.0;
+float kp = 0.0; // 0.04
+float ki = 0.000; // 0.003
+float kd = 0.0; // 0.1
 
 // *************PIN**************
 const byte interruptPinA = 3;
