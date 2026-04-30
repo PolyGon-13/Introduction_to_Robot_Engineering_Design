@@ -3,18 +3,22 @@
 // ----------------------------------------------------------------------------
 //  하드웨어 : Arduino UNO R4 Minima + L298N + JGA25-370 x2 + 엔코더
 //  통신     : Serial1(라즈베리파이, 9600bps) / Serial(노트북 디버그, 9600bps)
-//  명령형식 : "D <distance_m>\n"  ex) "D 1.50"   → 전진 1.50 m
-//             "D -0.30\n"                       → 후진 0.30 m
-//             "S\n"                              → 즉시 정지
-//  동작     : 사다리꼴 속도 프로파일 + 좌/우 모터 RPM PID + 동기화 PID
-//             목표 거리 도달 시 자동으로 감속·정지 후 "DONE ..." 응답.
+//
+//  [rp-arduino_uart.py 명령 프로토콜]
+//    숫자 입력  → "D <dist:.4f>\n"   ex) "D 1.5000"  → 전진 1.5 m
+//               → "D -0.3000\n"              → 후진 0.3 m
+//    s 입력    → "S\n"                        → 즉시 정지
+//    q 입력    → "S\n" 송신 후 파이썬 종료
+//
+//  동작 : 사다리꼴 속도 프로파일 + 좌/우 모터 RPM PID + 동기화 PID
+//         목표 거리 도달 시 자동 감속·정지 후 Serial1 으로 "DONE ..." 응답.
 // ============================================================================
 #include <Arduino.h>
 
 #define PI_F 3.1416f
 
 // ============================================================================
-//  1) HARDWARE CONFIG  (motor2/test/pid_both_motor.ino 와 동일)
+//  1) HARDWARE CONFIG
 // ============================================================================
 //  - 우(Right) 모터
 const byte PWMPin_r  = 9;
@@ -27,12 +31,19 @@ const byte ENC_B_r   = 4;
 const byte PWMPin_l  = 6;
 const byte DirPin1_l = 7;
 const byte DirPin2_l = 8;
-const byte ENC_A_l   = 3;
-const byte ENC_B_l   = 5;
+const byte ENC_A_l   = 3;   // encoder_check.ino : ENC1_CHA = 3
+const byte ENC_B_l   = 5;   // encoder_check.ino : ENC1_CHB = 5
 
-//  - 모터 와이어가 거꾸로 연결된 경우 부호만 반전 (기존 코드 관례 유지)
-const bool REVERSE_RIGHT = true;   // [TODO 확인] 전진 명령 시 우측이 정방향 회전인지 확인
-const bool REVERSE_LEFT  = true;   // [TODO 확인] 전진 명령 시 좌측이 정방향 회전인지 확인
+//  ── 엔코더 방향 반전 ──────────────────────────────────────────────────────
+//  encoder_check.ino 에서 INVERT_ENCODER_DIR = true 로 검증된 값.
+//  전진 시 EncoderCount 가 증가해야 정상.
+const bool INVERT_ENC_R = true;   // [TODO 검증] 우측은 아직 미검증
+const bool INVERT_ENC_L = true;   // encoder_check.ino 로 확인 완료
+
+//  ── 모터 드라이버 방향 반전 ───────────────────────────────────────────────
+//  "D 0.1" 명령 후 실제 로봇이 전진하는지 확인. 한 쪽이 후진하면 해당 값 false.
+const bool REVERSE_MOTOR_R = true;   // [TODO 확인] 실제 주행으로 검증
+const bool REVERSE_MOTOR_L = true;   // [TODO 확인] 실제 주행으로 검증
 
 // ============================================================================
 //  2) ROBOT PARAMETERS  (★ 정확도에 가장 큰 영향 - 실측 후 보정 필수)
@@ -117,29 +128,27 @@ String inputPi  = "";
 String inputPc  = "";
 
 // ============================================================================
-//  7) ENCODER ISR  (CHANGE on ENC_A only — 기존 코드 방식 유지)
+//  7) ENCODER ISR  (ENC_A CHANGE 인터럽트 — encoder_check.ino 와 동일 로직)
 // ============================================================================
+//  기본 delta 계산은 encoder_check.ino 의 Enc1chA_ISR() 과 동일.
+//  INVERT_ENC_* 플래그로 방향 반전 (encoder_check.ino: INVERT_ENCODER_DIR=true).
 void ISR_Encoder_A_r() {
-  bool pinB = digitalRead(ENC_B_r);
   bool pinA = digitalRead(ENC_A_r);
-  if (REVERSE_RIGHT) {
-    if (pinB == LOW) EncoderCount_r += (pinA == HIGH) ? -1 :  1;
-    else             EncoderCount_r += (pinA == HIGH) ?  1 : -1;
-  } else {
-    if (pinB == LOW) EncoderCount_r += (pinA == HIGH) ?  1 : -1;
-    else             EncoderCount_r += (pinA == HIGH) ? -1 :  1;
-  }
+  bool pinB = digitalRead(ENC_B_r);
+  int delta;
+  if (pinA == HIGH) delta = (pinB == LOW) ? -1 : 1;
+  else              delta = (pinB == HIGH) ? -1 : 1;
+  if (INVERT_ENC_R) delta = -delta;
+  EncoderCount_r += delta;
 }
 void ISR_Encoder_A_l() {
-  bool pinB = digitalRead(ENC_B_l);
   bool pinA = digitalRead(ENC_A_l);
-  if (REVERSE_LEFT) {
-    if (pinB == LOW) EncoderCount_l += (pinA == HIGH) ? -1 :  1;
-    else             EncoderCount_l += (pinA == HIGH) ?  1 : -1;
-  } else {
-    if (pinB == LOW) EncoderCount_l += (pinA == HIGH) ?  1 : -1;
-    else             EncoderCount_l += (pinA == HIGH) ? -1 :  1;
-  }
+  bool pinB = digitalRead(ENC_B_l);
+  int delta;
+  if (pinA == HIGH) delta = (pinB == LOW) ? -1 : 1;
+  else              delta = (pinB == HIGH) ? -1 : 1;
+  if (INVERT_ENC_L) delta = -delta;
+  EncoderCount_l += delta;
 }
 
 // ============================================================================
@@ -152,7 +161,7 @@ static inline void writeDriver_r(float V) {
   if (V == 0) {
     digitalWrite(DirPin1_r, LOW); digitalWrite(DirPin2_r, LOW);
   } else {
-    bool forward = (V > 0) ^ REVERSE_RIGHT;
+    bool forward = (V > 0) ^ REVERSE_MOTOR_R;
     digitalWrite(DirPin1_r, forward ? HIGH : LOW);
     digitalWrite(DirPin2_r, forward ? LOW  : HIGH);
   }
@@ -165,7 +174,7 @@ static inline void writeDriver_l(float V) {
   if (V == 0) {
     digitalWrite(DirPin1_l, LOW); digitalWrite(DirPin2_l, LOW);
   } else {
-    bool forward = (V > 0) ^ REVERSE_LEFT;
+    bool forward = (V > 0) ^ REVERSE_MOTOR_L;
     digitalWrite(DirPin1_l, forward ? HIGH : LOW);
     digitalWrite(DirPin2_l, forward ? LOW  : HIGH);
   }

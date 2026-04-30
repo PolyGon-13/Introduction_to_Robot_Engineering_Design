@@ -43,9 +43,9 @@ def interactive_loop(ser):
             dist = float(cmd) # 입력을 실수로 변환
         except ValueError:
             continue
-
+        
+        # 숫자만 입력하면 D 추가해서 보냄 (m 단위)
         send_line(ser, f"D {dist:.4f}")
-
 def main():
     try:
         ser = open_serial()
