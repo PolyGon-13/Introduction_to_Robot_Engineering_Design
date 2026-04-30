@@ -1,23 +1,34 @@
 #define ENC1_CHA 3
 #define ENC1_CHB 5
 
+// true로 바꾸면 count 증가/감소 방향이 반대로 바뀜
+const bool INVERT_ENCODER_DIR = true;
+
 volatile long e1cnt = 0;
+
+void updateEncoderCount(int delta)
+{
+    if (INVERT_ENCODER_DIR)
+        e1cnt -= delta;
+    else
+        e1cnt += delta;
+}
 
 void Enc1chA_ISR()
 {
     if (digitalRead(ENC1_CHA) == HIGH)
     {
         if (digitalRead(ENC1_CHB) == LOW)
-            e1cnt--;
+            updateEncoderCount(-1);
         else
-            e1cnt++;
+            updateEncoderCount(1);
     }
     else
     {
         if (digitalRead(ENC1_CHB) == HIGH)
-            e1cnt--;
+            updateEncoderCount(-1);
         else
-            e1cnt++;
+            updateEncoderCount(1);
     }
 }
 
