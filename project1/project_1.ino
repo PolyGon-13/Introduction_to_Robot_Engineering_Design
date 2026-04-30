@@ -31,14 +31,14 @@ const float COUNT_PER_M = (PPR / (2.0f * PI_F * WHEEL_R)) * COUNT_PER_M_CAL; // 
 const long STOP_TOL_CNT = 35; // 정지 허용 카운트 오차
 
 // 거리 이동 PID 튜닝
-float kp_pos = 0.002f;
-float ki_pos = 0.00003f;
-float kd_pos = 0.0005f;
+float kp_pos = 0.1;
+float ki_pos = 0.0004f;
+float kd_pos = 0.015f;
 
 // 좌우 엔코더 차이 PID 튜닝
-float kp_sync = 0.00120f;
-float ki_sync = 0.00002f;
-float kd_sync = 0.00020f;
+float kp_sync = 15.0f;
+float ki_sync = 0.00f;
+float kd_sync = 0.00f;
 const float V_SYNC_LIMIT = 1.8f; // 동기화 보정 전압의 최대 크기 제한
 
 // 모터 전압 범위
