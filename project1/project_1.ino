@@ -62,29 +62,29 @@ const float COUNT_PER_M      = (PPR / (2.0f * PI_F * WHEEL_R)) * COUNT_PER_M_CAL
 // ============================================================================
 //  3) MOTION PROFILE  (사다리꼴 + creep)
 // ============================================================================
-const float V_CRUISE    = 0.15f;   // 등속 구간 선속도 [m/s]   ([TODO 튜닝] 0.10~0.25)
-const float ACCEL       = 0.30f;   // 가/감속도 [m/s^2]        ([TODO 튜닝] 너무 크면 슬립)
-const float V_MIN_KICK  = 0.04f;   // 출발 직후 정지마찰 극복용 최소 속도 [m/s]
-const float D_KICK      = 0.015f;  // 출발 후 KICK 유지 거리 [m]
-const float D_CREEP     = 0.04f;   // 종료 직전 저속 접근(creep) 구간 거리 [m]
-const float V_CREEP     = 0.045f;  // creep 속도 [m/s]
-const long  STOP_TOL_CNT = 20;     // 정지 허용 카운트 오차 (좌우 평균 기준)
+const float V_CRUISE    = 0.10f;   // 등속 구간 선속도 [m/s]   (첫 실차 주행용 저속)
+const float ACCEL       = 0.18f;   // 가/감속도 [m/s^2]        (슬립/쏠림 방지용 완만 가속)
+const float V_MIN_KICK  = 0.05f;   // 출발 직후 정지마찰 극복용 최소 속도 [m/s]
+const float D_KICK      = 0.025f;  // 출발 후 KICK 유지 거리 [m]
+const float D_CREEP     = 0.07f;   // 종료 직전 저속 접근(creep) 구간 거리 [m]
+const float V_CREEP     = 0.035f;  // creep 속도 [m/s]
+const long  STOP_TOL_CNT = 35;     // 정지 허용 카운트 오차 (좌우 평균 기준)
 
 // ============================================================================
 //  4) PID GAINS  (motor2/test/pid_both_motor.ino 의 값을 출발점으로 사용)
 //     ※ 게인은 실험적으로 튜닝 필요 — 우선은 동일값으로 시작
 // ============================================================================
 //  - 우/좌 모터 RPM PID (단위 dt: ms — 기존 코드와 호환 유지)
-float kp_r = 0.0600f, ki_r = 0.0005f, kd_r = 0.1000f;   // [TODO 튜닝]
-float kp_l = 0.0600f, ki_l = 0.0005f, kd_l = 0.1000f;   // [TODO 튜닝]
+float kp_r = 0.0800f, ki_r = 0.0008f, kd_r = 0.0800f;   // [TODO 튜닝] 첫 실행: 느린 우측을 조금 더 강하게
+float kp_l = 0.0500f, ki_l = 0.0004f, kd_l = 0.0800f;   // [TODO 튜닝] 첫 실행: 빠른 좌측을 조금 더 부드럽게
 
 //  - 동기화(Cross-coupling) PID : 좌우 엔코더 카운트 차이(=헤딩 오차)를 직접 0으로 만든다.
 //    e_sync = (Δenc_r) - (Δenc_l)  [counts]
 //    출력은 양 모터 V 에 ±로 더해진다 (전압 단위, V).
-float kp_sync = 0.00080f;   // [TODO 튜닝] (보통 kp_motor 의 1/50 ~ 1/100 부근에서 시작)
-float ki_sync = 0.00001f;   // [TODO 튜닝]
-float kd_sync = 0.00050f;   // [TODO 튜닝]
-const float V_SYNC_LIMIT = 1.5f;  // 동기화 보정 전압의 최대 크기 [V]
+float kp_sync = 0.00120f;   // [TODO 튜닝] 첫 실행: 좌우 카운트 차이에 더 적극적으로 반응
+float ki_sync = 0.00002f;   // [TODO 튜닝]
+float kd_sync = 0.00020f;   // [TODO 튜닝] D항은 과한 순간 보정을 피하려고 낮춤
+const float V_SYNC_LIMIT = 1.8f;  // 동기화 보정 전압의 최대 크기 [V]
 
 // ============================================================================
 //  5) LIMITS
