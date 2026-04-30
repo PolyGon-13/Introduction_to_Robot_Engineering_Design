@@ -41,6 +41,10 @@ const float STRAIGHT_BIAS_CNT_PER_M = -30.0f;
 const float V_MAX = 6.0f;
 const float V_MIN = -6.0f;
 
+const unsigned long START_RAMP_MS = 900;
+const float STOP_RAMP_M = 0.1f;
+const float MIN_RAMP_SCALE = 0.1f;
+
 volatile long EncoderCount_r = 0;
 volatile long EncoderCount_l = 0;
 
@@ -60,6 +64,7 @@ float inte_sync = 0;
 
 const unsigned long PID_INTERVAL_MS = 20;
 unsigned long lastPidMs = 0;
+unsigned long driveStartMs = 0;
 
 String inputPi = "";
 
@@ -135,7 +140,8 @@ void startStraightDrive(float distance_m) {
   e_sync_prev = 0;
   inte_sync = 0;
 
-  lastPidMs = millis();
+  driveStartMs = millis();
+  lastPidMs = driveStartMs;
   driveState = ST_RUN;
 
   Serial.print("[START] d=");
@@ -279,14 +285,24 @@ void loop() {
 
   Vcap = constrain(Vcap, 2.0f, 4.0f);
 
-  float V_base = constrain(V_base_raw * driveSign, -Vcap, Vcap);
+  float V_base_target = constrain(V_base_raw * driveSign, -Vcap, Vcap);
+
+  float startRamp = 1.0f;
+  if (START_RAMP_MS > 0) {
+    startRamp = constrain((float)(now - driveStartMs) / (float)START_RAMP_MS, 0.0f, 1.0f);
+  }
+
+  float stopRamp = 1.0f;
+  if (STOP_RAMP_M > 0.0f) {
+    stopRamp = constrain(e_pos / (STOP_RAMP_M * COUNT_PER_M), MIN_RAMP_SCALE, 1.0f);
+  }
+
+  float V_base = V_base_target * min(startRamp, stopRamp);
 
   e_pos_prev = e_pos;
 
-  //float progress_m = (float)progAvg / COUNT_PER_M;
-  //float targetDiff = STRAIGHT_BIAS_CNT_PER_M * progress_m;
   float progressRatio = constrain((float)progAvg / (float)targetCount, 0.0f, 1.0f);
-  float targetDiff = -80.0f * progressRatio;
+  float targetDiff = -75.0f * progressRatio;
   float e_sync = (float)(progR - progL) - targetDiff;
 
   inte_sync += e_sync * dt_s;
