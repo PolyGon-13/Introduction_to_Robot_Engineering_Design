@@ -33,10 +33,14 @@ float kp_pos = 0.1f;
 float ki_pos = 0.002f;
 float kd_pos = 0.000f;
 
+/////////////////////////////////////////////
+///////////////////////////////////////////
 // 좌우 동기 PID 튜닝 (순간 차이 기반)
-float kp_sync = 0.08f;
-float ki_sync = 0.0000f;
+float kp_sync = 0.085f;
+float ki_sync = 0.01f;
 float kd_sync = 0.000f;
+///////////////////////////////////////////////
+//////////////////////////////////////////////
 
 // 모터 전압 범위
 const float V_MAX = 6.0f;
@@ -267,8 +271,9 @@ void loop() {
   float V_sync = kp_sync * e_sync + ki_sync * inte_sync + kd_sync * d_sync;
   e_sync_prev = e_sync;
 
-  writeDriver_r(constrain(V_base - V_sync, V_MIN, V_MAX));
-  writeDriver_l(constrain(V_base + V_sync, V_MIN, V_MAX));
+  float V_sync_directed = V_sync * driveSign;
+  writeDriver_r(constrain(V_base - V_sync_directed, V_MIN, V_MAX));
+  writeDriver_l(constrain(V_base + V_sync_directed, V_MIN, V_MAX));
 
   // 디버그 출력
   static unsigned long lastLogMs = 0;

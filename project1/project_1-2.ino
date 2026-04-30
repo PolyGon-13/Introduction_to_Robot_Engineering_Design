@@ -36,8 +36,8 @@ float ki_pos = 0.0004f;
 float kd_pos = 0.015f;
 
 // 좌우 엔코더 차이 PID 튜닝
-float kp_sync = 20.0f;
-float ki_sync = 0.00f;
+float kp_sync = 0.09f;
+float ki_sync = 0.002f;
 float kd_sync = 0.00f;
 const float V_SYNC_LIMIT = 0.241f; // 동기화 보정 전압의 최대 크기 제한
 
@@ -348,6 +348,8 @@ void loop()
   float d_pos = (e_pos - e_pos_prev) / dt_s; // 위치 오차 변화률
   float V_base = kp_pos * e_pos + ki_pos * inte_pos + kd_pos * d_pos; // 위치 PID 제어로 기본 모터 전압 계산
   V_base = constrain(V_base * driveSign, V_MIN, V_MAX); // 모터 전압 범위로 제한
+  // 후진 중 D항 과다로 인한 전진 전압 인가 방지 (V_base_pid 음수 → *(-1) = 양수 방지)
+  if (driveSign < 0.0f && V_base > 0.0f) V_base = 0.0f;
   e_pos_prev = e_pos; // 위치 오차 저장
 
   // ── 가감속 전압 상한 계산 ────────────────────────────────────────────────
