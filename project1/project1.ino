@@ -28,21 +28,16 @@ const float COUNT_PER_M_CAL = 1.0204f;
 const float COUNT_PER_M = (PPR / (2.0f * PI_F * WHEEL_R)) * COUNT_PER_M_CAL;
 const long STOP_TOL_CNT = 35;
 
-// 거리 이동 PID 튜닝
 float kp_pos = 0.1f;
 float ki_pos = 0.002f;
 float kd_pos = 0.000f;
 
-/////////////////////////////////////////////
-///////////////////////////////////////////
-// 좌우 동기 PID 튜닝 (순간 차이 기반)
 float kp_sync = 0.085f;
 float ki_sync = 0.01f;
 float kd_sync = 0.000f;
-///////////////////////////////////////////////
-//////////////////////////////////////////////
 
-// 모터 전압 범위
+const float STRAIGHT_BIAS_CNT_PER_M = -30.0f;
+
 const float V_MAX = 6.0f;
 const float V_MIN = -6.0f;
 
@@ -73,7 +68,7 @@ void ISR_Encoder_A_r() {
   bool pinB = digitalRead(ENC_B_r);
   int delta;
   if (pinA == HIGH) delta = (pinB == LOW) ? -1 : 1;
-  else              delta = (pinB == HIGH) ? -1 : 1;
+  else delta = (pinB == HIGH) ? -1 : 1;
   if (INVERT_ENC_R) delta = -delta;
   EncoderCount_r += delta;
 }
@@ -83,7 +78,7 @@ void ISR_Encoder_A_l() {
   bool pinB = digitalRead(ENC_B_l);
   int delta;
   if (pinA == HIGH) delta = (pinB == LOW) ? -1 : 1;
-  else              delta = (pinB == HIGH) ? -1 : 1;
+  else delta = (pinB == HIGH) ? -1 : 1;
   if (INVERT_ENC_L) delta = -delta;
   EncoderCount_l += delta;
 }
@@ -91,6 +86,7 @@ void ISR_Encoder_A_l() {
 static inline void writeDriver_r(float V) {
   V = constrain(V, V_MIN, V_MAX);
   int PWMval = constrain((int)(255.0f * fabs(V) / V_MAX), 0, 255);
+
   if (V == 0.0f) {
     digitalWrite(DirPin1_r, LOW);
     digitalWrite(DirPin2_r, LOW);
@@ -99,12 +95,14 @@ static inline void writeDriver_r(float V) {
     digitalWrite(DirPin1_r, forward ? HIGH : LOW);
     digitalWrite(DirPin2_r, forward ? LOW : HIGH);
   }
+
   analogWrite(PWMPin_r, PWMval);
 }
 
 static inline void writeDriver_l(float V) {
   V = constrain(V, V_MIN, V_MAX);
   int PWMval = constrain((int)(255.0f * fabs(V) / V_MAX), 0, 255);
+
   if (V == 0.0f) {
     digitalWrite(DirPin1_l, LOW);
     digitalWrite(DirPin2_l, LOW);
@@ -113,6 +111,7 @@ static inline void writeDriver_l(float V) {
     digitalWrite(DirPin1_l, forward ? HIGH : LOW);
     digitalWrite(DirPin2_l, forward ? LOW : HIGH);
   }
+
   analogWrite(PWMPin_l, PWMval);
 }
 
@@ -121,6 +120,7 @@ void startStraightDrive(float distance_m) {
     Serial.println("[ERR] distance too small");
     return;
   }
+
   driveSign = (distance_m >= 0.0f) ? 1.0f : -1.0f;
 
   noInterrupts();
@@ -129,6 +129,7 @@ void startStraightDrive(float distance_m) {
   interrupts();
 
   targetCount = (long)(fabs(distance_m) * COUNT_PER_M);
+
   e_pos_prev = (float)targetCount;
   inte_pos = 0;
   e_sync_prev = 0;
@@ -149,6 +150,7 @@ void stopAll(const char *reason) {
   inte_pos = 0;
   inte_sync = 0;
   driveState = ST_IDLE;
+
   Serial.print("[STOP] ");
   Serial.println(reason);
 }
@@ -158,12 +160,15 @@ void processCommand(String s) {
   if (s.length() == 0) return;
 
   char c0 = s.charAt(0);
+
   if (c0 == 'D' || c0 == 'd') {
     float dist = s.substring(1).toFloat();
+
     if (dist == 0.0f) {
       Serial.println("[ERR] zero distance");
       return;
     }
+
     startStraightDrive(dist);
   } else if (c0 == 'S' || c0 == 's') {
     stopAll("user");
@@ -175,6 +180,7 @@ void processCommand(String s) {
 void readSerial1Line() {
   while (Serial1.available()) {
     char c = (char)Serial1.read();
+
     if (c == '\n' || c == '\r') {
       if (inputPi.length() > 0) {
         processCommand(inputPi);
@@ -217,13 +223,16 @@ void loop() {
   readSerial1Line();
 
   unsigned long now = millis();
+
   if (now - lastPidMs < PID_INTERVAL_MS) return;
 
   float dt_s = (now - lastPidMs) / 1000.0f;
   if (dt_s < 0.001f) dt_s = 0.001f;
   lastPidMs = now;
 
-  long enc_r, enc_l;
+  long enc_r;
+  long enc_l;
+
   noInterrupts();
   enc_r = EncoderCount_r;
   enc_l = EncoderCount_l;
@@ -252,33 +261,55 @@ void loop() {
     Serial.print(progL);
     Serial.print(" AVG=");
     Serial.println(progAvg);
+
     return;
   }
 
-  // 거리 PID
   inte_pos += e_pos * dt_s;
   inte_pos = constrain(inte_pos, -20000.0f, 20000.0f);
+
   float d_pos = (e_pos - e_pos_prev) / dt_s;
-  float V_base = kp_pos * e_pos + ki_pos * inte_pos + kd_pos * d_pos;
-  V_base = constrain(V_base * driveSign, V_MIN, V_MAX);
+  float V_base_raw = kp_pos * e_pos + ki_pos * inte_pos + kd_pos * d_pos;
+
+  float Vcap = 4.0f;
+
+  if (e_pos < 1200.0f) {
+    Vcap = 2.0f + 2.0f * (e_pos / 1200.0f);
+  }
+
+  Vcap = constrain(Vcap, 2.0f, 4.0f);
+
+  float V_base = constrain(V_base_raw * driveSign, -Vcap, Vcap);
+
   e_pos_prev = e_pos;
 
-  // 좌우 동기 PID (순간 차이 기반)
-  float e_sync = (float)(progR - progL);
+  //float progress_m = (float)progAvg / COUNT_PER_M;
+  //float targetDiff = STRAIGHT_BIAS_CNT_PER_M * progress_m;
+  float progressRatio = constrain((float)progAvg / (float)targetCount, 0.0f, 1.0f);
+  float targetDiff = -80.0f * progressRatio;
+  float e_sync = (float)(progR - progL) - targetDiff;
+
   inte_sync += e_sync * dt_s;
   inte_sync = constrain(inte_sync, -2000.0f, 2000.0f);
+
   float d_sync = (e_sync - e_sync_prev) / dt_s;
   float V_sync = kp_sync * e_sync + ki_sync * inte_sync + kd_sync * d_sync;
+
   e_sync_prev = e_sync;
 
   float V_sync_directed = V_sync * driveSign;
-  writeDriver_r(constrain(V_base - V_sync_directed, V_MIN, V_MAX));
-  writeDriver_l(constrain(V_base + V_sync_directed, V_MIN, V_MAX));
 
-  // 디버그 출력
+  float V_r = constrain(V_base - V_sync_directed, V_MIN, V_MAX);
+  float V_l = constrain(V_base + V_sync_directed, V_MIN, V_MAX);
+
+  writeDriver_r(V_r);
+  writeDriver_l(V_l);
+
   static unsigned long lastLogMs = 0;
+
   if (now - lastLogMs > 200) {
     lastLogMs = now;
+
     Serial.print(F("prog="));
     Serial.print(progAvg);
     Serial.print(F(" e_pos="));
@@ -289,9 +320,15 @@ void loop() {
     Serial.print(progR);
     Serial.print(F(" L="));
     Serial.print(progL);
+    Serial.print(F(" targetDiff="));
+    Serial.print(targetDiff, 1);
     Serial.print(F(" e_sync="));
     Serial.print(e_sync, 0);
     Serial.print(F(" Vs="));
-    Serial.println(V_sync, 3);
+    Serial.print(V_sync, 3);
+    Serial.print(F(" Vr="));
+    Serial.print(V_r, 2);
+    Serial.print(F(" Vl="));
+    Serial.println(V_l, 2);
   }
 }

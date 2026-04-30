@@ -36,22 +36,14 @@ float ki_pos = 0.0004f;
 float kd_pos = 0.015f;
 
 // 좌우 엔코더 차이 PID 튜닝
-float kp_sync = 0.09f;
-float ki_sync = 0.002f;
+float kp_sync = 20.0f;
+float ki_sync = 0.00f;
 float kd_sync = 0.00f;
 const float V_SYNC_LIMIT = 0.241f; // 동기화 보정 전압의 최대 크기 제한
 
 // 모터 전압 범위
 const float V_MAX = 6.0f;
 const float V_MIN = -6.0f;
-
-// ── 가감속 파라미터 ──────────────────────────────────────────────────────────
-// 가속: 출발 시 전압 상한을 0에서 V_MAX까지 선형 증가
-const float RAMP_UP_RATE   = 60.0f;  // V/s — V_MAX=6V 도달까지 약 100ms
-// 감속: e_pos가 DECEL_ZONE_CNT 이하로 줄면 전압 상한을 선형 감소
-const long  DECEL_ZONE_CNT = 250;    // 감속 시작 카운트 (≈5.3cm)
-const float V_DECEL_MIN    = 1.5f;   // 정지 직전 최소 전압 상한
-// ────────────────────────────────────────────────────────────────────────────
 
 // 오른쪽,왼쪽 엔코더 카운트
 volatile long EncoderCount_r = 0;
@@ -78,8 +70,6 @@ float inte_pos = 0; // 위치 오차 누적값
 
 float e_sync_prev = 0; // 이전 좌우 차이 오차
 float inte_sync = 0;   // 좌우 차이 오차 누적값
-
-float V_ramp_limit = 0.0f; // 가속 램프 현재 전압 상한
 
 const unsigned long PID_INTERVAL_MS = 20; // PID 계산 주기(50 Hz)
 unsigned long lastPidMs = 0; // 마지막으로 PID 계산한 시간
@@ -183,8 +173,6 @@ void startStraightDrive(float distance_m)
   e_sync_prev = 0;
   inte_sync = 0;
 
-  V_ramp_limit = 0.0f; // 가속 램프 초기화
-
   lastPidMs = millis(); // PID 시작 시간 초기화
   driveState = ST_RUN;  // 주행 상태를 RUN으로 설정
 
@@ -206,7 +194,6 @@ void stopAll(const char *reason)
   // PID 제어 변수 초기화
   inte_pos = 0;
   inte_sync = 0;
-  V_ramp_limit = 0.0f;
 
   driveState = ST_IDLE; // 대기 상태로 전환
 
@@ -348,29 +335,7 @@ void loop()
   float d_pos = (e_pos - e_pos_prev) / dt_s; // 위치 오차 변화률
   float V_base = kp_pos * e_pos + ki_pos * inte_pos + kd_pos * d_pos; // 위치 PID 제어로 기본 모터 전압 계산
   V_base = constrain(V_base * driveSign, V_MIN, V_MAX); // 모터 전압 범위로 제한
-  // 후진 중 D항 과다로 인한 전진 전압 인가 방지 (V_base_pid 음수 → *(-1) = 양수 방지)
-  if (driveSign < 0.0f && V_base > 0.0f) V_base = 0.0f;
   e_pos_prev = e_pos; // 위치 오차 저장
-
-  // ── 가감속 전압 상한 계산 ────────────────────────────────────────────────
-  // 가속: 매 PID 주기마다 RAMP_UP_RATE * dt_s 씩 상한 증가 → 약 100ms에 V_MAX 도달
-  V_ramp_limit += RAMP_UP_RATE * dt_s;
-  if (V_ramp_limit > V_MAX) V_ramp_limit = V_MAX;
-
-  // 감속: 목표까지 남은 카운트가 DECEL_ZONE_CNT 이하이면 전압 상한 선형 감소
-  float V_limit = V_ramp_limit;
-  if (e_pos < (float)DECEL_ZONE_CNT)
-  {
-    // DECEL_ZONE_CNT → V_MAX,  STOP_TOL_CNT → V_DECEL_MIN 으로 선형 보간
-    float t = (e_pos - (float)STOP_TOL_CNT) / (float)(DECEL_ZONE_CNT - STOP_TOL_CNT);
-    t = constrain(t, 0.0f, 1.0f);
-    float V_decel_cap = V_DECEL_MIN + (V_MAX - V_DECEL_MIN) * t;
-    if (V_decel_cap < V_limit) V_limit = V_decel_cap;
-  }
-
-  // V_base에 전압 상한 적용 (부호 유지)
-  V_base = constrain(V_base, -V_limit, V_limit);
-  // ────────────────────────────────────────────────────────────────────────
 
   // 좌우 엔코더 차이 PID 제어
   long delta_enc = (enc_r - startCount_r) - (enc_l - startCount_l); // 오른쪽과 왼쪽 엔코더의 이동거리 차이 계산
@@ -395,8 +360,6 @@ void loop()
     Serial.print(e_pos, 0);
     Serial.print(F(" Vb="));
     Serial.print(V_base, 2);
-    Serial.print(F(" Vlim="));
-    Serial.print(V_limit, 2);
     Serial.print(F(" dEnc="));
     Serial.print(delta_enc);
     Serial.print(F(" Vs="));
