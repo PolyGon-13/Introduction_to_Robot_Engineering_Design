@@ -5,6 +5,7 @@ import serial
 DEFAULT_PORT = "/dev/ttyS0" # 사용할 시리얼 포트 경로
 DEFAULT_BAUD = 9600 # 사용할 시리얼 포트 속도
 
+# 시리얼 포트 열기
 def open_serial():
     ser = serial.Serial(DEFAULT_PORT, DEFAULT_BAUD, timeout=0.1)
     time.sleep(2.0)
