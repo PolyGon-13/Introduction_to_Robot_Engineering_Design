@@ -7,7 +7,7 @@ DEFAULT_BAUD = 9600 # 사용할 시리얼 포트 속도
 
 # 시리얼 포트 열기
 def open_serial():
-    ser = serial.Serial(DEFAULT_PORT, DEFAULT_BAUD, timeout=0.1)
+    ser = serial.Serial(DEFAULT_PORT, DEFAULT_BAUD, timeout=1)
     time.sleep(2.0)
     ser.reset_input_buffer() # 아두이노가 재시작하면서 보낼 수 있는 초기 메시지를 버퍼에서 제거
     return ser
