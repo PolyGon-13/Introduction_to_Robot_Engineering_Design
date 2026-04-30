@@ -223,7 +223,7 @@ void processCommand(String s)
   else if (c0 == 'S' || c0 == 's')
   {
     stopAll("user");
-    Serial1.println("STOPPED"); // 라즈베리파이에 정지 메시지 전송
+    //Serial1.println("STOPPED"); // 라즈베리파이에 정지 메시지 전송
   }
   else
   {
@@ -325,7 +325,7 @@ void loop()
     float dist_avg = 0.5f * (progR + progL) / COUNT_PER_M; // 좌우 평균 이동 카운트를 거리로 환산
     char buf[64];
     snprintf(buf, sizeof(buf), "DONE %ld %ld %.4f", progR, progL, dist_avg);
-    Serial1.println(buf); // 라즈베리파이에 메시지 전송
+    //Serial1.println(buf); // 라즈베리파이에 메시지 전송
     return;
   }
 
@@ -348,8 +348,8 @@ void loop()
 
   writeDriver_r(constrain(V_base - V_sync * driveSign, V_MIN, V_MAX)); // 오른쪽 모터 최종 전압 명령
   writeDriver_l(constrain(V_base + V_sync * driveSign, V_MIN, V_MAX)); // 왼쪽 모터 최종 전압 명령
-  '''
-  // 디버그 출력 (200ms마다)
+
+  // 디버그 출력
   static unsigned long lastLogMs = 0;
   if (now - lastLogMs > 200)
   {
@@ -365,5 +365,4 @@ void loop()
     Serial.print(F(" Vs="));
     Serial.println(V_sync, 3);
   }
-  '''
 }
