@@ -23,7 +23,7 @@ const bool REVERSE_MOTOR_L = true; // 왼쪽 모터 방향 반전 여부
 const float WHEEL_R = 0.034f; // 바퀴 반지름 (m)
 //const float WHEEL_L = 0.2f; // 좌우 바퀴 사이 간격 (m)
 const float PPR = 1012.0f; // 바퀴 1회전당 엔코더 카운트 수
-const float COUNT_PER_M_CAL = 1.0068f; // 주행 오차 보정 계수 (목표 엔코더 카운트를 몇 배로 늘릴지)
+const float COUNT_PER_M_CAL = 1.006f; // 주행 오차 보정 계수 (목표 엔코더 카운트를 몇 배로 늘릴지)
 const float COUNT_PER_M = (PPR / (2.0f * PI_F * WHEEL_R)) * COUNT_PER_M_CAL; // 1m 당 엔코더 카운트 수
 const long STOP_TOL_CNT = 10; // 목표 도달 허용 오차 (35카운트 이내로 가까워지면 정지시킴)
 
@@ -135,7 +135,8 @@ void ModelingEncoderDiff(float distance_m) {
 
   // 1. encoderdiff 모델링
   // 1m : -40.0f, 2m : -80.0f
-  encoderdiff = -40.0f * d;
+  //encoderdiff = -40.0f * d;
+  encoderdiff = -100.0f;
 
   // 2. START_RAMP_MS 모델링
   // 1m : 100ms, 2m : 980ms
@@ -324,7 +325,8 @@ void loop() {
   // 정지 감속
   float stopRamp = 1.0f;
   if (STOP_RAMP_M > 0.0f) {
-    stopRamp = constrain(e_pos / (STOP_RAMP_M * COUNT_PER_M), MIN_RAMP_SCALE, 1.0f);
+    float rawStopRamp = constrain(e_pos / (STOP_RAMP_M * COUNT_PER_M), 0.0f, 1.0f);
+    stopRamp = constrain(rawStopRamp, MIN_RAMP_SCALE, 1.0f);
   }
 
   // 출발 가속과 정지 감속 중 더 작은 값을 선택해서 최종 속도 반영
@@ -341,7 +343,7 @@ void loop() {
   inte_sync = constrain(inte_sync, -2000.0f, 2000.0f);
   float d_sync = (e_sync - e_sync_prev) / dt_s; // 동기화 오차 변화량
   float V_sync = kp_sync * e_sync + ki_sync * inte_sync + kd_sync * d_sync; // 동기화 PID 제어로 계산된 보정값
-
+  
   e_sync_prev = e_sync; // 동기화 오차 이전값 업데이트
 
   float V_sync_directed = V_sync * driveSign; // 동기화 보정값에 전진/후진 방향 반영
