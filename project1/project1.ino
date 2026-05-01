@@ -25,7 +25,7 @@ const float WHEEL_R = 0.034f; // 바퀴 반지름 (m)
 const float PPR = 1012.0f; // 바퀴 1회전당 엔코더 카운트 수
 const float COUNT_PER_M_CAL = 1.006f; // 주행 오차 보정 계수 (목표 엔코더 카운트를 몇 배로 늘릴지)
 const float COUNT_PER_M = (PPR / (2.0f * PI_F * WHEEL_R)) * COUNT_PER_M_CAL; // 1m 당 엔코더 카운트 수
-const long STOP_TOL_CNT = 10; // 목표 도달 허용 오차 (35카운트 이내로 가까워지면 정지시킴)
+const long STOP_TOL_CNT = 10; // 목표 도달 허용 오차
 
 // 거리 이동 PID 튜닝값
 float kp_pos = 0.1f;
@@ -135,8 +135,8 @@ void ModelingEncoderDiff(float distance_m) {
 
   // 1. encoderdiff 모델링
   // 1m : -40.0f, 2m : -80.0f
-  //encoderdiff = -40.0f * d;
-  encoderdiff = -100.0f;
+  encoderdiff = -40.0f * d;
+  //encoderdiff = -80.0f;
 
   // 2. START_RAMP_MS 모델링
   // 1m : 100ms, 2m : 980ms
@@ -147,6 +147,7 @@ void ModelingEncoderDiff(float distance_m) {
   // 3. STOP_RAMP_M 모델링
   // 1m : 0.06m, 2 : 0.1m
   STOP_RAMP_M = 0.04f * d + 0.02f;
+  //STOP_RAMP_M = 0.2f;
 }
 
 // 입력받은 거리만큼 직진/후진
