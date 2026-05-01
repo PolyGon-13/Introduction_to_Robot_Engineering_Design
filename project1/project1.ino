@@ -42,9 +42,9 @@ const float V_MAX = 6.0f;
 const float V_MIN = -6.0f;
 
 // 출발/정지 가감속 설정
-const float encoderdiff = -40.0f; // 엔코더 보정값
-const unsigned long START_RAMP_MS = 100; // 출발시 천천시 가속 시간 (ms)
-const float STOP_RAMP_M = 0.06f; // 목표 지점 근처에서 감속할 지점 (m)
+float encoderdiff = -40.0f; // 엔코더 보정값
+unsigned long START_RAMP_MS = 100; // 출발시 천천시 가속 시간 (ms)
+float STOP_RAMP_M = 0.06f; // 목표 지점 근처에서 감속할 지점 (m)
 const float MIN_RAMP_SCALE = 0.1f; // 가감속 시 최소 속도 비율 (%)
 
 // 좌우 엔코더 누적 카운트
@@ -130,12 +130,32 @@ static inline void writeDriver_l(float V) {
   analogWrite(PWMPin_l, PWMval);
 }
 
+void ModelingEncoderDiff(float distance_m) {
+  float d = fabs(distance_m);
+
+  // 1. encoderdiff 모델링
+  // 1m : -40.0f, 2m : -80.0f
+  encoderdiff = -40.0f * d;
+
+  // 2. START_RAMP_MS 모델링
+  // 1m : 100ms, 2m : 980ms
+  float ramp_ms = 880.0f * d - 780.0f;
+  if (ramp_ms < 100.0f) ramp_ms = 100.0f;
+  START_RAMP_MS = (unsigned long)(ramp_ms + 0.5f);
+
+  // 3. STOP_RAMP_M 모델링
+  // 1m : 0.06m, 2 : 0.1m
+  STOP_RAMP_M = 0.04f * d + 0.02f;
+}
+
 // 입력받은 거리만큼 직진/후진
 void startStraightDrive(float distance_m) {
   if (fabs(distance_m) < 0.001f) {
     //Serial.println("[ERR] distance too small");
     return;
   }
+
+  ModelingEncoderDiff(distance_m);
 
   // 전진이면 1, 후진이면 -1
   driveSign = (distance_m >= 0.0f) ? 1.0f : -1.0f;
@@ -268,7 +288,6 @@ void loop() {
   long progR = labs(enc_r - startCount_r); // 오른쪽 바퀴 이동량
   long progL = labs(enc_l - startCount_l); // 왼쪽 바퀴 이동량
   long progAvg = (progR + progL) / 2; // 평균 이동량
-
   float e_pos = (float)(targetCount - progAvg); // 목표까지 남은 카운트 오차
 
   // 남은 거리가 허용 오차 이하인 경우
