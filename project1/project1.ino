@@ -42,9 +42,9 @@ const float V_MAX = 6.0f;
 const float V_MIN = -6.0f;
 
 // 출발/정지 가감속 설정
-float encoderdiff = -40.0f; // 엔코더 보정값
-unsigned long START_RAMP_MS = 100; // 출발시 천천시 가속 시간 (ms)
-float STOP_RAMP_M = 0.06f; // 목표 지점 근처에서 감속할 지점 (m)
+float encoderdiff = 0.0f; // 엔코더 보정값
+unsigned long START_RAMP_MS = 0; // 출발시 천천시 가속 시간 (ms)
+float STOP_RAMP_M = 0.0f; // 목표 지점 근처에서 감속할 지점 (m)
 const float MIN_RAMP_SCALE = 0.1f; // 가감속 시 최소 속도 비율 (%)
 
 // 좌우 엔코더 누적 카운트
