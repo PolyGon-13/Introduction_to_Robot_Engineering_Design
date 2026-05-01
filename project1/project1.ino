@@ -23,14 +23,14 @@ const bool REVERSE_MOTOR_L = true; // 왼쪽 모터 방향 반전 여부
 const float WHEEL_R = 0.034f; // 바퀴 반지름 (m)
 //const float WHEEL_L = 0.2f; // 좌우 바퀴 사이 간격 (m)
 const float PPR = 1012.0f; // 바퀴 1회전당 엔코더 카운트 수
-const float COUNT_PER_M_CAL = 1.006f; // 주행 오차 보정 계수 (목표 엔코더 카운트를 몇 배로 늘릴지)
+const float COUNT_PER_M_CAL = 1.0068f; // 주행 오차 보정 계수 (목표 엔코더 카운트를 몇 배로 늘릴지)
 const float COUNT_PER_M = (PPR / (2.0f * PI_F * WHEEL_R)) * COUNT_PER_M_CAL; // 1m 당 엔코더 카운트 수
 const long STOP_TOL_CNT = 10; // 목표 도달 허용 오차
 
 // 거리 이동 PID 튜닝값
 float kp_pos = 0.1f;
 float ki_pos = 0.002f;
-float kd_pos = 0.000f;
+float kd_pos = 0.0005f;
 
 // 좌우 동기화 PID 튜닝값
 float kp_sync = 0.085f;
@@ -147,7 +147,7 @@ void ModelingEncoderDiff(float distance_m) {
   // 3. STOP_RAMP_M 모델링
   // 1m : 0.06m, 2 : 0.1m
   STOP_RAMP_M = 0.04f * d + 0.02f;
-  //STOP_RAMP_M = 0.2f;
+  //STOP_RAMP_M = 0.15f;
 }
 
 // 입력받은 거리만큼 직진/후진
