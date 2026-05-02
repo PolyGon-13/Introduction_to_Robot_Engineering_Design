@@ -136,7 +136,7 @@ void ModelingEncoderDiff(float distance_m) {
   // 1. encoderdiff 모델링
   // 1m : -40.0f, 2m : -80.0f
   //encoderdiff = -40.0f * d;
-  encoderdiff = -40.0f;
+  encoderdiff = -94.0f;
 
   // 2. START_RAMP_MS 모델링
   // 1m : 100ms, 2m : 980ms
