@@ -136,7 +136,24 @@ void ModelingEncoderDiff(float distance_m) {
   // 1. encoderdiff 모델링
   // 1m : -40.0f, 2m : -80.0f
   //encoderdiff = -40.0f * d;
-  encoderdiff = -94.0f;
+  if (d <= 1.0f) {
+    encoderdiff = -42.0f * d;
+  } 
+  else if (d <= 1.3f) {
+    encoderdiff = -42.0f - 13.333333f * (d - 1.0f);
+  } 
+  else if (d <= 1.5f) {
+    encoderdiff = -46.0f - 30.0f * (d - 1.3f);
+  } 
+  else if (d <= 1.7f) {
+    encoderdiff = -52.0f - 40.0f * (d - 1.5f);
+  } 
+  else if (d <= 2.0f) {
+    encoderdiff = -60.0f - 56.666667f * (d - 1.7f);
+  } 
+  else {
+    encoderdiff = -77.0f - 36.0f * (d - 2.0f);
+  }
 
   // 2. START_RAMP_MS 모델링
   // 1m : 100ms, 2m : 980ms
