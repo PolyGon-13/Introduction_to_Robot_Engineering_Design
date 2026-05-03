@@ -23,7 +23,7 @@ const bool REVERSE_MOTOR_L = true; // 왼쪽 모터 방향 반전 여부
 const float WHEEL_R = 0.034f; // 바퀴 반지름 (m)
 //const float WHEEL_L = 0.2f; // 좌우 바퀴 사이 간격 (m)
 const float PPR = 1012.0f; // 바퀴 1회전당 엔코더 카운트 수
-const float COUNT_PER_M_CAL = 1.0068f; // 주행 오차 보정 계수 (목표 엔코더 카운트를 몇 배로 늘릴지)
+const float COUNT_PER_M_CAL = 1.0f; // 주행 오차 보정 계수 (목표 엔코더 카운트를 몇 배로 늘릴지)
 const float COUNT_PER_M = (PPR / (2.0f * PI_F * WHEEL_R)) * COUNT_PER_M_CAL; // 1m 당 엔코더 카운트 수
 const long STOP_TOL_CNT = 10; // 목표 도달 허용 오차
 
@@ -45,7 +45,7 @@ const float V_MIN = -6.0f;
 float encoderdiff = 0.0f; // 엔코더 보정값
 unsigned long START_RAMP_MS = 0; // 출발시 천천시 가속 시간 (ms)
 float STOP_RAMP_M = 0.0f; // 목표 지점 근처에서 감속할 지점 (m)
-const float MIN_RAMP_SCALE = 0.1f; // 가감속 시 최소 속도 비율 (%)
+const float MIN_RAMP_SCALE = 0.7f; // 가감속 시 최소 속도 비율 (%)
 
 // 좌우 엔코더 누적 카운트
 volatile long EncoderCount_r = 0;
@@ -135,25 +135,25 @@ void ModelingEncoderDiff(float distance_m) {
 
   // 1. encoderdiff 모델링
   // 1m : -40.0f, 2m : -80.0f
-  //encoderdiff = -40.0f * d;
-  if (d <= 1.0f) {
-    encoderdiff = -42.0f * d;
-  } 
-  else if (d <= 1.3f) {
-    encoderdiff = -42.0f - 13.333333f * (d - 1.0f);
-  } 
-  else if (d <= 1.5f) {
-    encoderdiff = -46.0f - 30.0f * (d - 1.3f);
-  } 
-  else if (d <= 1.7f) {
-    encoderdiff = -52.0f - 40.0f * (d - 1.5f);
-  } 
-  else if (d <= 2.0f) {
-    encoderdiff = -60.0f - 56.666667f * (d - 1.7f);
-  } 
-  else {
-    encoderdiff = -77.0f - 36.0f * (d - 2.0f);
-  }
+  // if (d <= 1.0f) {
+  //   encoderdiff = -42.0f * d;
+  // } 
+  // else if (d <= 1.3f) {
+  //   encoderdiff = -42.0f - 13.333333f * (d - 1.0f);
+  // } 
+  // else if (d <= 1.5f) {
+  //   encoderdiff = -46.0f - 30.0f * (d - 1.3f);
+  // } 
+  // else if (d <= 1.7f) {
+  //   encoderdiff = -52.0f - 40.0f * (d - 1.5f);
+  // } 
+  // else if (d <= 2.0f) {
+  //   encoderdiff = -60.0f - 56.666667f * (d - 1.7f);
+  // } 
+  // else {
+  //   encoderdiff = -77.0f - 36.0f * (d - 2.0f);
+  // }
+  encoderdiff = -90.0f;
 
   // 2. START_RAMP_MS 모델링
   // 1m : 100ms, 2m : 980ms
@@ -206,8 +206,14 @@ void startStraightDrive(float distance_m) {
 
 // 전체 정지
 void stopAll(const char *reason) {
-  writeDriver_r(0);
-  writeDriver_l(0);
+  // writeDriver_r(0);
+  // writeDriver_l(0);
+  digitalWrite(PWMPin_r, HIGH);
+  digitalWrite(DirPin1_r, HIGH);
+  digitalWrite(DirPin2_r, HIGH);
+  digitalWrite(PWMPin_l, HIGH);
+  digitalWrite(DirPin1_l, HIGH);
+  digitalWrite(DirPin2_l, HIGH);
   inte_pos = 0;
   inte_sync = 0;
   driveState = ST_IDLE;
@@ -407,4 +413,4 @@ void loop() {
     Serial.print(F(" Vl="));
     Serial.println(V_l, 2);
   }
-}
+} 
