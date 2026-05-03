@@ -68,8 +68,10 @@ long targetCount = 0;
 // 전진이면 1, 후진이면 -1
 float driveSign = 1.0f;
 
-float e_pos_prev = 0; // 이전 위치 오차
-float inte_pos = 0; // 위치 오차 누적값
+float e_pos_prev_r = 0; // 이전 오른쪽 위치 오차
+float e_pos_prev_l = 0; // 이전 왼쪽 위치 오차
+float inte_pos_r = 0; // 오른쪽 위치 오차 누적값
+float inte_pos_l = 0; // 왼쪽 위치 오차 누적값
 
 float e_sync_prev = 0; // 이전 동기화 오차
 float inte_sync = 0; // 동기화 오차 누적값
@@ -153,7 +155,7 @@ void ModelingEncoderDiff(float distance_m) {
   // else {
   //   encoderdiff = -77.0f - 36.0f * (d - 2.0f);
   // }
-  encoderdiff = -90.0f;
+  encoderdiff = -77.0f;
 
   // 2. START_RAMP_MS 모델링
   // 1m : 100ms, 2m : 980ms
@@ -189,8 +191,10 @@ void startStraightDrive(float distance_m) {
   targetCount = (long)(fabs(distance_m) * COUNT_PER_M);
 
   // PID 제어 변수 초기화
-  e_pos_prev = (float)targetCount; // 초기 위치 오차 (=목표 카운트)
-  inte_pos = 0; // 위치 오차 누적값
+  e_pos_prev_r = (float)targetCount; // 초기 오른쪽 위치 오차 (=목표 카운트)
+  e_pos_prev_l = (float)targetCount; // 초기 왼쪽 위치 오차 (=목표 카운트)
+  inte_pos_r = 0; // 오른쪽 위치 오차 누적값
+  inte_pos_l = 0; // 왼쪽 위치 오차 누적값
   e_sync_prev = 0; // 동기화 오차 초기값
   inte_sync = 0; // 동기화 오차 누적값
 
@@ -214,7 +218,8 @@ void stopAll(const char *reason) {
   digitalWrite(PWMPin_l, HIGH);
   digitalWrite(DirPin1_l, HIGH);
   digitalWrite(DirPin2_l, HIGH);
-  inte_pos = 0;
+  inte_pos_r = 0;
+  inte_pos_l = 0;
   inte_sync = 0;
   driveState = ST_IDLE;
 
@@ -312,11 +317,12 @@ void loop() {
 
   long progR = labs(enc_r - startCount_r); // 오른쪽 바퀴 이동량
   long progL = labs(enc_l - startCount_l); // 왼쪽 바퀴 이동량
-  long progAvg = (progR + progL) / 2; // 평균 이동량
-  float e_pos = (float)(targetCount - progAvg); // 목표까지 남은 카운트 오차
+
+  float e_pos_r = (float)(targetCount - progR); // 오른쪽 목표까지 남은 카운트 오차
+  float e_pos_l = (float)(targetCount - progL); // 왼쪽 목표까지 남은 카운트 오차
 
   // 남은 거리가 허용 오차 이하인 경우
-  if (e_pos <= (float)STOP_TOL_CNT) {
+  if (e_pos_r <= (float)STOP_TOL_CNT && e_pos_l <= (float)STOP_TOL_CNT) {
     writeDriver_r(0);
     writeDriver_l(0);
     driveState = ST_DONE;
@@ -324,42 +330,61 @@ void loop() {
   }
 
   // 1. 위치 PID 제어
-  inte_pos += e_pos * dt_s; // 위치 오차 누적
-  inte_pos = constrain(inte_pos, -20000.0f, 20000.0f);
-  float d_pos = (e_pos - e_pos_prev) / dt_s; // 위치 오차 변화량
-  float V_base_raw = kp_pos * e_pos + ki_pos * inte_pos + kd_pos * d_pos; // 위치 PID 제어로 계산된 기본 주행 명령
+  inte_pos_r += e_pos_r * dt_s; // 오른쪽 위치 오차 누적
+  inte_pos_l += e_pos_l * dt_s; // 왼쪽 위치 오차 누적
+  inte_pos_r = constrain(inte_pos_r, -20000.0f, 20000.0f);
+  inte_pos_l = constrain(inte_pos_l, -20000.0f, 20000.0f);
 
-  float Vcap = 4.0f; // 최대 출력 제한
+  float d_pos_r = (e_pos_r - e_pos_prev_r) / dt_s; // 오른쪽 위치 오차 변화량
+  float d_pos_l = (e_pos_l - e_pos_prev_l) / dt_s; // 왼쪽 위치 오차 변화량
+
+  float V_base_raw_r = kp_pos * e_pos_r + ki_pos * inte_pos_r + kd_pos * d_pos_r; // 오른쪽 위치 PID 제어로 계산된 기본 주행 명령
+  float V_base_raw_l = kp_pos * e_pos_l + ki_pos * inte_pos_l + kd_pos * d_pos_l; // 왼쪽 위치 PID 제어로 계산된 기본 주행 명령
+
+  float Vcap_r = 4.0f; // 오른쪽 최대 출력 제한
+  float Vcap_l = 4.0f; // 왼쪽 최대 출력 제한
 
   // 목표까지 1200카운트(약 0.4m) 이내로 가까워지면 최대 출력 제한을 점차 낮춤
-  if (e_pos < 1200.0f) {
-    Vcap = 2.0f + 2.0f * (e_pos / 1200.0f);
+  if (e_pos_r < 1200.0f) {
+    Vcap_r = 2.0f + 2.0f * (e_pos_r / 1200.0f);
+  }
+  if (e_pos_l < 1200.0f) {
+    Vcap_l = 2.0f + 2.0f * (e_pos_l / 1200.0f);
   }
 
-  Vcap = constrain(Vcap, 2.0f, 4.0f);
+  Vcap_r = constrain(Vcap_r, 2.0f, 4.0f);
+  Vcap_l = constrain(Vcap_l, 2.0f, 4.0f);
 
   // 전진/후진 방향을 반영하고, 최대 출력 제한 적용
-  float V_base_target = constrain(V_base_raw * driveSign, -Vcap, Vcap);
+  float V_base_target_r = constrain(V_base_raw_r * driveSign, -Vcap_r, Vcap_r);
+  float V_base_target_l = constrain(V_base_raw_l * driveSign, -Vcap_l, Vcap_l);
 
   // 출발 가속
   float startRamp = 1.0f;
   if (START_RAMP_MS > 0) {
     startRamp = constrain((float)(now - driveStartMs) / (float)START_RAMP_MS, 0.0f, 1.0f);
   }
+
   // 정지 감속
-  float stopRamp = 1.0f;
+  float stopRamp_r = 1.0f;
+  float stopRamp_l = 1.0f;
   if (STOP_RAMP_M > 0.0f) {
-    float rawStopRamp = constrain(e_pos / (STOP_RAMP_M * COUNT_PER_M), 0.0f, 1.0f);
-    stopRamp = constrain(rawStopRamp, MIN_RAMP_SCALE, 1.0f);
+    float rawStopRamp_r = constrain(e_pos_r / (STOP_RAMP_M * COUNT_PER_M), 0.0f, 1.0f);
+    float rawStopRamp_l = constrain(e_pos_l / (STOP_RAMP_M * COUNT_PER_M), 0.0f, 1.0f);
+    stopRamp_r = constrain(rawStopRamp_r, MIN_RAMP_SCALE, 1.0f);
+    stopRamp_l = constrain(rawStopRamp_l, MIN_RAMP_SCALE, 1.0f);
   }
 
   // 출발 가속과 정지 감속 중 더 작은 값을 선택해서 최종 속도 반영
-  float V_base = V_base_target * min(startRamp, stopRamp);
+  float V_base_r = V_base_target_r * min(startRamp, stopRamp_r);
+  float V_base_l = V_base_target_l * min(startRamp, stopRamp_l);
 
-  e_pos_prev = e_pos; // 위치 오차 이전값 업데이트
+  e_pos_prev_r = e_pos_r; // 오른쪽 위치 오차 이전값 업데이트
+  e_pos_prev_l = e_pos_l; // 왼쪽 위치 오차 이전값 업데이트
 
   // 2. 동기화 PID 제어
-  float progressRatio = constrain((float)progAvg / (float)targetCount, 0.0f, 1.0f); // 진행률 (0.0 ~ 1.0)
+  long progMin = min(progR, progL);
+  float progressRatio = constrain((float)progMin / (float)targetCount, 0.0f, 1.0f); // 진행률 (0.0 ~ 1.0)
   float targetDiff = encoderdiff * progressRatio; // 진행률에 따라 목표 좌우 차이 보정
   float e_sync = (float)(progR - progL) - targetDiff; // 실제 좌우 카운트 차이와 목표 좌우 차이의 오차
 
@@ -373,8 +398,8 @@ void loop() {
   float V_sync_directed = V_sync * driveSign; // 동기화 보정값에 전진/후진 방향 반영
 
   // 좌우 모터 명령
-  float V_r = constrain(V_base - V_sync_directed, V_MIN, V_MAX);
-  float V_l = constrain(V_base + V_sync_directed, V_MIN, V_MAX);
+  float V_r = constrain(V_base_r - V_sync_directed, V_MIN, V_MAX);
+  float V_l = constrain(V_base_l + V_sync_directed, V_MIN, V_MAX);
   writeDriver_r(V_r);
   writeDriver_l(V_l);
 
@@ -382,21 +407,24 @@ void loop() {
   if (now - lastLogMs > 200) {
     lastLogMs = now;
 
-    // 현재 평균 진행 카운트
-    Serial.print(F("prog="));
-    Serial.print(progAvg);
-    // 남은 위치 오차, 목표까지 남은 카운트
-    Serial.print(F(" e_pos="));
-    Serial.print(e_pos, 0);
-    // 기본 속도 명령
-    Serial.print(F(" Vb="));
-    Serial.print(V_base, 2);
     // 오른쪽 진행 카운트
-    Serial.print(F(" R="));
+    Serial.print(F("R="));
     Serial.print(progR);
     // 왼쪽 진행 카운트
     Serial.print(F(" L="));
     Serial.print(progL);
+    // 오른쪽 위치 오차
+    Serial.print(F(" eR="));
+    Serial.print(e_pos_r, 0);
+    // 왼쪽 위치 오차
+    Serial.print(F(" eL="));
+    Serial.print(e_pos_l, 0);
+    // 오른쪽 기본 속도 명령
+    Serial.print(F(" Vbr="));
+    Serial.print(V_base_r, 2);
+    // 왼쪽 기본 속도 명령
+    Serial.print(F(" Vbl="));
+    Serial.print(V_base_l, 2);
     // 목표 좌우 편차
     Serial.print(F(" targetDiff="));
     Serial.print(targetDiff, 1);
@@ -413,4 +441,4 @@ void loop() {
     Serial.print(F(" Vl="));
     Serial.println(V_l, 2);
   }
-} 
+}
