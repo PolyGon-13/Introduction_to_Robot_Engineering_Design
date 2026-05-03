@@ -25,7 +25,7 @@ const float WHEEL_R = 0.034f; // 바퀴 반지름 (m)
 const float PPR = 1012.0f; // 바퀴 1회전당 엔코더 카운트 수
 const float COUNT_PER_M_CAL = 1.0f; // 주행 오차 보정 계수 (목표 엔코더 카운트를 몇 배로 늘릴지)
 const float COUNT_PER_M = (PPR / (2.0f * PI_F * WHEEL_R)) * COUNT_PER_M_CAL; // 1m 당 엔코더 카운트 수
-const long STOP_TOL_CNT = 10; // 목표 도달 허용 오차
+const long STOP_TOL_CNT = 30; // 목표 도달 허용 오차
 
 // 거리 이동 PID 튜닝값
 float kp_pos = 0.1f;
@@ -43,8 +43,8 @@ const float V_MIN = -6.0f;
 
 // 출발/정지 가감속 설정
 float encoderdiff = 0.0f; // 엔코더 보정값
-unsigned long START_RAMP_MS = 0; // 출발시 천천시 가속 시간 (ms)
-float STOP_RAMP_M = 0.0f; // 목표 지점 근처에서 감속할 지점 (m)
+const unsigned long START_RAMP_MS = 900; // 출발시 천천시 가속 시간 (ms)
+const float STOP_RAMP_M = 0.1f; // 목표 지점 근처에서 감속할 지점 (m)
 const float MIN_RAMP_SCALE = 0.7f; // 가감속 시 최소 속도 비율 (%)
 
 // 좌우 엔코더 누적 카운트
@@ -136,37 +136,46 @@ void ModelingEncoderDiff(float distance_m) {
   float d = fabs(distance_m);
 
   // 1. encoderdiff 모델링
-  // 1m : -40.0f, 2m : -80.0f
-  // if (d <= 1.0f) {
-  //   encoderdiff = -42.0f * d;
-  // } 
-  // else if (d <= 1.3f) {
-  //   encoderdiff = -42.0f - 13.333333f * (d - 1.0f);
-  // } 
-  // else if (d <= 1.5f) {
-  //   encoderdiff = -46.0f - 30.0f * (d - 1.3f);
-  // } 
-  // else if (d <= 1.7f) {
-  //   encoderdiff = -52.0f - 40.0f * (d - 1.5f);
-  // } 
-  // else if (d <= 2.0f) {
-  //   encoderdiff = -60.0f - 56.666667f * (d - 1.7f);
-  // } 
-  // else {
-  //   encoderdiff = -77.0f - 36.0f * (d - 2.0f);
-  // }
-  encoderdiff = -77.0f;
+  //encoderdiff = -77.0f;
+  if (d <= 1.0f) {
+    encoderdiff = -42.0f * d;
+  } 
+  else if (d <= 1.3f) {
+    encoderdiff = -42.0f - 13.333333f * (d - 1.0f);
+  } 
+  else if (d <= 1.5f) {
+    encoderdiff = -46.0f - 30.0f * (d - 1.3f);
+  } 
+  else if (d <= 1.7f) {
+    encoderdiff = -52.0f - 40.0f * (d - 1.5f);
+  } 
+  else if (d <= 2.0f) {
+    encoderdiff = -60.0f - 56.666667f * (d - 1.7f);
+  } 
+  else if (d <= 2.3f) {
+    encoderdiff = -77.0f - 18.333333f * (d - 2.0f);
+  } 
+  else if (d <= 2.5f) {
+    encoderdiff = -82.5f - 52.5f * (d - 2.3f);
+  } 
+  else if (d <= 2.7f) {
+    encoderdiff = -93.0f - 65.0f * (d - 2.5f);
+  } 
+  else {
+    encoderdiff = -106.0f - 65.0f * (d - 2.7f);
+  }
 
   // 2. START_RAMP_MS 모델링
   // 1m : 100ms, 2m : 980ms
-  float ramp_ms = 880.0f * d - 780.0f;
-  if (ramp_ms < 100.0f) ramp_ms = 100.0f;
-  START_RAMP_MS = (unsigned long)(ramp_ms + 0.5f);
+  // float ramp_ms = 880.0f * d - 780.0f;
+  // if (ramp_ms < 100.0f) ramp_ms = 100.0f;
+  // START_RAMP_MS = (unsigned long)(ramp_ms + 0.5f);
+  //START_RAMP_MS = 900;
 
   // 3. STOP_RAMP_M 모델링
   // 1m : 0.06m, 2 : 0.1m
-  STOP_RAMP_M = 0.04f * d + 0.02f;
-  //STOP_RAMP_M = 0.15f;
+  //STOP_RAMP_M = 0.04f * d + 0.02f;
+  //STOP_RAMP_M = 0.1f;
 }
 
 // 입력받은 거리만큼 직진/후진
@@ -309,9 +318,27 @@ void loop() {
   enc_l = EncoderCount_l;
   interrupts();
 
-  if (driveState == ST_IDLE || driveState == ST_DONE) {
-    writeDriver_r(0);
-    writeDriver_l(0);
+  if (driveState == ST_IDLE) {
+    // writeDriver_r(0);
+    // writeDriver_l(0);
+    digitalWrite(PWMPin_r, HIGH);
+    digitalWrite(DirPin1_r, HIGH);
+    digitalWrite(DirPin2_r, HIGH);
+    digitalWrite(PWMPin_l, HIGH);
+    digitalWrite(DirPin1_l, HIGH);
+    digitalWrite(DirPin2_l, HIGH);
+    return;
+  }
+
+  if (driveState == ST_DONE) {
+    while(1){
+      digitalWrite(PWMPin_r, HIGH);
+      digitalWrite(DirPin1_r, HIGH);
+      digitalWrite(DirPin2_r, HIGH);
+      digitalWrite(PWMPin_l, HIGH);
+      digitalWrite(DirPin1_l, HIGH);
+      digitalWrite(DirPin2_l, HIGH);
+    }
     return;
   }
 
@@ -323,8 +350,16 @@ void loop() {
 
   // 남은 거리가 허용 오차 이하인 경우
   if (e_pos_r <= (float)STOP_TOL_CNT && e_pos_l <= (float)STOP_TOL_CNT) {
-    writeDriver_r(0);
-    writeDriver_l(0);
+    // writeDriver_r(0);
+    // writeDriver_l(0);
+    while(1){
+      digitalWrite(PWMPin_r, HIGH);
+      digitalWrite(DirPin1_r, HIGH);
+      digitalWrite(DirPin2_r, HIGH);
+      digitalWrite(PWMPin_l, HIGH);
+      digitalWrite(DirPin1_l, HIGH);
+      digitalWrite(DirPin2_l, HIGH);
+    }
     driveState = ST_DONE;
     return;
   }
