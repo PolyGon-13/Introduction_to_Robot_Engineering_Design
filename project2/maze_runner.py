@@ -51,6 +51,10 @@ PREV_HEADING_COST = 0.75
 CLEARANCE_COST    = 1.80
 SWITCH_SIGN_COST  = 1.40
 CLEAR_DECISIVE_MARGIN = 0.20 # [m]
+PASS_COMMIT_RELEASE_FRONT = 0.85 # [m]
+PASS_COMMIT_RELEASE_CLEAR = 1.05 # [m]
+PASS_COMMIT_MAX_S = 2.2 # [s]
+PASS_COMMIT_OVERRIDE_MARGIN = 0.55 # [m]
 FRONT_URGENT_DIST   = 0.75   # [m]
 FRONT_CRITICAL_DIST = 0.32   # [m]
 FORWARD_COST_URGENT      = 0.10
@@ -249,7 +253,7 @@ def score_pass_heading(heading, clear, front, prev_heading, urgency):
     return cost
 
 
-def choose_side_from_candidates(theta, dist, prev_heading, trigger_dist):
+def choose_side_from_candidates(theta, dist, prev_heading, trigger_dist, committed_side=0):
     urgency = front_urgency(trigger_dist)
     best_left = (None, -1.0, float("inf"))
     best_right = (None, -1.0, float("inf"))
@@ -277,6 +281,13 @@ def choose_side_from_candidates(theta, dist, prev_heading, trigger_dist):
     if right_heading is None:
         right_heading, right_clear, right_cost = np.deg2rad(HEADING_MAX_DEG), 0.0, float("inf")
 
+    if committed_side < 0:
+        if left_clear + PASS_COMMIT_OVERRIDE_MARGIN >= right_clear:
+            return left_heading, left_clear, left_clear, right_clear, left_cost, right_cost, urgency
+    elif committed_side > 0:
+        if right_clear + PASS_COMMIT_OVERRIDE_MARGIN >= left_clear:
+            return right_heading, right_clear, left_clear, right_clear, left_cost, right_cost, urgency
+
     if urgency > 0.35 and abs(left_clear - right_clear) > CLEAR_DECISIVE_MARGIN:
         if left_clear > right_clear:
             return left_heading, left_clear, left_clear, right_clear, left_cost, right_cost, urgency
@@ -287,7 +298,7 @@ def choose_side_from_candidates(theta, dist, prev_heading, trigger_dist):
     return right_heading, right_clear, left_clear, right_clear, left_cost, right_cost, urgency
 
 
-def choose_heading_corridor(theta, dist, prev_heading):
+def choose_heading_corridor(theta, dist, prev_heading, committed_side=0):
     blocker = find_corridor_blocker(theta, dist)
     straight_clear = swept_corridor_clearance(theta, dist, 0.0)
     front = min_in_angle(theta, dist, FRONT_HALF_DEG)
@@ -299,7 +310,7 @@ def choose_heading_corridor(theta, dist, prev_heading):
         return 0.0, front, straight_clear, blocker, 0.0, 0.0, 0.0, 0.0, 0.0
 
     heading, clear, left_clear, right_clear, left_cost, right_cost, urgency = (
-        choose_side_from_candidates(theta, dist, prev_heading, trigger_dist)
+        choose_side_from_candidates(theta, dist, prev_heading, trigger_dist, committed_side)
     )
     return heading, trigger_dist, clear, blocker, left_clear, right_clear, left_cost, right_cost, urgency
 
@@ -389,6 +400,8 @@ def main():
     prev_heading = 0.0
     turn_balance = 0.0
     last_cmd_time = time.time()
+    pass_commit_side = 0
+    pass_commit_t = 0.0
     try:
         while True:
             t = time.time() - t0
@@ -414,9 +427,21 @@ def main():
             last_scan_ok = time.time()
 
             heading, front_dist, path_clear, blocker, left_clear, right_clear, left_cost, right_cost, urgency = (
-                choose_heading_corridor(theta, dist, prev_heading)
+                choose_heading_corridor(theta, dist, prev_heading, pass_commit_side)
             )
             w_guard, left_near, right_near = side_guard_w(theta, dist)
+
+            now_abs = time.time()
+            commit_active = pass_commit_side != 0
+            commit_expired = commit_active and (now_abs - pass_commit_t > PASS_COMMIT_MAX_S)
+            commit_clear = (front_dist > PASS_COMMIT_RELEASE_FRONT and
+                            path_clear > PASS_COMMIT_RELEASE_CLEAR and
+                            urgency <= 0.0)
+            if commit_active and (commit_expired or commit_clear):
+                pass_commit_side = 0
+            if pass_commit_side == 0 and abs(heading) > np.deg2rad(HEADING_DEADBAND_DEG):
+                pass_commit_side = -1 if heading < 0.0 else 1
+                pass_commit_t = now_abs
 
             w_lane = 0.0
             if heading == 0.0 and front_dist > LANE_ACTIVE_DIST:
@@ -464,7 +489,8 @@ def main():
                       f"passL={left_clear:.2f} passR={right_clear:.2f} "
                       f"sideL={left_near:.2f} sideR={right_near:.2f} "
                       f"urg={urgency:.2f} cL={left_cost:.2f} cR={right_cost:.2f} "
-                      f"bal={math.degrees(turn_balance):.1f}")
+                      f"bal={math.degrees(turn_balance):.1f} "
+                      f"lock={'L' if pass_commit_side < 0 else ('R' if pass_commit_side > 0 else '-')}")
                 last_log = time.time()
             time.sleep(LOOP_DT_S)
 
