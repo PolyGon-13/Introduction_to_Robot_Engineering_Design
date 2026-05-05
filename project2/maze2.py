@@ -27,11 +27,11 @@ MAX_LIDAR_DIST_M = 2.5
 MIN_QUALITY = 1
 MIN_X_FOR_PLANNING = -0.10
 MAX_EVAL_POINTS = 720
-SCAN_HOLD_S = 0.50
+SCAN_HOLD_S = 0.30
 LOOP_DT_S = 0.05
 
 # 로컬 플래너 파라미터
-BASE_V = 0.15
+BASE_V = 0.18
 W_CANDIDATES = [-1.20, -0.90, -0.60, -0.35, -0.15, 0.0,
                 0.15, 0.35, 0.60, 0.90, 1.20]
 PREDICT_TIME = 0.80
@@ -41,21 +41,18 @@ SAFETY_MARGIN = 0.08
 COLLISION_DIST = ROBOT_RADIUS + SAFETY_MARGIN
 CLEARANCE_CAP = 1.0
 FRONT_CORRIDOR_HALF = COLLISION_DIST
-ACTIVE_FRONT_DIST = 1.10
+ACTIVE_FRONT_DIST = 0.95
 W_CMD_RATE_LIMIT = 0.35
 W_CMD_RATE_LIMIT_URGENT = 0.70
-URGENT_FRONT_DIST = 0.60
+URGENT_FRONT_DIST = 0.45
 
 clearance_weight = 3.0
-collision_weight = 120.0
-forward_weight = 0.7
-far_forward_weight = 1.5
-turn_weight = 0.18
-far_turn_weight = 0.45
-smooth_weight = 0.35
-
-front_straight_penalty_weight = 4.0
-urgent_straight_penalty_weight = 8.0
+collision_weight = 100.0
+forward_weight = 1.0
+far_forward_weight = 2.2
+turn_weight = 0.25
+far_turn_weight = 0.55
+smooth_weight = 0.5
 
 # 미션
 MISSION_DURATION_S = 55.0
@@ -187,25 +184,11 @@ def evaluate_candidate(v, w, points, prev_w, front_dist):
 
     score = 0.0
     score += clearance_weight * min(min_clearance, CLEARANCE_CAP)
-
     if min_clearance < COLLISION_DIST:
         score -= collision_weight * (COLLISION_DIST - min_clearance + 1.0)
-
     score += forward_w * (1.0 - abs(w) / max_abs_w)
     score -= turn_w * abs(w)
     score -= smooth_weight * abs(w - prev_w)
-
-    if front_dist < ACTIVE_FRONT_DIST:
-        danger = (ACTIVE_FRONT_DIST - front_dist) / max(1e-6, ACTIVE_FRONT_DIST - COLLISION_DIST)
-        danger = float(np.clip(danger, 0.0, 1.0))
-        straightness = 1.0 - abs(w) / max_abs_w
-        score -= front_straight_penalty_weight * danger * straightness
-
-    if front_dist < URGENT_FRONT_DIST:
-        urgent = (URGENT_FRONT_DIST - front_dist) / max(1e-6, URGENT_FRONT_DIST)
-        urgent = float(np.clip(urgent, 0.0, 1.0))
-        straightness = 1.0 - abs(w) / max_abs_w
-        score -= urgent_straight_penalty_weight * urgent * straightness
 
     return score, min_clearance
 
@@ -237,40 +220,18 @@ def choose_best_cmd(scan, prev_w):
     best_clear_score = -float("inf")
 
     for w in W_CANDIDATES:
-        if fdist < 0.35 and abs(w) < 0.35:
-            continue
-
         score, clearance = evaluate_candidate(BASE_V, w, points, prev_w, fdist)
         collision = clearance < COLLISION_DIST
         if not collision:
             all_collision = False
-
         clear_score = clearance + 0.03 * abs(w) - 0.02 * abs(w - prev_w)
         if clear_score > best_clear_score:
             best_clear_score = clear_score
             best_clear_w = w
-
         if score > best_score:
             best_score = score
             best_w = w
             best_clearance = clearance
-
-    if best_score == -float("inf"):
-        for w in W_CANDIDATES:
-            score, clearance = evaluate_candidate(BASE_V, w, points, prev_w, fdist)
-            collision = clearance < COLLISION_DIST
-            if not collision:
-                all_collision = False
-
-            clear_score = clearance + 0.03 * abs(w) - 0.02 * abs(w - prev_w)
-            if clear_score > best_clear_score:
-                best_clear_score = clear_score
-                best_clear_w = w
-
-            if score > best_score:
-                best_score = score
-                best_w = w
-                best_clearance = clearance
 
     if all_collision:
         best_w = best_clear_w
