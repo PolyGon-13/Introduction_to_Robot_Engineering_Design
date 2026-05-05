@@ -56,7 +56,7 @@ FRONT_CRITICAL_DIST = 0.32   # [m]
 FORWARD_COST_URGENT      = 0.25
 PREV_HEADING_COST_URGENT = 0.15
 CLEARANCE_COST_URGENT    = 5.00
-SWITCH_SIGN_COST_URGENT  = 0.15
+SWITCH_SIGN_COST_URGENT  = 3.00
 MIN_AVOID_W_URGENT       = 0.50 # [rad/s]
 TURN_BALANCE_CLAMP       = 0.75 # [rad], 오른쪽 누적 회전이 +
 TURN_BALANCE_DECAY_PER_S = 0.22
@@ -70,6 +70,20 @@ W_URGENT_SMOOTH_ALPHA    = 0.50
 W_URGENT_RATE_LIMIT_STEP = 0.22 # [rad/s] per loop
 SCAN_HOLD_S     = 0.30     # [s] 짧은 스캔 누락은 직전 명령 유지
 LOOP_DT_S       = 0.05
+
+V_SCALE_FRONT_NEAR = 0.25
+V_SCALE_FRONT_FAR  = 0.70
+V_SCALE_CLEAR_NEAR = 0.30
+V_SCALE_CLEAR_FAR  = 0.80
+
+NO_PATH_CLEAR_THRESH = 0.40
+NO_PATH_FRONT_THRESH = 0.30
+ROTATE_IN_PLACE_W    = 0.80
+
+STUCK_FRONT_THRESH   = 0.20
+STUCK_TRIGGER_COUNT  = 10
+STUCK_RECOVERY_V     = -0.06
+STUCK_RESET_COUNT    = 30
 
 # 라인 키핑 (좌측 흰 벽 추종)
 K_LANE          = 0.0
@@ -331,6 +345,16 @@ def smooth_steering(prev_w, target_w, urgency=0.0):
     return prev_w + step
 
 
+def cruise_velocity(front, clear):
+    s_f = float(np.clip((front - V_SCALE_FRONT_NEAR) /
+                        (V_SCALE_FRONT_FAR - V_SCALE_FRONT_NEAR),
+                        0.0, 1.0))
+    s_c = float(np.clip((clear - V_SCALE_CLEAR_NEAR) /
+                        (V_SCALE_CLEAR_FAR - V_SCALE_CLEAR_NEAR),
+                        0.0, 1.0))
+    return V_CRUISE * min(s_f, s_c)
+
+
 # ─────────────── 좌측(흰 벽) 거리: -90° 영역 ───────────────
 def left_wall_distance(scan):
     """-90° 근처 ±15° 영역의 median [m]."""
@@ -383,6 +407,7 @@ def main():
     prev_heading = 0.0
     turn_balance = 0.0
     last_cmd_time = time.time()
+    stuck_counter = 0
     try:
         while True:
             t = time.time() - t0
@@ -412,25 +437,48 @@ def main():
             )
             w_guard, left_near, right_near = side_guard_w(theta, dist)
 
-            w_lane = 0.0
-            if heading == 0.0 and front_dist > LANE_ACTIVE_DIST:
-                lwd = left_wall_distance(scan)
-                if lwd is not None:
-                    err = lane_target - lwd
-                    if abs(err) > LANE_DEADBAND_M:
-                        lane_err = err - math.copysign(LANE_DEADBAND_M, err)
-                        w_lane = float(np.clip(-K_LANE * lane_err,
-                                               -W_LANE_LIMIT,
-                                               W_LANE_LIMIT))
+            stuck_counter = stuck_counter + 1 if front_dist < STUCK_FRONT_THRESH else 0
+            no_good_path = max(left_clear, right_clear) < NO_PATH_CLEAR_THRESH
+            critical_front = front_dist < NO_PATH_FRONT_THRESH
 
-            w_heading = -K_HEADING * heading
-            w_target = float(np.clip(w_heading + w_guard + w_lane,
-                                     -W_MAX,
-                                     W_MAX))
-            w_target = apply_min_avoid_turn(w_target, heading, urgency)
-            w_target = apply_deadband(w_target, W_DEADBAND)
-            w = smooth_steering(last_w, w_target, urgency)
-            v = V_CRUISE
+            if stuck_counter > STUCK_TRIGGER_COUNT:
+                current_mode = "STUCK"
+                v = STUCK_RECOVERY_V
+                target_w = math.copysign(W_MAX, left_clear - right_clear)
+                w = smooth_steering(last_w, target_w, 1.0)
+                if stuck_counter > STUCK_RESET_COUNT:
+                    stuck_counter = 0
+            elif no_good_path and critical_front:
+                current_mode = "ROTATE"
+                v = 0.0
+                target_w = math.copysign(ROTATE_IN_PLACE_W, left_clear - right_clear)
+                w = smooth_steering(last_w, target_w, 1.0)
+            else:
+                w_lane = 0.0
+                if heading == 0.0 and front_dist > LANE_ACTIVE_DIST:
+                    lwd = left_wall_distance(scan)
+                    if lwd is not None:
+                        err = lane_target - lwd
+                        if abs(err) > LANE_DEADBAND_M:
+                            lane_err = err - math.copysign(LANE_DEADBAND_M, err)
+                            w_lane = float(np.clip(-K_LANE * lane_err,
+                                                   -W_LANE_LIMIT,
+                                                   W_LANE_LIMIT))
+
+                w_heading = -K_HEADING * heading
+                w_target = float(np.clip(w_heading + w_guard + w_lane,
+                                         -W_MAX,
+                                         W_MAX))
+                w_target = apply_min_avoid_turn(w_target, heading, urgency)
+                w_target = apply_deadband(w_target, W_DEADBAND)
+                w = smooth_steering(last_w, w_target, urgency)
+                v = cruise_velocity(front_dist, path_clear)
+                if abs(heading) > np.deg2rad(HEADING_DEADBAND_DEG):
+                    current_mode = "AVOID"
+                elif abs(w_guard) > W_DEADBAND:
+                    current_mode = "GUARD"
+                else:
+                    current_mode = "STRAIGHT"
 
             send_vw(v, w)
             now = time.time()
@@ -447,18 +495,17 @@ def main():
             last_v, last_w = v, w
             prev_heading = heading
             if time.time() - last_log > 0.25:
-                mode = "AVOID" if abs(heading) > np.deg2rad(HEADING_DEADBAND_DEG) else ("GUARD" if abs(w_guard) > W_DEADBAND else "STRAIGHT")
                 obs_x = blocker["x"] if blocker is not None else 0.0
                 obs_y = blocker["y"] if blocker is not None else 0.0
                 obs_n = blocker["points"] if blocker is not None else 0
-                print(f"[RUN] {mode} v={v:.2f} w={w:.2f} "
+                print(f"[RUN] {current_mode} v={v:.2f} w={w:.2f} "
                       f"head={math.degrees(heading):.1f} "
                       f"front={front_dist:.2f} clear={path_clear:.2f} "
                       f"obs=({obs_x:.2f},{obs_y:.2f},n={obs_n}) "
                       f"passL={left_clear:.2f} passR={right_clear:.2f} "
                       f"sideL={left_near:.2f} sideR={right_near:.2f} "
                       f"urg={urgency:.2f} cL={left_cost:.2f} cR={right_cost:.2f} "
-                      f"bal={math.degrees(turn_balance):.1f}")
+                      f"bal={math.degrees(turn_balance):.1f} stk={stuck_counter}")
                 last_log = time.time()
             time.sleep(LOOP_DT_S)
 
