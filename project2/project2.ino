@@ -17,7 +17,7 @@ const byte ENC_B_l   = 5;
 
 // ────────────── 부호 설정 (1번 과제와 동일) ──────────────
 const bool INVERT_ENC_R    = true;
-const bool INVERT_ENC_L    = true;
+const bool INVERT_ENC_L    = false;
 const bool REVERSE_MOTOR_R = true;
 const bool REVERSE_MOTOR_L = true;
 
@@ -30,6 +30,7 @@ const float COUNT_PER_RAD = PPR / (2.0f * PI_F);
 // ────────────── 전압/PWM (1번 과제 컨벤션) ──────────────
 const float V_MAX = 6.0f;
 const float V_MIN = -6.0f;
+const float DRIVER_DEADBAND_V = 0.05f;
 
 // ────────────── 휠 속도 한계 ──────────────
 const float WHEEL_SPEED_MAX = 8.0f;          // [rad/s]
@@ -53,7 +54,7 @@ float V_cmd = 0.0f;
 float W_cmd = 0.0f;
 
 const unsigned long PID_INTERVAL_MS = 20;
-const unsigned long CMD_TIMEOUT_MS  = 500;
+const unsigned long CMD_TIMEOUT_MS  = 3000;
 
 unsigned long lastPidMs = 0;
 unsigned long lastCmdMs = 0;
@@ -84,6 +85,7 @@ void ISR_Encoder_A_l() {
 
 // ────────────── 모터 출력 ──────────────
 static inline void writeDriver_r(float V) {
+  if (fabs(V) < DRIVER_DEADBAND_V) V = 0.0f;
   V = constrain(V, V_MIN, V_MAX);
   int PWMval = constrain((int)(255.0f * fabs(V) / V_MAX), 0, 255);
   if (V == 0.0f) {
@@ -97,6 +99,7 @@ static inline void writeDriver_r(float V) {
   analogWrite(PWMPin_r, PWMval);
 }
 static inline void writeDriver_l(float V) {
+  if (fabs(V) < DRIVER_DEADBAND_V) V = 0.0f;
   V = constrain(V, V_MIN, V_MAX);
   int PWMval = constrain((int)(255.0f * fabs(V) / V_MAX), 0, 255);
   if (V == 0.0f) {
@@ -108,6 +111,21 @@ static inline void writeDriver_l(float V) {
     digitalWrite(DirPin2_l, forward ? LOW : HIGH);
   }
   analogWrite(PWMPin_l, PWMval);
+}
+
+void resetWheelPID(WheelPID &p) {
+  p.integ = 0.0f;
+  p.prev_e = 0.0f;
+  p.target = 0.0f;
+}
+
+void stopMotion() {
+  V_cmd = 0.0f;
+  W_cmd = 0.0f;
+  resetWheelPID(pidR);
+  resetWheelPID(pidL);
+  writeDriver_r(0.0f);
+  writeDriver_l(0.0f);
 }
 
 // ────────────── PID 한 스텝 ──────────────
@@ -138,7 +156,7 @@ void processCommand(String s) {
   if (s.length() == 0) return;
   char c0 = s.charAt(0);
   if (c0 == 'S' || c0 == 's') {
-    V_cmd = 0; W_cmd = 0;
+    stopMotion();
     lastCmdMs = millis();
   } else if (c0 == 'V' || c0 == 'v') {
     int comma = s.indexOf(',');
@@ -221,7 +239,7 @@ void loop() {
   readSerialLine();
 
   if (millis() - lastCmdMs > CMD_TIMEOUT_MS) {
-    V_cmd = 0; W_cmd = 0;
+    stopMotion();
   }
 
   unsigned long now = millis();
@@ -242,11 +260,17 @@ void loop() {
 
   resolveWheelTargets(V_cmd, W_cmd);
 
-  float Vr = R_SCALE * computePID(pidR, dt);
-  float Vl = L_SCALE * computePID(pidL, dt);
+  float Vr = 0.0f;
+  float Vl = 0.0f;
+  if (V_cmd == 0.0f && W_cmd == 0.0f) {
+    stopMotion();
+  } else {
+    Vr = R_SCALE * computePID(pidR, dt);
+    Vl = L_SCALE * computePID(pidL, dt);
 
-  writeDriver_r(Vr);
-  writeDriver_l(Vl);
+    writeDriver_r(Vr);
+    writeDriver_l(Vl);
+  }
 
   static unsigned long lastLogMs = 0;
   if (now - lastLogMs > 200) {

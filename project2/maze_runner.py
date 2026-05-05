@@ -29,13 +29,16 @@ SAFETY_RADIUS   = 0.45     # [m]
 MIN_GAP_DIST    = 0.50     # [m]
 DISP_CLAMP      = 3.0      # [m]
 
-# 속도 정책
-V_MAX           = 0.30     # [m/s] (검증 후 0.35까지 올려도 됨)
-V_MIN           = 0.12
+# 속도/조향 정책: 정상 회피 중에는 정지/감속/후진 없이 조향으로만 피함
+V_CRUISE        = 0.18     # [m/s]
 W_MAX           = 1.6      # [rad/s]
-K_STEER         = 1.6      # 비례 조향
-BRAKE_DIST      = 0.80
-EMERG_STOP_DIST = 0.30
+K_STEER         = 1.7      # 비례 조향
+STEER_SIGN      = -1.0     # +라이다 각도(우측 gap) -> 음수 W(우회전)
+TURN_BOOST_DIST = 0.85     # [m] 이보다 가까우면 속도 대신 조향량 증가
+TURN_BOOST_GAIN = 0.7
+NO_GAP_TURN_W   = 1.4      # [rad/s] gap이 없을 때 넓은 쪽으로 강제 조향
+SCAN_HOLD_S     = 0.30     # [s] 짧은 스캔 누락은 직전 명령 유지
+LOOP_DT_S       = 0.05
 
 # 라인 키핑 (좌측 흰 벽 추종)
 K_LANE          = 0.6
@@ -155,6 +158,20 @@ def follow_the_gap(theta, dist):
     return target_angle, min_front
 
 
+def clearance_score(values):
+    if len(values) == 0:
+        return 0.0
+    return float(np.percentile(values, 75))
+
+
+def choose_no_gap_turn(theta, dist):
+    left_mask = (theta > np.deg2rad(-90.0)) & (theta < np.deg2rad(-20.0))
+    right_mask = (theta > np.deg2rad(20.0)) & (theta < np.deg2rad(90.0))
+    left_score = clearance_score(dist[left_mask])
+    right_score = clearance_score(dist[right_mask])
+    return NO_GAP_TURN_W if left_score >= right_score else -NO_GAP_TURN_W
+
+
 # ─────────────── 좌측(흰 벽) 거리: -90° 영역 ───────────────
 def left_wall_distance(scan):
     """-90° 근처 ±15° 영역의 median [m]."""
@@ -201,6 +218,9 @@ def main():
     time.sleep(3.0)
     print("[GO]")
     t0 = time.time()
+    last_scan_ok = 0.0
+    last_v, last_w = 0.0, 0.0
+    last_log = 0.0
     try:
         while True:
             t = time.time() - t0
@@ -210,43 +230,56 @@ def main():
 
             scan = lidar.get_scan()
             if scan is None:
-                send_vw(0, 0); time.sleep(0.05); continue
+                if time.time() - last_scan_ok <= SCAN_HOLD_S:
+                    send_vw(last_v, last_w)
+                else:
+                    send_vw(0, 0)
+                time.sleep(LOOP_DT_S); continue
 
             theta, dist = build_front_array(scan)
             if theta is None:
-                send_vw(0, 0); time.sleep(0.05); continue
+                if time.time() - last_scan_ok <= SCAN_HOLD_S:
+                    send_vw(last_v, last_w)
+                else:
+                    send_vw(0, 0)
+                time.sleep(LOOP_DT_S); continue
+            last_scan_ok = time.time()
 
             target_angle, min_front = follow_the_gap(theta, dist)
             if target_angle is None:
-                # 모든 방향 막힘 → 천천히 후진하며 좌회전
-                send_vw(-0.10, 1.0)
-                time.sleep(0.1); continue
+                v = V_CRUISE
+                w = choose_no_gap_turn(theta, dist)
+                send_vw(v, w)
+                last_v, last_w = v, w
+                time.sleep(LOOP_DT_S); continue
 
             # 1차 비례 조향
-            w_ftg = K_STEER * target_angle
+            w_ftg = STEER_SIGN * K_STEER * target_angle
 
             # 2차 라인 키핑 (정면이 충분히 멀 때만)
             w_lane = 0.0
             if min_front > LANE_ACTIVE_DIST:
                 lwd = left_wall_distance(scan)
                 if lwd is not None:
-                    err = lane_target - lwd  # +면 너무 멈 → 좌측으로 더 가야 (w<0이 좌측? 부호 확인 필요)
-                    # 좌표계: +각도=우측, w>0이면 좌회전 (우측을 향한 양의 각도가 줄어드는 방향)
-                    # 좌측으로 가야 하면 w<0이 맞음
-                    w_lane = -K_LANE * err   # 부호 음수
-            w = float(np.clip(w_ftg + w_lane, -W_MAX, W_MAX))
+                    err = lane_target - lwd
+                    w_lane = -K_LANE * err
 
-            # 속도
-            if min_front < EMERG_STOP_DIST:
-                v = 0.0
-            else:
-                v_curve = V_MAX * max(0.0, math.cos(target_angle))
-                v_brake = V_MAX * np.clip((min_front - EMERG_STOP_DIST) /
-                                          (BRAKE_DIST - EMERG_STOP_DIST), 0.0, 1.0)
-                v = max(V_MIN, min(v_curve, v_brake))
+            turn_boost = 1.0
+            if min_front < TURN_BOOST_DIST:
+                ratio = np.clip((TURN_BOOST_DIST - min_front) /
+                                max(TURN_BOOST_DIST - MIN_GAP_DIST, 0.01),
+                                0.0, 1.0)
+                turn_boost += TURN_BOOST_GAIN * ratio
+            w = float(np.clip((w_ftg + w_lane) * turn_boost, -W_MAX, W_MAX))
+            v = V_CRUISE
 
             send_vw(v, w)
-            time.sleep(0.05)
+            last_v, last_w = v, w
+            if time.time() - last_log > 0.25:
+                print(f"[RUN] v={v:.2f} w={w:.2f} "
+                      f"gap={math.degrees(target_angle):.1f} front={min_front:.2f}")
+                last_log = time.time()
+            time.sleep(LOOP_DT_S)
 
     except KeyboardInterrupt:
         pass
