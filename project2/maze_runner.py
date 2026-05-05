@@ -42,6 +42,8 @@ OBSTACLE_X_WINDOW = 0.24   # [m]
 FRONT_HALF_DEG    = 24.0
 HEADING_MAX_DEG   = 62.0
 HEADING_SAMPLE_DEG = 4.0
+HEADING_MIN_DEG    = 8.0
+HEADING_URGENT_MIN_DEG = 34.0
 HEADING_MIN_CLEAR = 0.40   # [m]
 TARGET_CLEAR_DIST = 0.95   # [m]
 K_HEADING         = 1.45
@@ -248,7 +250,9 @@ def choose_side_from_candidates(theta, dist, prev_heading, trigger_dist):
     best_left = (None, -1.0, float("inf"))
     best_right = (None, -1.0, float("inf"))
 
-    headings_deg = np.arange(HEADING_SAMPLE_DEG,
+    min_heading_deg = HEADING_MIN_DEG + (HEADING_URGENT_MIN_DEG - HEADING_MIN_DEG) * urgency
+    min_heading_deg = min(min_heading_deg, HEADING_MAX_DEG)
+    headings_deg = np.arange(min_heading_deg,
                              HEADING_MAX_DEG + 0.1,
                              HEADING_SAMPLE_DEG)
     for deg in headings_deg:
@@ -447,7 +451,7 @@ def main():
             last_v, last_w = v, w
             prev_heading = heading
             if time.time() - last_log > 0.25:
-                mode = "AVOID" if abs(heading) > np.deg2rad(HEADING_DEADBAND_DEG) else ("GUARD" if abs(w_guard) > W_DEADBAND else "STRAIGHT")
+                mode = "AVOID" if (abs(heading) > np.deg2rad(HEADING_DEADBAND_DEG) or urgency > 0.35) else ("GUARD" if abs(w_guard) > W_DEADBAND else "STRAIGHT")
                 obs_x = blocker["x"] if blocker is not None else 0.0
                 obs_y = blocker["y"] if blocker is not None else 0.0
                 obs_n = blocker["points"] if blocker is not None else 0
