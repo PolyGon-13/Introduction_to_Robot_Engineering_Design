@@ -46,6 +46,16 @@ W_CMD_RATE_LIMIT = 0.35
 W_CMD_RATE_LIMIT_URGENT = 0.70
 URGENT_FRONT_DIST = 0.55
 
+GOAL_X_M = 3.5
+GOAL_Y_M = 0.0
+GOAL_TOL_M = 0.08
+GOAL_HEADING_WEIGHT = 1.0
+GOAL_LATERAL_WEIGHT = 1.2
+GOAL_DISTANCE_WEIGHT = 0.4
+USE_GOAL_SLOWDOWN = False
+GOAL_FINAL_SLOW_DIST = 0.30
+GOAL_MIN_V = 0.08
+
 clearance_weight = 3.0
 collision_weight = 100.0
 forward_weight = 1.0
@@ -54,8 +64,9 @@ turn_weight = 0.25
 far_turn_weight = 0.55
 smooth_weight = 0.5
 
-# 미션
-MISSION_DURATION_S = 55.0
+robot_x = 0.0
+robot_y = 0.0
+robot_theta = 0.0
 
 
 # ─────────────── 라이다 드라이버 ───────────────
@@ -106,6 +117,45 @@ class RPLidarC1:
 def normalize_angle_deg(angle):
     angle = (angle + 180.0) % 360.0 - 180.0
     return angle
+
+
+def normalize_angle_rad(angle):
+    return math.atan2(math.sin(angle), math.cos(angle))
+
+
+def update_pose(v, w, dt):
+    global robot_x, robot_y, robot_theta
+    robot_x += v * math.cos(robot_theta) * dt
+    robot_y += v * math.sin(robot_theta) * dt
+    robot_theta += w * dt
+    robot_theta = normalize_angle_rad(robot_theta)
+
+
+def goal_distance():
+    dx = GOAL_X_M - robot_x
+    dy = GOAL_Y_M - robot_y
+    return math.hypot(dx, dy)
+
+
+def goal_heading_error_from_pose(x, y, theta):
+    dx = GOAL_X_M - x
+    dy = GOAL_Y_M - y
+    target_heading = math.atan2(dy, dx)
+    return normalize_angle_rad(target_heading - theta)
+
+
+def transform_local_to_global(local_x, local_y):
+    gx = robot_x + local_x * math.cos(robot_theta) - local_y * math.sin(robot_theta)
+    gy = robot_y + local_x * math.sin(robot_theta) + local_y * math.cos(robot_theta)
+    return gx, gy
+
+
+def get_cmd_v():
+    if USE_GOAL_SLOWDOWN:
+        gd = goal_distance()
+        if gd < GOAL_FINAL_SLOW_DIST:
+            return max(GOAL_MIN_V, BASE_V * gd / GOAL_FINAL_SLOW_DIST)
+    return BASE_V
 
 
 def lidar_points_to_xy(scan):
@@ -190,6 +240,22 @@ def evaluate_candidate(v, w, points, prev_w, front_dist):
     score -= turn_w * abs(w)
     score -= smooth_weight * abs(w - prev_w)
 
+    local_x = float(traj[-1, 0])
+    local_y = float(traj[-1, 1])
+    local_theta = float(traj[-1, 2])
+    candidate_x, candidate_y = transform_local_to_global(local_x, local_y)
+    candidate_theta = normalize_angle_rad(robot_theta + local_theta)
+    heading_err = goal_heading_error_from_pose(candidate_x, candidate_y, candidate_theta)
+    lateral_err = candidate_y - GOAL_Y_M
+    current_goal_dist = goal_distance()
+    candidate_goal_dist = math.hypot(GOAL_X_M - candidate_x, GOAL_Y_M - candidate_y)
+    goal_progress = current_goal_dist - candidate_goal_dist
+    goal_factor = 1.0 - front_factor
+
+    score += goal_factor * GOAL_DISTANCE_WEIGHT * goal_progress
+    score -= goal_factor * GOAL_HEADING_WEIGHT * abs(heading_err)
+    score -= goal_factor * GOAL_LATERAL_WEIGHT * abs(lateral_err)
+
     return score, min_clearance
 
 
@@ -199,10 +265,10 @@ def rate_limit_w(prev_w, target_w, urgent=False):
     return prev_w + delta
 
 
-def choose_best_cmd(scan, prev_w):
+def choose_best_cmd(scan, prev_w, cmd_v):
     points = lidar_points_to_xy(scan)
     if len(points) == 0:
-        return BASE_V, rate_limit_w(prev_w, 0.0), {
+        return cmd_v, rate_limit_w(prev_w, 0.0), {
             "score": 0.0,
             "clear": MAX_LIDAR_DIST_M,
             "front": MAX_LIDAR_DIST_M,
@@ -220,7 +286,7 @@ def choose_best_cmd(scan, prev_w):
     best_clear_score = -float("inf")
 
     for w in W_CANDIDATES:
-        score, clearance = evaluate_candidate(BASE_V, w, points, prev_w, fdist)
+        score, clearance = evaluate_candidate(cmd_v, w, points, prev_w, fdist)
         collision = clearance < COLLISION_DIST
         if not collision:
             all_collision = False
@@ -235,11 +301,11 @@ def choose_best_cmd(scan, prev_w):
 
     if all_collision:
         best_w = best_clear_w
-        _, best_clearance = evaluate_candidate(BASE_V, best_w, points, prev_w, fdist)
+        _, best_clearance = evaluate_candidate(cmd_v, best_w, points, prev_w, fdist)
 
     raw_best_w = best_w
     best_w = rate_limit_w(prev_w, best_w, fdist < URGENT_FRONT_DIST or all_collision)
-    return BASE_V, best_w, {
+    return cmd_v, best_w, {
         "score": best_score,
         "clear": best_clearance,
         "front": fdist,
@@ -251,6 +317,7 @@ def choose_best_cmd(scan, prev_w):
 
 # ─────────────── 메인 ───────────────
 def main():
+    global robot_x, robot_y, robot_theta
     lidar = RPLidarC1(LIDAR_PORT, LIDAR_BAUD)
     ardu  = serial.Serial(ARDU_PORT, ARDU_BAUD, timeout=0.1)
     print("[INFO] 워밍업 2초..."); time.sleep(2.0)
@@ -269,32 +336,57 @@ def main():
         print("[WARN] 표준입력을 읽을 수 없어 바로 주행 시작")
     print("[GO]")
 
-    t0 = time.time()
+    robot_x = 0.0
+    robot_y = 0.0
+    robot_theta = 0.0
     last_scan_ok = 0.0
     last_v, last_w = BASE_V, 0.0
     last_log = 0.0
+    last_pose_time = time.time()
 
     try:
         while True:
-            if time.time() - t0 > MISSION_DURATION_S:
-                print("[INFO] 시간 초과 정지")
+            now = time.time()
+            dt = max(0.0, min(0.20, now - last_pose_time))
+            last_pose_time = now
+
+            if goal_distance() <= GOAL_TOL_M:
+                stop()
+                print("[INFO] 목표 지점 도달 정지")
                 break
 
             scan = lidar.get_scan()
             if scan is None:
                 if time.time() - last_scan_ok <= SCAN_HOLD_S:
                     send_vw(last_v, last_w)
+                    update_pose(last_v, last_w, dt)
                 else:
                     send_vw(0.0, 0.0)
+                    update_pose(0.0, 0.0, dt)
+                if goal_distance() <= GOAL_TOL_M:
+                    stop()
+                    print("[INFO] 목표 지점 도달 정지")
+                    break
                 time.sleep(LOOP_DT_S); continue
 
             last_scan_ok = time.time()
-            v, w, info = choose_best_cmd(scan, last_w)
+            cmd_v = get_cmd_v()
+            v, w, info = choose_best_cmd(scan, last_w, cmd_v)
             send_vw(v, w)
+            update_pose(v, w, dt)
             last_v, last_w = v, w
 
+            gd = goal_distance()
+            he = goal_heading_error_from_pose(robot_x, robot_y, robot_theta)
+            if gd <= GOAL_TOL_M:
+                stop()
+                print("[INFO] 목표 지점 도달 정지")
+                break
+
             if time.time() - last_log > 0.25:
-                print(f"[RUN2] v={v:.2f} w={w:.2f} raw={info['raw_w']:.2f} "
+                print(f"[RUN2] x={robot_x:.2f} y={robot_y:.2f} "
+                      f"th={robot_theta:.2f} gd={gd:.2f} he={he:.2f} "
+                      f"v={v:.2f} w={w:.2f} raw={info['raw_w']:.2f} "
                       f"front={info['front']:.2f} clear={info['clear']:.2f} "
                       f"score={info['score']:.2f} pts={info['points']} "
                       f"coll={int(info['collision'])}")
