@@ -32,15 +32,15 @@ DISP_CLAMP      = 3.0      # [m]
 # 속도/조향 정책: 정상 회피 중에는 정지/감속/후진 없이 조향으로만 피함
 V_CRUISE        = 0.18     # [m/s]
 W_MAX           = 1.25     # [rad/s]
-K_STEER         = 1.15     # 비례 조향
-STEER_SIGN      = -1.0     # +라이다 각도(우측 gap) -> 음수 W(우회전)
 TURN_BOOST_DIST = 0.75     # [m] 이보다 가까우면 속도 대신 조향량 증가
 TURN_BOOST_GAIN = 0.45
 NO_GAP_TURN_W   = 1.0      # [rad/s] gap이 없을 때 넓은 쪽으로 강제 조향
-OBSTACLE_HALF_DEG = 24.0
-OBSTACLE_ON_DIST  = 0.95   # [m]
-OBSTACLE_OFF_DIST = 1.20   # [m]
-FTG_DEADBAND_DEG  = 8.0
+OBSTACLE_HALF_DEG = 32.0
+OBSTACLE_ON_DIST  = 1.15   # [m]
+OBSTACLE_OFF_DIST = 1.45   # [m]
+AVOID_W_MIN       = 0.45   # [rad/s]
+AVOID_W_MAX       = 1.05   # [rad/s]
+AVOID_SWITCH_MARGIN = 0.35 # [m]
 W_DEADBAND        = 0.05   # [rad/s]
 W_SMOOTH_ALPHA    = 0.35
 W_RATE_LIMIT_STEP = 0.12   # [rad/s] per loop
@@ -188,6 +188,28 @@ def choose_no_gap_turn(theta, dist):
     return NO_GAP_TURN_W if left_score >= right_score else -NO_GAP_TURN_W
 
 
+def side_clearance(theta, dist):
+    left_mask = (theta > np.deg2rad(-85.0)) & (theta < np.deg2rad(-25.0))
+    right_mask = (theta > np.deg2rad(25.0)) & (theta < np.deg2rad(85.0))
+    return clearance_score(dist[left_mask]), clearance_score(dist[right_mask])
+
+
+def choose_avoid_dir(theta, dist, current_dir):
+    left_score, right_score = side_clearance(theta, dist)
+    if current_dir > 0 and left_score + AVOID_SWITCH_MARGIN >= right_score:
+        return current_dir
+    if current_dir < 0 and right_score + AVOID_SWITCH_MARGIN >= left_score:
+        return current_dir
+    return 1.0 if left_score >= right_score else -1.0
+
+
+def avoid_turn_strength(trigger_front):
+    ratio = np.clip((OBSTACLE_OFF_DIST - trigger_front) /
+                    max(OBSTACLE_OFF_DIST - MIN_GAP_DIST, 0.01),
+                    0.0, 1.0)
+    return AVOID_W_MIN + (AVOID_W_MAX - AVOID_W_MIN) * ratio
+
+
 def apply_deadband(value, deadband):
     return 0.0 if abs(value) < deadband else value
 
@@ -250,6 +272,7 @@ def main():
     last_v, last_w = 0.0, 0.0
     last_log = 0.0
     obstacle_mode = False
+    avoid_dir = 0.0
     try:
         while True:
             t = time.time() - t0
@@ -278,7 +301,8 @@ def main():
             trigger_front = min_in_angle(theta, dist, OBSTACLE_HALF_DEG)
             if target_angle is None:
                 v = V_CRUISE
-                w_target = choose_no_gap_turn(theta, dist)
+                avoid_dir = choose_no_gap_turn(theta, dist) / abs(NO_GAP_TURN_W)
+                w_target = avoid_dir * NO_GAP_TURN_W
                 w = smooth_steering(last_w, w_target)
                 send_vw(v, w)
                 last_v, last_w = v, w
@@ -287,12 +311,15 @@ def main():
             if obstacle_mode:
                 if trigger_front > OBSTACLE_OFF_DIST:
                     obstacle_mode = False
+                    avoid_dir = 0.0
             elif trigger_front < OBSTACLE_ON_DIST:
                 obstacle_mode = True
+                avoid_dir = choose_avoid_dir(theta, dist, avoid_dir)
 
             w_ftg = 0.0
-            if obstacle_mode and abs(target_angle) > np.deg2rad(FTG_DEADBAND_DEG):
-                w_ftg = STEER_SIGN * K_STEER * target_angle
+            if obstacle_mode:
+                avoid_dir = choose_avoid_dir(theta, dist, avoid_dir)
+                w_ftg = avoid_dir * avoid_turn_strength(trigger_front)
 
             w_lane = 0.0
             if (not obstacle_mode) and trigger_front > LANE_ACTIVE_DIST:
@@ -324,7 +351,8 @@ def main():
                 mode = "AVOID" if obstacle_mode else "STRAIGHT"
                 print(f"[RUN] {mode} v={v:.2f} w={w:.2f} "
                       f"gap={math.degrees(target_angle):.1f} "
-                      f"front={min_front:.2f} trig={trigger_front:.2f}")
+                      f"front={min_front:.2f} trig={trigger_front:.2f} "
+                      f"dir={avoid_dir:+.0f}")
                 last_log = time.time()
             time.sleep(LOOP_DT_S)
 
