@@ -31,18 +31,27 @@ DISP_CLAMP      = 3.0      # [m]
 
 # 속도/조향 정책: 정상 회피 중에는 정지/감속/후진 없이 조향으로만 피함
 V_CRUISE        = 0.18     # [m/s]
-W_MAX           = 1.6      # [rad/s]
-K_STEER         = 1.7      # 비례 조향
+W_MAX           = 1.25     # [rad/s]
+K_STEER         = 1.15     # 비례 조향
 STEER_SIGN      = -1.0     # +라이다 각도(우측 gap) -> 음수 W(우회전)
-TURN_BOOST_DIST = 0.85     # [m] 이보다 가까우면 속도 대신 조향량 증가
-TURN_BOOST_GAIN = 0.7
-NO_GAP_TURN_W   = 1.4      # [rad/s] gap이 없을 때 넓은 쪽으로 강제 조향
+TURN_BOOST_DIST = 0.75     # [m] 이보다 가까우면 속도 대신 조향량 증가
+TURN_BOOST_GAIN = 0.45
+NO_GAP_TURN_W   = 1.0      # [rad/s] gap이 없을 때 넓은 쪽으로 강제 조향
+OBSTACLE_HALF_DEG = 24.0
+OBSTACLE_ON_DIST  = 0.95   # [m]
+OBSTACLE_OFF_DIST = 1.20   # [m]
+FTG_DEADBAND_DEG  = 8.0
+W_DEADBAND        = 0.05   # [rad/s]
+W_SMOOTH_ALPHA    = 0.35
+W_RATE_LIMIT_STEP = 0.12   # [rad/s] per loop
 SCAN_HOLD_S     = 0.30     # [s] 짧은 스캔 누락은 직전 명령 유지
 LOOP_DT_S       = 0.05
 
 # 라인 키핑 (좌측 흰 벽 추종)
-K_LANE          = 0.6
+K_LANE          = 0.20
 LANE_ACTIVE_DIST = 1.5     # 정면이 이거보다 멀 때만 활성
+LANE_DEADBAND_M  = 0.04
+W_LANE_LIMIT     = 0.25
 
 # 시작 시점 자동 보정 fallback
 LANE_LEFT_TARGET_FALLBACK = 0.55   # 측정 1번 결과
@@ -158,6 +167,13 @@ def follow_the_gap(theta, dist):
     return target_angle, min_front
 
 
+def min_in_angle(theta, dist, half_deg):
+    mask = np.abs(theta) <= np.deg2rad(half_deg)
+    if not mask.any():
+        return DISP_CLAMP
+    return float(np.min(dist[mask]))
+
+
 def clearance_score(values):
     if len(values) == 0:
         return 0.0
@@ -170,6 +186,18 @@ def choose_no_gap_turn(theta, dist):
     left_score = clearance_score(dist[left_mask])
     right_score = clearance_score(dist[right_mask])
     return NO_GAP_TURN_W if left_score >= right_score else -NO_GAP_TURN_W
+
+
+def apply_deadband(value, deadband):
+    return 0.0 if abs(value) < deadband else value
+
+
+def smooth_steering(prev_w, target_w):
+    filtered = prev_w + W_SMOOTH_ALPHA * (target_w - prev_w)
+    step = float(np.clip(filtered - prev_w,
+                         -W_RATE_LIMIT_STEP,
+                         W_RATE_LIMIT_STEP))
+    return prev_w + step
 
 
 # ─────────────── 좌측(흰 벽) 거리: -90° 영역 ───────────────
@@ -221,6 +249,7 @@ def main():
     last_scan_ok = 0.0
     last_v, last_w = 0.0, 0.0
     last_log = 0.0
+    obstacle_mode = False
     try:
         while True:
             t = time.time() - t0
@@ -246,38 +275,56 @@ def main():
             last_scan_ok = time.time()
 
             target_angle, min_front = follow_the_gap(theta, dist)
+            trigger_front = min_in_angle(theta, dist, OBSTACLE_HALF_DEG)
             if target_angle is None:
                 v = V_CRUISE
-                w = choose_no_gap_turn(theta, dist)
+                w_target = choose_no_gap_turn(theta, dist)
+                w = smooth_steering(last_w, w_target)
                 send_vw(v, w)
                 last_v, last_w = v, w
                 time.sleep(LOOP_DT_S); continue
 
-            # 1차 비례 조향
-            w_ftg = STEER_SIGN * K_STEER * target_angle
+            if obstacle_mode:
+                if trigger_front > OBSTACLE_OFF_DIST:
+                    obstacle_mode = False
+            elif trigger_front < OBSTACLE_ON_DIST:
+                obstacle_mode = True
 
-            # 2차 라인 키핑 (정면이 충분히 멀 때만)
+            w_ftg = 0.0
+            if obstacle_mode and abs(target_angle) > np.deg2rad(FTG_DEADBAND_DEG):
+                w_ftg = STEER_SIGN * K_STEER * target_angle
+
             w_lane = 0.0
-            if min_front > LANE_ACTIVE_DIST:
+            if (not obstacle_mode) and trigger_front > LANE_ACTIVE_DIST:
                 lwd = left_wall_distance(scan)
                 if lwd is not None:
                     err = lane_target - lwd
-                    w_lane = -K_LANE * err
+                    if abs(err) > LANE_DEADBAND_M:
+                        lane_err = err - math.copysign(LANE_DEADBAND_M, err)
+                        w_lane = float(np.clip(-K_LANE * lane_err,
+                                               -W_LANE_LIMIT,
+                                               W_LANE_LIMIT))
 
             turn_boost = 1.0
-            if min_front < TURN_BOOST_DIST:
-                ratio = np.clip((TURN_BOOST_DIST - min_front) /
+            if obstacle_mode and trigger_front < TURN_BOOST_DIST:
+                ratio = np.clip((TURN_BOOST_DIST - trigger_front) /
                                 max(TURN_BOOST_DIST - MIN_GAP_DIST, 0.01),
                                 0.0, 1.0)
                 turn_boost += TURN_BOOST_GAIN * ratio
-            w = float(np.clip((w_ftg + w_lane) * turn_boost, -W_MAX, W_MAX))
+            w_target = float(np.clip((w_ftg + w_lane) * turn_boost,
+                                     -W_MAX,
+                                     W_MAX))
+            w_target = apply_deadband(w_target, W_DEADBAND)
+            w = smooth_steering(last_w, w_target)
             v = V_CRUISE
 
             send_vw(v, w)
             last_v, last_w = v, w
             if time.time() - last_log > 0.25:
-                print(f"[RUN] v={v:.2f} w={w:.2f} "
-                      f"gap={math.degrees(target_angle):.1f} front={min_front:.2f}")
+                mode = "AVOID" if obstacle_mode else "STRAIGHT"
+                print(f"[RUN] {mode} v={v:.2f} w={w:.2f} "
+                      f"gap={math.degrees(target_angle):.1f} "
+                      f"front={min_front:.2f} trig={trigger_front:.2f}")
                 last_log = time.time()
             time.sleep(LOOP_DT_S)
 
