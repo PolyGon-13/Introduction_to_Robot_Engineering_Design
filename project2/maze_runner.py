@@ -33,28 +33,40 @@ ROBOT_HALF_WIDTH = ROBOT_WIDTH * 0.5
 ROBOT_FRONT_FROM_LIDAR = ROBOT_LENGTH * 0.5
 SAFETY_MARGIN    = 0.060   # [m]
 CORRIDOR_HALF    = ROBOT_HALF_WIDTH + SAFETY_MARGIN
+DETECT_MARGIN    = 0.090   # [m]
+DETECT_CORRIDOR_HALF = ROBOT_HALF_WIDTH + DETECT_MARGIN
 CORRIDOR_LOOKAHEAD = 0.95  # [m]
 MIN_OBS_X        = ROBOT_FRONT_FROM_LIDAR
 BLOCK_MIN_POINTS = 3
-OBSTACLE_X_WINDOW = 0.18   # [m]
-PASS_TARGET_MARGIN = 0.035 # [m]
-FRONT_HALF_DEG    = 16.0
+OBSTACLE_X_WINDOW = 0.24   # [m]
+PASS_TARGET_MARGIN = 0.060 # [m]
+FRONT_HALF_DEG    = 18.0
 HEADING_MAX_DEG   = 62.0
-PATH_HALF_DEG     = 10.0
+PATH_HALF_DEG     = 12.0
 HEADING_MIN_CLEAR = 0.50   # [m]
 TARGET_CLEAR_DIST = 1.25   # [m]
-K_HEADING         = 1.0
+K_HEADING         = 1.15
 HEADING_DEADBAND_DEG = 4.0
 FORWARD_COST      = 0.60
 PREV_HEADING_COST = 0.85
 CLEARANCE_COST    = 1.80
 SWITCH_SIGN_COST  = 0.80
+CLEAR_DECISIVE_MARGIN = 0.12 # [m]
+FRONT_URGENT_DIST   = 0.55   # [m]
+FRONT_CRITICAL_DIST = 0.25   # [m]
+FORWARD_COST_URGENT      = 0.25
+PREV_HEADING_COST_URGENT = 0.15
+CLEARANCE_COST_URGENT    = 5.00
+SWITCH_SIGN_COST_URGENT  = 0.15
+MIN_AVOID_W_URGENT       = 0.34 # [rad/s]
 SIDE_GUARD_DIST   = 0.38   # [m]
 SIDE_GUARD_GAIN   = 0.9
 SIDE_GUARD_W_MAX  = 0.22   # [rad/s]
 W_DEADBAND        = 0.05   # [rad/s]
 W_SMOOTH_ALPHA    = 0.25
 W_RATE_LIMIT_STEP = 0.06   # [rad/s] per loop
+W_URGENT_SMOOTH_ALPHA    = 0.50
+W_URGENT_RATE_LIMIT_STEP = 0.14 # [rad/s] per loop
 SCAN_HOLD_S     = 0.30     # [s] 짧은 스캔 누락은 직전 명령 유지
 LOOP_DT_S       = 0.05
 
@@ -170,11 +182,19 @@ def polar_to_xy(theta, dist):
     return x, y
 
 
+def front_urgency(front):
+    if front >= FRONT_URGENT_DIST:
+        return 0.0
+    if front <= FRONT_CRITICAL_DIST:
+        return 1.0
+    return (FRONT_URGENT_DIST - front) / (FRONT_URGENT_DIST - FRONT_CRITICAL_DIST)
+
+
 def find_corridor_blocker(theta, dist):
     x, y = polar_to_xy(theta, dist)
     mask = ((x > MIN_OBS_X) &
             (x < CORRIDOR_LOOKAHEAD) &
-            (np.abs(y) < CORRIDOR_HALF))
+            (np.abs(y) < DETECT_CORRIDOR_HALF))
     if int(mask.sum()) < BLOCK_MIN_POINTS:
         return None
 
@@ -197,17 +217,22 @@ def find_corridor_blocker(theta, dist):
     }
 
 
-def score_pass_heading(heading, clear, front, prev_heading):
-    cost = FORWARD_COST * abs(heading)
-    cost += PREV_HEADING_COST * abs(heading - prev_heading)
-    cost += CLEARANCE_COST * max(0.0, TARGET_CLEAR_DIST - clear)
+def score_pass_heading(heading, clear, front, prev_heading, urgency):
+    forward_cost = FORWARD_COST + (FORWARD_COST_URGENT - FORWARD_COST) * urgency
+    prev_cost = PREV_HEADING_COST + (PREV_HEADING_COST_URGENT - PREV_HEADING_COST) * urgency
+    clear_cost = CLEARANCE_COST + (CLEARANCE_COST_URGENT - CLEARANCE_COST) * urgency
+    switch_cost = SWITCH_SIGN_COST + (SWITCH_SIGN_COST_URGENT - SWITCH_SIGN_COST) * urgency
+
+    cost = forward_cost * abs(heading)
+    cost += prev_cost * abs(heading - prev_heading)
+    cost += clear_cost * max(0.0, TARGET_CLEAR_DIST - clear)
 
     prev_sign = math.copysign(1.0, prev_heading) if abs(prev_heading) > 0.12 else 0.0
     heading_sign = math.copysign(1.0, heading) if abs(heading) > 0.12 else 0.0
     if prev_sign != 0.0 and heading_sign != 0.0 and heading_sign != prev_sign:
-        cost += SWITCH_SIGN_COST
+        cost += switch_cost
     if clear < HEADING_MIN_CLEAR:
-        cost += 5.0
+        cost += 5.0 * (1.0 + urgency)
     return cost
 
 
@@ -216,7 +241,7 @@ def choose_heading_corridor(theta, dist, prev_heading):
     straight_clear = sector_clearance(theta, dist, 0.0, PATH_HALF_DEG)
     front = min_in_angle(theta, dist, FRONT_HALF_DEG)
     if blocker is None:
-        return 0.0, front, straight_clear, None, 0.0, 0.0
+        return 0.0, front, straight_clear, None, 0.0, 0.0, 0.0, 0.0, 0.0
 
     pass_half = CORRIDOR_HALF + PASS_TARGET_MARGIN
     left_y = blocker["y_min"] - pass_half
@@ -230,12 +255,17 @@ def choose_heading_corridor(theta, dist, prev_heading):
 
     left_clear = sector_clearance(theta, dist, left_heading, PATH_HALF_DEG)
     right_clear = sector_clearance(theta, dist, right_heading, PATH_HALF_DEG)
-    left_cost = score_pass_heading(left_heading, left_clear, blocker["front"], prev_heading)
-    right_cost = score_pass_heading(right_heading, right_clear, blocker["front"], prev_heading)
+    urgency = front_urgency(blocker["front"])
+    left_cost = score_pass_heading(left_heading, left_clear, blocker["front"], prev_heading, urgency)
+    right_cost = score_pass_heading(right_heading, right_clear, blocker["front"], prev_heading, urgency)
 
+    if urgency > 0.35 and abs(left_clear - right_clear) > CLEAR_DECISIVE_MARGIN:
+        if left_clear > right_clear:
+            return left_heading, blocker["front"], left_clear, blocker, left_clear, right_clear, left_cost, right_cost, urgency
+        return right_heading, blocker["front"], right_clear, blocker, left_clear, right_clear, left_cost, right_cost, urgency
     if left_cost <= right_cost:
-        return left_heading, blocker["front"], left_clear, blocker, left_clear, right_clear
-    return right_heading, blocker["front"], right_clear, blocker, left_clear, right_clear
+        return left_heading, blocker["front"], left_clear, blocker, left_clear, right_clear, left_cost, right_cost, urgency
+    return right_heading, blocker["front"], right_clear, blocker, left_clear, right_clear, left_cost, right_cost, urgency
 
 
 def side_guard_w(theta, dist):
@@ -251,11 +281,23 @@ def apply_deadband(value, deadband):
     return 0.0 if abs(value) < deadband else value
 
 
-def smooth_steering(prev_w, target_w):
-    filtered = prev_w + W_SMOOTH_ALPHA * (target_w - prev_w)
+def apply_min_avoid_turn(w_target, heading, urgency):
+    if urgency <= 0.0 or abs(heading) <= np.deg2rad(HEADING_DEADBAND_DEG):
+        return w_target
+    min_w = MIN_AVOID_W_URGENT * urgency
+    turn_sign = -math.copysign(1.0, heading)
+    if w_target * turn_sign < min_w:
+        return turn_sign * min_w
+    return w_target
+
+
+def smooth_steering(prev_w, target_w, urgency=0.0):
+    alpha = W_SMOOTH_ALPHA + (W_URGENT_SMOOTH_ALPHA - W_SMOOTH_ALPHA) * urgency
+    rate_limit = W_RATE_LIMIT_STEP + (W_URGENT_RATE_LIMIT_STEP - W_RATE_LIMIT_STEP) * urgency
+    filtered = prev_w + alpha * (target_w - prev_w)
     step = float(np.clip(filtered - prev_w,
-                         -W_RATE_LIMIT_STEP,
-                         W_RATE_LIMIT_STEP))
+                         -rate_limit,
+                         rate_limit))
     return prev_w + step
 
 
@@ -333,7 +375,7 @@ def main():
                 time.sleep(LOOP_DT_S); continue
             last_scan_ok = time.time()
 
-            heading, front_dist, path_clear, blocker, left_clear, right_clear = (
+            heading, front_dist, path_clear, blocker, left_clear, right_clear, left_cost, right_cost, urgency = (
                 choose_heading_corridor(theta, dist, prev_heading)
             )
             w_guard, left_near, right_near = side_guard_w(theta, dist)
@@ -353,8 +395,9 @@ def main():
             w_target = float(np.clip(w_heading + w_guard + w_lane,
                                      -W_MAX,
                                      W_MAX))
+            w_target = apply_min_avoid_turn(w_target, heading, urgency)
             w_target = apply_deadband(w_target, W_DEADBAND)
-            w = smooth_steering(last_w, w_target)
+            w = smooth_steering(last_w, w_target, urgency)
             v = V_CRUISE
 
             send_vw(v, w)
@@ -370,7 +413,8 @@ def main():
                       f"front={front_dist:.2f} clear={path_clear:.2f} "
                       f"obs=({obs_x:.2f},{obs_y:.2f},n={obs_n}) "
                       f"passL={left_clear:.2f} passR={right_clear:.2f} "
-                      f"sideL={left_near:.2f} sideR={right_near:.2f}")
+                      f"sideL={left_near:.2f} sideR={right_near:.2f} "
+                      f"urg={urgency:.2f} cL={left_cost:.2f} cR={right_cost:.2f}")
                 last_log = time.time()
             time.sleep(LOOP_DT_S)
 
