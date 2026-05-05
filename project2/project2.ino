@@ -2,48 +2,47 @@
 
 #define PI_F 3.1416f
 
-const byte PWMPin_r  = 9;
+const byte PWMPin_r = 9;
 const byte DirPin1_r = 10;
 const byte DirPin2_r = 11;
-const byte ENC_A_r   = 2;
-const byte ENC_B_r   = 4;
+const byte ENC_A_r = 2;
+const byte ENC_B_r = 4;
 
-const byte PWMPin_l  = 6;
+const byte PWMPin_l = 6;
 const byte DirPin1_l = 7;
 const byte DirPin2_l = 8;
-const byte ENC_A_l   = 3;
-const byte ENC_B_l   = 5;
+const byte ENC_A_l = 3;
+const byte ENC_B_l = 5;
 
 const bool INVERT_ENC_R    = true;
 const bool INVERT_ENC_L    = false;
 const bool REVERSE_MOTOR_R = true;
 const bool REVERSE_MOTOR_L = true;
 
-const float WHEEL_R       = 0.034f;          // [m] 휠 반경
-const float WHEEL_BASE    = 0.179f;          // [m] **실측치 반영**
-const float PPR           = 1012.0f;
+const float WHEEL_R = 0.034f;
+const float WHEEL_BASE = 0.179f;
+const float PPR = 1012.0f;
 const float COUNT_PER_RAD = PPR / (2.0f * PI_F);
 
 const float V_MAX = 6.0f;
 const float V_MIN = -6.0f;
 const float DRIVER_DEADBAND_V = 0.05f;
 
-const float WHEEL_SPEED_MAX = 8.0f;          // [rad/s]
+const float WHEEL_SPEED_MAX = 8.0f;
 
 struct WheelPID {
   float kp, ki, kd;
   float integ, prev_e;
-  float target;   // [rad/s]
-  float meas;     // [rad/s]
+  float target;
+  float meas;
 };
 WheelPID pidR = {0.50f, 1.50f, 0.0f, 0, 0, 0, 0};
 WheelPID pidL = {0.50f, 1.50f, 0.0f, 0, 0, 0, 0};
 
 const float L_SCALE   = 1.00f;
 const float R_SCALE   = 1.00f;
-const float WHEEL_FF  = 1.0f;                // [V/(rad/s)] 피드포워드
+const float WHEEL_FF  = 1.0f;
 
-// ────────────── 명령/타이밍 ──────────────
 float V_cmd = 0.0f;
 float W_cmd = 0.0f;
 
@@ -53,7 +52,6 @@ const unsigned long CMD_TIMEOUT_MS  = 3000;
 unsigned long lastPidMs = 0;
 unsigned long lastCmdMs = 0;
 
-// ────────────── 엔코더 ──────────────
 volatile long EncoderCount_r = 0;
 volatile long EncoderCount_l = 0;
 long encR_prev = 0, encL_prev = 0;
@@ -77,7 +75,6 @@ void ISR_Encoder_A_l() {
   EncoderCount_l += delta;
 }
 
-// ────────────── 모터 출력 ──────────────
 static inline void writeDriver_r(float V) {
   if (fabs(V) < DRIVER_DEADBAND_V) V = 0.0f;
   V = constrain(V, V_MIN, V_MAX);
@@ -122,7 +119,6 @@ void stopMotion() {
   writeDriver_l(0.0f);
 }
 
-// ────────────── PID 한 스텝 ──────────────
 float computePID(WheelPID &p, float dt) {
   float e = p.target - p.meas;
   p.integ += e * dt;
@@ -133,7 +129,6 @@ float computePID(WheelPID &p, float dt) {
   return V;
 }
 
-// ────────────── V,W → 좌/우 휠 각속도 분해 ──────────────
 void resolveWheelTargets(float v, float w) {
   float wL = (v - WHEEL_BASE * w * 0.5f) / WHEEL_R;
   float wR = (v + WHEEL_BASE * w * 0.5f) / WHEEL_R;
@@ -141,7 +136,6 @@ void resolveWheelTargets(float v, float w) {
   pidR.target = constrain(wR, -WHEEL_SPEED_MAX, WHEEL_SPEED_MAX);
 }
 
-// ────────────── 명령 파싱 ──────────────
 String inputPi  = "";
 String inputUsb = "";
 
@@ -160,7 +154,6 @@ void processCommand(String s) {
       lastCmdMs = millis();
     }
   } else if (c0 == 'G' || c0 == 'g') {
-    // 게인 출력
     Serial.print(F("[GAIN] kp=")); Serial.print(pidR.kp, 3);
     Serial.print(F(" ki=")); Serial.print(pidR.ki, 3);
     Serial.print(F(" kd=")); Serial.print(pidR.kd, 3);
