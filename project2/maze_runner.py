@@ -26,7 +26,7 @@ DISP_CLAMP      = 3.0      # [m]
 
 # 속도/조향 정책: 정상 회피 중에는 정지/감속/후진 없이 조향으로만 피함
 V_CRUISE        = 0.14     # [m/s]
-W_MAX           = 1.10     # [rad/s]
+W_MAX           = 1.20     # [rad/s]
 ROBOT_WIDTH      = 0.20    # [m] 바퀴 포함 실측 폭
 ROBOT_LENGTH     = 0.17    # [m] 전후 길이
 ROBOT_HALF_WIDTH = ROBOT_WIDTH * 0.5
@@ -43,11 +43,11 @@ FRONT_HALF_DEG    = 24.0
 HEADING_MAX_DEG   = 62.0
 HEADING_SAMPLE_DEG = 4.0
 HEADING_MIN_DEG = 4.0
-HEADING_URGENT_MIN_DEG = 24.0
-HEADING_COMMIT_MIN_DEG = 12.0
+HEADING_URGENT_MIN_DEG = 34.0
+HEADING_COMMIT_MIN_DEG = 26.0
 HEADING_MIN_CLEAR = 0.40   # [m]
 TARGET_CLEAR_DIST = 0.95   # [m]
-K_HEADING         = 1.45
+K_HEADING         = 1.65
 HEADING_DEADBAND_DEG = 4.0
 FORWARD_COST      = 0.60
 PREV_HEADING_COST = 0.75
@@ -56,9 +56,10 @@ SWITCH_SIGN_COST  = 1.40
 CLEAR_DECISIVE_MARGIN = 0.20 # [m]
 PASS_COMMIT_RELEASE_FRONT = 0.85 # [m]
 PASS_COMMIT_RELEASE_CLEAR = 1.05 # [m]
-PASS_COMMIT_MAX_S = 2.2 # [s]
-PASS_COMMIT_KEEP_MARGIN = 0.20 # [m]
-PASS_COMMIT_MIN_CLEAR = 0.45 # [m]
+PASS_COMMIT_MAX_S = 1.8 # [s]
+PASS_COMMIT_KEEP_MARGIN = 0.70 # [m]
+PASS_COMMIT_MIN_CLEAR = 0.16 # [m]
+PASS_COMMIT_SIDE_DANGER_DIST = 0.34 # [m]
 FRONT_URGENT_DIST   = 0.75   # [m]
 FRONT_CRITICAL_DIST = 0.32   # [m]
 FORWARD_COST_URGENT      = 0.10
@@ -70,14 +71,14 @@ SMALL_HEADING_PENALTY_GAIN = 5.0
 MIN_AVOID_W_URGENT       = 0.50 # [rad/s]
 TURN_BALANCE_CLAMP       = 0.75 # [rad], 오른쪽 누적 회전이 +
 TURN_BALANCE_DECAY_PER_S = 0.22
-SIDE_GUARD_DIST   = 0.45   # [m]
-SIDE_GUARD_GAIN   = 0.9
-SIDE_GUARD_W_MAX  = 0.30   # [rad/s]
+SIDE_GUARD_DIST   = 0.52   # [m]
+SIDE_GUARD_GAIN   = 1.25
+SIDE_GUARD_W_MAX  = 0.42   # [rad/s]
 W_DEADBAND        = 0.05   # [rad/s]
 W_SMOOTH_ALPHA    = 0.25
-W_RATE_LIMIT_STEP = 0.10   # [rad/s] per loop
+W_RATE_LIMIT_STEP = 0.14   # [rad/s] per loop
 W_URGENT_SMOOTH_ALPHA    = 0.50
-W_URGENT_RATE_LIMIT_STEP = 0.22 # [rad/s] per loop
+W_URGENT_RATE_LIMIT_STEP = 0.30 # [rad/s] per loop
 SCAN_HOLD_S     = 0.30     # [s] 짧은 스캔 누락은 직전 명령 유지
 LOOP_DT_S       = 0.05
 
@@ -399,8 +400,12 @@ def main():
     def stop():
         ardu.write(b"S\n")
 
-    print("[INFO] 3초 후 주행 시작...")
-    time.sleep(3.0)
+    stop()
+    print("[READY] 초기화/캘리브레이션 완료. Enter를 누르면 바로 주행 시작.")
+    try:
+        input()
+    except EOFError:
+        print("[WARN] 표준입력을 읽을 수 없어 바로 주행 시작")
     print("[GO]")
     t0 = time.time()
     last_scan_ok = 0.0
@@ -439,10 +444,15 @@ def main():
             if pass_commit_side != 0 and (now_abs - pass_commit_t > PASS_COMMIT_MAX_S):
                 pass_commit_side = 0
 
+            w_guard, left_near, right_near = side_guard_w(theta, dist)
+            if pass_commit_side < 0 and left_near < PASS_COMMIT_SIDE_DANGER_DIST:
+                pass_commit_side = 0
+            elif pass_commit_side > 0 and right_near < PASS_COMMIT_SIDE_DANGER_DIST:
+                pass_commit_side = 0
+
             heading, front_dist, path_clear, blocker, left_clear, right_clear, left_cost, right_cost, urgency = (
                 choose_heading_corridor(theta, dist, prev_heading, pass_commit_side)
             )
-            w_guard, left_near, right_near = side_guard_w(theta, dist)
 
             commit_active = pass_commit_side != 0
             commit_clear = (front_dist > PASS_COMMIT_RELEASE_FRONT and
