@@ -42,6 +42,9 @@ OBSTACLE_X_WINDOW = 0.24   # [m]
 FRONT_HALF_DEG    = 24.0
 HEADING_MAX_DEG   = 62.0
 HEADING_SAMPLE_DEG = 4.0
+HEADING_MIN_DEG = 4.0
+HEADING_URGENT_MIN_DEG = 24.0
+HEADING_COMMIT_MIN_DEG = 12.0
 HEADING_MIN_CLEAR = 0.40   # [m]
 TARGET_CLEAR_DIST = 0.95   # [m]
 K_HEADING         = 1.45
@@ -54,7 +57,8 @@ CLEAR_DECISIVE_MARGIN = 0.20 # [m]
 PASS_COMMIT_RELEASE_FRONT = 0.85 # [m]
 PASS_COMMIT_RELEASE_CLEAR = 1.05 # [m]
 PASS_COMMIT_MAX_S = 2.2 # [s]
-PASS_COMMIT_OVERRIDE_MARGIN = 0.55 # [m]
+PASS_COMMIT_KEEP_MARGIN = 0.20 # [m]
+PASS_COMMIT_MIN_CLEAR = 0.45 # [m]
 FRONT_URGENT_DIST   = 0.75   # [m]
 FRONT_CRITICAL_DIST = 0.32   # [m]
 FORWARD_COST_URGENT      = 0.10
@@ -258,7 +262,12 @@ def choose_side_from_candidates(theta, dist, prev_heading, trigger_dist, committ
     best_left = (None, -1.0, float("inf"))
     best_right = (None, -1.0, float("inf"))
 
-    headings_deg = np.arange(HEADING_SAMPLE_DEG,
+    min_heading_deg = HEADING_MIN_DEG + (HEADING_URGENT_MIN_DEG - HEADING_MIN_DEG) * urgency
+    if committed_side != 0:
+        min_heading_deg = max(min_heading_deg, HEADING_COMMIT_MIN_DEG)
+    min_heading_deg = min(min_heading_deg, HEADING_MAX_DEG)
+
+    headings_deg = np.arange(min_heading_deg,
                              HEADING_MAX_DEG + 0.1,
                              HEADING_SAMPLE_DEG)
     for deg in headings_deg:
@@ -282,10 +291,10 @@ def choose_side_from_candidates(theta, dist, prev_heading, trigger_dist, committ
         right_heading, right_clear, right_cost = np.deg2rad(HEADING_MAX_DEG), 0.0, float("inf")
 
     if committed_side < 0:
-        if left_clear + PASS_COMMIT_OVERRIDE_MARGIN >= right_clear:
+        if left_clear >= PASS_COMMIT_MIN_CLEAR and left_clear + PASS_COMMIT_KEEP_MARGIN >= right_clear:
             return left_heading, left_clear, left_clear, right_clear, left_cost, right_cost, urgency
     elif committed_side > 0:
-        if right_clear + PASS_COMMIT_OVERRIDE_MARGIN >= left_clear:
+        if right_clear >= PASS_COMMIT_MIN_CLEAR and right_clear + PASS_COMMIT_KEEP_MARGIN >= left_clear:
             return right_heading, right_clear, left_clear, right_clear, left_cost, right_cost, urgency
 
     if urgency > 0.35 and abs(left_clear - right_clear) > CLEAR_DECISIVE_MARGIN:
@@ -426,21 +435,26 @@ def main():
                 time.sleep(LOOP_DT_S); continue
             last_scan_ok = time.time()
 
+            now_abs = time.time()
+            if pass_commit_side != 0 and (now_abs - pass_commit_t > PASS_COMMIT_MAX_S):
+                pass_commit_side = 0
+
             heading, front_dist, path_clear, blocker, left_clear, right_clear, left_cost, right_cost, urgency = (
                 choose_heading_corridor(theta, dist, prev_heading, pass_commit_side)
             )
             w_guard, left_near, right_near = side_guard_w(theta, dist)
 
-            now_abs = time.time()
             commit_active = pass_commit_side != 0
-            commit_expired = commit_active and (now_abs - pass_commit_t > PASS_COMMIT_MAX_S)
             commit_clear = (front_dist > PASS_COMMIT_RELEASE_FRONT and
                             path_clear > PASS_COMMIT_RELEASE_CLEAR and
                             urgency <= 0.0)
-            if commit_active and (commit_expired or commit_clear):
+            if commit_active and commit_clear:
                 pass_commit_side = 0
-            if pass_commit_side == 0 and abs(heading) > np.deg2rad(HEADING_DEADBAND_DEG):
-                pass_commit_side = -1 if heading < 0.0 else 1
+            heading_side = 0
+            if abs(heading) > np.deg2rad(HEADING_DEADBAND_DEG):
+                heading_side = -1 if heading < 0.0 else 1
+            if heading_side != 0 and heading_side != pass_commit_side:
+                pass_commit_side = heading_side
                 pass_commit_t = now_abs
 
             w_lane = 0.0
