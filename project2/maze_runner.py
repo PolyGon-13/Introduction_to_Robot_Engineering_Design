@@ -52,6 +52,10 @@ PREV_HEADING_COST = 0.85
 CLEARANCE_COST    = 1.80
 SWITCH_SIGN_COST  = 0.80
 CLEAR_DECISIVE_MARGIN = 0.20 # [m]
+PASS_SIDE_HOLD_DIST   = 0.55 # [m]
+PASS_SIDE_KEEP_CLEAR  = 0.32 # [m]
+PASS_SIDE_SWITCH_MARGIN = 0.22 # [m]
+PASS_SIDE_RELEASE_S   = 0.20 # [s]
 FRONT_URGENT_DIST   = 0.55   # [m]
 FRONT_CRITICAL_DIST = 0.25   # [m]
 FORWARD_COST_URGENT      = 0.25
@@ -238,12 +242,12 @@ def score_pass_heading(heading, clear, front, prev_heading, urgency):
     return cost
 
 
-def choose_heading_corridor(theta, dist, prev_heading):
+def choose_heading_corridor(theta, dist, prev_heading, pass_side):
     blocker = find_corridor_blocker(theta, dist)
     straight_clear = sector_clearance(theta, dist, 0.0, PATH_HALF_DEG)
     front = min_in_angle(theta, dist, FRONT_HALF_DEG)
     if blocker is None:
-        return 0.0, front, straight_clear, None, 0.0, 0.0, 0.0, 0.0, 0.0
+        return 0.0, front, straight_clear, None, 0.0, 0.0, 0.0, 0.0, 0.0, 0
 
     pass_half = CORRIDOR_HALF + PASS_TARGET_MARGIN
     left_y = blocker["y_min"] - pass_half
@@ -263,13 +267,22 @@ def choose_heading_corridor(theta, dist, prev_heading):
     right_cost = score_pass_heading(right_heading, right_clear, blocker["front"],
                                     prev_heading, urgency)
 
+    if pass_side < 0 and blocker["front"] <= PASS_SIDE_HOLD_DIST:
+        if (left_clear >= PASS_SIDE_KEEP_CLEAR or
+                right_clear < left_clear + PASS_SIDE_SWITCH_MARGIN):
+            return left_heading, blocker["front"], left_clear, blocker, left_clear, right_clear, left_cost, right_cost, urgency, -1
+    elif pass_side > 0 and blocker["front"] <= PASS_SIDE_HOLD_DIST:
+        if (right_clear >= PASS_SIDE_KEEP_CLEAR or
+                left_clear < right_clear + PASS_SIDE_SWITCH_MARGIN):
+            return right_heading, blocker["front"], right_clear, blocker, left_clear, right_clear, left_cost, right_cost, urgency, 1
+
     if urgency > 0.35 and abs(left_clear - right_clear) > CLEAR_DECISIVE_MARGIN:
         if left_clear > right_clear:
-            return left_heading, blocker["front"], left_clear, blocker, left_clear, right_clear, left_cost, right_cost, urgency
-        return right_heading, blocker["front"], right_clear, blocker, left_clear, right_clear, left_cost, right_cost, urgency
+            return left_heading, blocker["front"], left_clear, blocker, left_clear, right_clear, left_cost, right_cost, urgency, -1
+        return right_heading, blocker["front"], right_clear, blocker, left_clear, right_clear, left_cost, right_cost, urgency, 1
     if left_cost <= right_cost:
-        return left_heading, blocker["front"], left_clear, blocker, left_clear, right_clear, left_cost, right_cost, urgency
-    return right_heading, blocker["front"], right_clear, blocker, left_clear, right_clear, left_cost, right_cost, urgency
+        return left_heading, blocker["front"], left_clear, blocker, left_clear, right_clear, left_cost, right_cost, urgency, -1
+    return right_heading, blocker["front"], right_clear, blocker, left_clear, right_clear, left_cost, right_cost, urgency, 1
 
 
 def side_guard_w(theta, dist):
@@ -357,6 +370,8 @@ def main():
     prev_heading = 0.0
     turn_balance = 0.0
     last_cmd_time = time.time()
+    pass_side = 0
+    last_blocker_time = 0.0
     try:
         while True:
             t = time.time() - t0
@@ -381,10 +396,15 @@ def main():
                 time.sleep(LOOP_DT_S); continue
             last_scan_ok = time.time()
 
-            heading, front_dist, path_clear, blocker, left_clear, right_clear, left_cost, right_cost, urgency = (
-                choose_heading_corridor(theta, dist, prev_heading)
+            heading, front_dist, path_clear, blocker, left_clear, right_clear, left_cost, right_cost, urgency, chosen_side = (
+                choose_heading_corridor(theta, dist, prev_heading, pass_side)
             )
             w_guard, left_near, right_near = side_guard_w(theta, dist)
+            if blocker is not None and chosen_side != 0:
+                pass_side = chosen_side
+                last_blocker_time = time.time()
+            elif time.time() - last_blocker_time > PASS_SIDE_RELEASE_S:
+                pass_side = 0
 
             w_lane = 0.0
             if heading == 0.0 and front_dist > LANE_ACTIVE_DIST:
@@ -425,6 +445,7 @@ def main():
                 obs_x = blocker["x"] if blocker is not None else 0.0
                 obs_y = blocker["y"] if blocker is not None else 0.0
                 obs_n = blocker["points"] if blocker is not None else 0
+                ps_txt = "L" if pass_side < 0 else ("R" if pass_side > 0 else "-")
                 print(f"[RUN] {mode} v={v:.2f} w={w:.2f} "
                       f"head={math.degrees(heading):.1f} "
                       f"front={front_dist:.2f} clear={path_clear:.2f} "
@@ -432,7 +453,7 @@ def main():
                       f"passL={left_clear:.2f} passR={right_clear:.2f} "
                       f"sideL={left_near:.2f} sideR={right_near:.2f} "
                       f"urg={urgency:.2f} cL={left_cost:.2f} cR={right_cost:.2f} "
-                      f"bal={math.degrees(turn_balance):.1f}")
+                      f"bal={math.degrees(turn_balance):.1f} ps={ps_txt}")
                 last_log = time.time()
             time.sleep(LOOP_DT_S)
 
