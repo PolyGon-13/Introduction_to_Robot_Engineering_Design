@@ -42,6 +42,7 @@ COLLISION_DIST = ROBOT_RADIUS + SAFETY_MARGIN
 CLEARANCE_CAP = 1.0
 FRONT_CORRIDOR_HALF = COLLISION_DIST
 ACTIVE_FRONT_DIST = 1.15
+SIDE_NEAR_DIST = COLLISION_DIST + 0.12
 W_CMD_RATE_LIMIT = 0.35
 W_CMD_RATE_LIMIT_URGENT = 0.70
 URGENT_FRONT_DIST = 0.55
@@ -62,6 +63,9 @@ GOAL_MIN_V = 0.08
 
 clearance_weight = 3.0
 collision_weight = 100.0
+side_clearance_weight = 0.6
+side_near_weight = 8.0
+side_collision_weight = 18.0
 forward_weight = 1.0
 far_forward_weight = 2.2
 turn_weight = 0.25
@@ -219,15 +223,43 @@ def front_distance(points):
     return float(np.min(points[mask, 0]))
 
 
+def trajectory_clearances(traj, points):
+    if len(points) == 0:
+        return MAX_LIDAR_DIST_M, MAX_LIDAR_DIST_M, MAX_LIDAR_DIST_M
+
+    traj_xy = traj[:, :2]
+    theta = traj[:, 2]
+    diff = points[None, :, :] - traj_xy[:, None, :]
+    dx = diff[:, :, 0]
+    dy = diff[:, :, 1]
+    dist = np.sqrt(dx * dx + dy * dy)
+
+    c = np.cos(theta)[:, None]
+    s = np.sin(theta)[:, None]
+    rel_x = c * dx + s * dy
+    rel_y = -s * dx + c * dy
+
+    front_mask = ((rel_x > 0.0) &
+                  (rel_x < ACTIVE_FRONT_DIST) &
+                  (np.abs(rel_y) < FRONT_CORRIDOR_HALF))
+    if front_mask.any():
+        front_clear = float(np.min(dist[front_mask]))
+    else:
+        front_clear = MAX_LIDAR_DIST_M
+
+    side_mask = ~front_mask
+    if side_mask.any():
+        side_clear = float(np.min(dist[side_mask]))
+    else:
+        side_clear = MAX_LIDAR_DIST_M
+
+    body_clear = float(np.min(dist))
+    return front_clear, side_clear, body_clear
+
+
 def evaluate_candidate(v, w, points, prev_w, front_dist):
     traj = predict_trajectory(v, w)
-    if len(points) == 0:
-        min_clearance = MAX_LIDAR_DIST_M
-    else:
-        traj_xy = traj[:, :2]
-        diff = traj_xy[:, None, :] - points[None, :, :]
-        dist = np.sqrt(np.sum(diff * diff, axis=2))
-        min_clearance = float(np.min(dist))
+    front_clearance, side_clearance, body_clearance = trajectory_clearances(traj, points)
 
     max_abs_w = max(abs(wc) for wc in W_CANDIDATES)
     front_factor = float(np.clip((ACTIVE_FRONT_DIST - front_dist) /
@@ -237,9 +269,14 @@ def evaluate_candidate(v, w, points, prev_w, front_dist):
     turn_w = turn_weight + (1.0 - front_factor) * far_turn_weight
 
     score = 0.0
-    score += clearance_weight * min(min_clearance, CLEARANCE_CAP)
-    if min_clearance < COLLISION_DIST:
-        score -= collision_weight * (COLLISION_DIST - min_clearance + 1.0)
+    score += clearance_weight * min(front_clearance, CLEARANCE_CAP)
+    score += side_clearance_weight * min(side_clearance, CLEARANCE_CAP)
+    if front_clearance < COLLISION_DIST:
+        score -= collision_weight * (COLLISION_DIST - front_clearance + 1.0)
+    if side_clearance < COLLISION_DIST:
+        score -= side_collision_weight * (COLLISION_DIST - side_clearance + 1.0)
+    elif side_clearance < SIDE_NEAR_DIST:
+        score -= side_near_weight * (SIDE_NEAR_DIST - side_clearance)
     score += forward_w * (1.0 - abs(w) / max_abs_w)
     score -= turn_w * abs(w)
     score -= smooth_weight * abs(w - prev_w)
@@ -268,7 +305,7 @@ def evaluate_candidate(v, w, points, prev_w, front_dist):
     if theta_abs > TURN_HARD_LIMIT_RAD:
         score -= collision_weight * (theta_abs - TURN_HARD_LIMIT_RAD + 1.0)
 
-    return score, min_clearance, candidate_theta
+    return score, front_clearance, side_clearance, body_clearance, candidate_theta
 
 
 def rate_limit_w(prev_w, target_w, urgent=False):
