@@ -60,13 +60,7 @@ CLEARANCE_COST_URGENT    = 5.00
 SWITCH_SIGN_COST_URGENT  = 0.15
 MIN_AVOID_W_URGENT       = 0.34 # [rad/s]
 TURN_BALANCE_CLAMP       = 0.75 # [rad], 오른쪽 누적 회전이 +
-TURN_BALANCE_DEADBAND    = 0.20 # [rad]
-TURN_BALANCE_TIE_CLEAR   = 0.05 # [m]
-TURN_BALANCE_TIE_COST    = 0.80
-TURN_BALANCE_MAX_URGENCY = 0.45
 TURN_BALANCE_DECAY_PER_S = 0.22
-TURN_BALANCE_RESTORE_K   = 0.12
-TURN_BALANCE_W_LIMIT     = 0.08 # [rad/s]
 SIDE_GUARD_DIST   = 0.38   # [m]
 SIDE_GUARD_GAIN   = 0.9
 SIDE_GUARD_W_MAX  = 0.22   # [rad/s]
@@ -244,29 +238,12 @@ def score_pass_heading(heading, clear, front, prev_heading, urgency):
     return cost
 
 
-def balance_tiebreak_side(left_clear, right_clear, left_cost, right_cost,
-                          urgency, turn_balance):
-    if urgency > TURN_BALANCE_MAX_URGENCY:
-        return 0
-    if abs(turn_balance) <= TURN_BALANCE_DEADBAND:
-        return 0
-    if abs(left_clear - right_clear) > TURN_BALANCE_TIE_CLEAR:
-        return 0
-    if abs(left_cost - right_cost) > TURN_BALANCE_TIE_COST:
-        return 0
-    if turn_balance > 0.0 and left_clear >= HEADING_MIN_CLEAR:
-        return -1
-    if turn_balance < 0.0 and right_clear >= HEADING_MIN_CLEAR:
-        return 1
-    return 0
-
-
-def choose_heading_corridor(theta, dist, prev_heading, turn_balance):
+def choose_heading_corridor(theta, dist, prev_heading):
     blocker = find_corridor_blocker(theta, dist)
     straight_clear = sector_clearance(theta, dist, 0.0, PATH_HALF_DEG)
     front = min_in_angle(theta, dist, FRONT_HALF_DEG)
     if blocker is None:
-        return 0.0, front, straight_clear, None, 0.0, 0.0, 0.0, 0.0, 0.0, 0
+        return 0.0, front, straight_clear, None, 0.0, 0.0, 0.0, 0.0, 0.0
 
     pass_half = CORRIDOR_HALF + PASS_TARGET_MARGIN
     left_y = blocker["y_min"] - pass_half
@@ -288,17 +265,11 @@ def choose_heading_corridor(theta, dist, prev_heading, turn_balance):
 
     if urgency > 0.35 and abs(left_clear - right_clear) > CLEAR_DECISIVE_MARGIN:
         if left_clear > right_clear:
-            return left_heading, blocker["front"], left_clear, blocker, left_clear, right_clear, left_cost, right_cost, urgency, 0
-        return right_heading, blocker["front"], right_clear, blocker, left_clear, right_clear, left_cost, right_cost, urgency, 0
-    balance_side = balance_tiebreak_side(left_clear, right_clear, left_cost,
-                                         right_cost, urgency, turn_balance)
-    if balance_side < 0:
-        return left_heading, blocker["front"], left_clear, blocker, left_clear, right_clear, left_cost, right_cost, urgency, balance_side
-    if balance_side > 0:
-        return right_heading, blocker["front"], right_clear, blocker, left_clear, right_clear, left_cost, right_cost, urgency, balance_side
+            return left_heading, blocker["front"], left_clear, blocker, left_clear, right_clear, left_cost, right_cost, urgency
+        return right_heading, blocker["front"], right_clear, blocker, left_clear, right_clear, left_cost, right_cost, urgency
     if left_cost <= right_cost:
-        return left_heading, blocker["front"], left_clear, blocker, left_clear, right_clear, left_cost, right_cost, urgency, 0
-    return right_heading, blocker["front"], right_clear, blocker, left_clear, right_clear, left_cost, right_cost, urgency, 0
+        return left_heading, blocker["front"], left_clear, blocker, left_clear, right_clear, left_cost, right_cost, urgency
+    return right_heading, blocker["front"], right_clear, blocker, left_clear, right_clear, left_cost, right_cost, urgency
 
 
 def side_guard_w(theta, dist):
@@ -322,16 +293,6 @@ def apply_min_avoid_turn(w_target, heading, urgency):
     if w_target * turn_sign < min_w:
         return turn_sign * min_w
     return w_target
-
-
-def turn_balance_restore_w(turn_balance, heading, urgency):
-    if urgency > 0.20 or abs(heading) > np.deg2rad(HEADING_DEADBAND_DEG):
-        return 0.0
-    balance_excess = abs(turn_balance) - TURN_BALANCE_DEADBAND
-    if balance_excess <= 0.0:
-        return 0.0
-    w = TURN_BALANCE_RESTORE_K * math.copysign(balance_excess, turn_balance)
-    return float(np.clip(w, -TURN_BALANCE_W_LIMIT, TURN_BALANCE_W_LIMIT))
 
 
 def smooth_steering(prev_w, target_w, urgency=0.0):
@@ -420,11 +381,10 @@ def main():
                 time.sleep(LOOP_DT_S); continue
             last_scan_ok = time.time()
 
-            heading, front_dist, path_clear, blocker, left_clear, right_clear, left_cost, right_cost, urgency, balance_side = (
-                choose_heading_corridor(theta, dist, prev_heading, turn_balance)
+            heading, front_dist, path_clear, blocker, left_clear, right_clear, left_cost, right_cost, urgency = (
+                choose_heading_corridor(theta, dist, prev_heading)
             )
             w_guard, left_near, right_near = side_guard_w(theta, dist)
-            w_balance = turn_balance_restore_w(turn_balance, heading, urgency)
 
             w_lane = 0.0
             if heading == 0.0 and front_dist > LANE_ACTIVE_DIST:
@@ -438,7 +398,7 @@ def main():
                                                W_LANE_LIMIT))
 
             w_heading = -K_HEADING * heading
-            w_target = float(np.clip(w_heading + w_guard + w_lane + w_balance,
+            w_target = float(np.clip(w_heading + w_guard + w_lane,
                                      -W_MAX,
                                      W_MAX))
             w_target = apply_min_avoid_turn(w_target, heading, urgency)
@@ -450,10 +410,14 @@ def main():
             now = time.time()
             dt_cmd = max(0.0, min(0.20, now - last_cmd_time))
             last_cmd_time = now
-            balance_decay = max(0.0, 1.0 - TURN_BALANCE_DECAY_PER_S * dt_cmd)
-            turn_balance = float(np.clip((turn_balance - w * dt_cmd) * balance_decay,
-                                         -TURN_BALANCE_CLAMP,
-                                         TURN_BALANCE_CLAMP))
+            is_avoiding = abs(heading) > np.deg2rad(HEADING_DEADBAND_DEG)
+            if is_avoiding:
+                turn_balance = float(np.clip(turn_balance - w * dt_cmd,
+                                             -TURN_BALANCE_CLAMP,
+                                             TURN_BALANCE_CLAMP))
+            else:
+                balance_decay = max(0.0, 1.0 - TURN_BALANCE_DECAY_PER_S * dt_cmd)
+                turn_balance *= balance_decay
             last_v, last_w = v, w
             prev_heading = heading
             if time.time() - last_log > 0.25:
@@ -461,7 +425,6 @@ def main():
                 obs_x = blocker["x"] if blocker is not None else 0.0
                 obs_y = blocker["y"] if blocker is not None else 0.0
                 obs_n = blocker["points"] if blocker is not None else 0
-                tb_txt = "L" if balance_side < 0 else ("R" if balance_side > 0 else "-")
                 print(f"[RUN] {mode} v={v:.2f} w={w:.2f} "
                       f"head={math.degrees(heading):.1f} "
                       f"front={front_dist:.2f} clear={path_clear:.2f} "
@@ -469,8 +432,7 @@ def main():
                       f"passL={left_clear:.2f} passR={right_clear:.2f} "
                       f"sideL={left_near:.2f} sideR={right_near:.2f} "
                       f"urg={urgency:.2f} cL={left_cost:.2f} cR={right_cost:.2f} "
-                      f"bal={math.degrees(turn_balance):.1f} wb={w_balance:.2f} "
-                      f"tb={tb_txt}")
+                      f"bal={math.degrees(turn_balance):.1f}")
                 last_log = time.time()
             time.sleep(LOOP_DT_S)
 
