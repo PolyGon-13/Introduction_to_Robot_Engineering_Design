@@ -320,6 +320,8 @@ def choose_best_cmd(scan, prev_w, cmd_v):
         return cmd_v, rate_limit_w(prev_w, 0.0), {
             "score": 0.0,
             "clear": MAX_LIDAR_DIST_M,
+            "side": MAX_LIDAR_DIST_M,
+            "body": MAX_LIDAR_DIST_M,
             "front": MAX_LIDAR_DIST_M,
             "points": 0,
             "collision": False,
@@ -331,20 +333,24 @@ def choose_best_cmd(scan, prev_w, cmd_v):
     best_w = 0.0
     best_score = -float("inf")
     best_clearance = -float("inf")
+    best_side_clearance = MAX_LIDAR_DIST_M
+    best_body_clearance = MAX_LIDAR_DIST_M
     all_collision = True
     best_clear_w = 0.0
     best_clear_score = -float("inf")
     best_theta = 0.0
 
     for w in W_CANDIDATES:
-        score, clearance, candidate_theta = evaluate_candidate(cmd_v, w, points, prev_w, fdist)
+        score, clearance, side_clearance, body_clearance, candidate_theta = (
+            evaluate_candidate(cmd_v, w, points, prev_w, fdist)
+        )
         collision = clearance < COLLISION_DIST
         if not collision:
             all_collision = False
         theta_abs = abs(candidate_theta)
         theta_excess = max(0.0, theta_abs - TURN_SOFT_LIMIT_RAD)
         theta_growth = max(0.0, theta_abs - abs(robot_theta))
-        clear_score = clearance + 0.03 * abs(w) - 0.02 * abs(w - prev_w)
+        clear_score = clearance + 0.18 * side_clearance + 0.03 * abs(w) - 0.02 * abs(w - prev_w)
         clear_score -= 0.20 * theta_excess
         if abs(robot_theta) > TURN_SOFT_LIMIT_RAD:
             clear_score -= 0.12 * theta_growth
@@ -355,17 +361,23 @@ def choose_best_cmd(scan, prev_w, cmd_v):
             best_score = score
             best_w = w
             best_clearance = clearance
+            best_side_clearance = side_clearance
+            best_body_clearance = body_clearance
             best_theta = candidate_theta
 
     if all_collision:
         best_w = best_clear_w
-        best_score, best_clearance, best_theta = evaluate_candidate(cmd_v, best_w, points, prev_w, fdist)
+        best_score, best_clearance, best_side_clearance, best_body_clearance, best_theta = (
+            evaluate_candidate(cmd_v, best_w, points, prev_w, fdist)
+        )
 
     raw_best_w = best_w
     best_w = rate_limit_w(prev_w, best_w, fdist < URGENT_FRONT_DIST or all_collision)
     return cmd_v, best_w, {
         "score": best_score,
         "clear": best_clearance,
+        "side": best_side_clearance,
+        "body": best_body_clearance,
         "front": fdist,
         "points": len(points),
         "collision": best_clearance < COLLISION_DIST,
@@ -447,6 +459,7 @@ def main():
                       f"th={robot_theta:.2f} gd={gd:.2f} he={he:.2f} "
                       f"v={v:.2f} w={w:.2f} raw={info['raw_w']:.2f} "
                       f"front={info['front']:.2f} clear={info['clear']:.2f} "
+                      f"side={info['side']:.2f} body={info['body']:.2f} "
                       f"score={info['score']:.2f} pts={info['points']} "
                       f"coll={int(info['collision'])} cth={info['cth']:.2f}")
                 last_log = time.time()
