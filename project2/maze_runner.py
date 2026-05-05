@@ -51,7 +51,7 @@ FORWARD_COST      = 0.60
 PREV_HEADING_COST = 0.85
 CLEARANCE_COST    = 1.80
 SWITCH_SIGN_COST  = 0.80
-CLEAR_DECISIVE_MARGIN = 0.12 # [m]
+CLEAR_DECISIVE_MARGIN = 0.20 # [m]
 FRONT_URGENT_DIST   = 0.55   # [m]
 FRONT_CRITICAL_DIST = 0.25   # [m]
 FORWARD_COST_URGENT      = 0.25
@@ -59,6 +59,11 @@ PREV_HEADING_COST_URGENT = 0.15
 CLEARANCE_COST_URGENT    = 5.00
 SWITCH_SIGN_COST_URGENT  = 0.15
 MIN_AVOID_W_URGENT       = 0.34 # [rad/s]
+TURN_BALANCE_CLAMP       = 1.10 # [rad], 오른쪽 누적 회전이 +
+TURN_BALANCE_DEADBAND    = 0.14 # [rad]
+TURN_BALANCE_COST        = 2.10
+TURN_BALANCE_RESTORE_K   = 0.28
+TURN_BALANCE_W_LIMIT     = 0.16 # [rad/s]
 SIDE_GUARD_DIST   = 0.38   # [m]
 SIDE_GUARD_GAIN   = 0.9
 SIDE_GUARD_W_MAX  = 0.22   # [rad/s]
@@ -217,7 +222,7 @@ def find_corridor_blocker(theta, dist):
     }
 
 
-def score_pass_heading(heading, clear, front, prev_heading, urgency):
+def score_pass_heading(heading, clear, front, prev_heading, urgency, turn_balance):
     forward_cost = FORWARD_COST + (FORWARD_COST_URGENT - FORWARD_COST) * urgency
     prev_cost = PREV_HEADING_COST + (PREV_HEADING_COST_URGENT - PREV_HEADING_COST) * urgency
     clear_cost = CLEARANCE_COST + (CLEARANCE_COST_URGENT - CLEARANCE_COST) * urgency
@@ -229,6 +234,9 @@ def score_pass_heading(heading, clear, front, prev_heading, urgency):
 
     prev_sign = math.copysign(1.0, prev_heading) if abs(prev_heading) > 0.12 else 0.0
     heading_sign = math.copysign(1.0, heading) if abs(heading) > 0.12 else 0.0
+    balance_excess = max(0.0, abs(turn_balance) - TURN_BALANCE_DEADBAND)
+    if heading_sign != 0.0 and turn_balance * heading_sign > 0.0:
+        cost += TURN_BALANCE_COST * balance_excess
     if prev_sign != 0.0 and heading_sign != 0.0 and heading_sign != prev_sign:
         cost += switch_cost
     if clear < HEADING_MIN_CLEAR:
@@ -236,7 +244,7 @@ def score_pass_heading(heading, clear, front, prev_heading, urgency):
     return cost
 
 
-def choose_heading_corridor(theta, dist, prev_heading):
+def choose_heading_corridor(theta, dist, prev_heading, turn_balance):
     blocker = find_corridor_blocker(theta, dist)
     straight_clear = sector_clearance(theta, dist, 0.0, PATH_HALF_DEG)
     front = min_in_angle(theta, dist, FRONT_HALF_DEG)
@@ -256,8 +264,10 @@ def choose_heading_corridor(theta, dist, prev_heading):
     left_clear = sector_clearance(theta, dist, left_heading, PATH_HALF_DEG)
     right_clear = sector_clearance(theta, dist, right_heading, PATH_HALF_DEG)
     urgency = front_urgency(blocker["front"])
-    left_cost = score_pass_heading(left_heading, left_clear, blocker["front"], prev_heading, urgency)
-    right_cost = score_pass_heading(right_heading, right_clear, blocker["front"], prev_heading, urgency)
+    left_cost = score_pass_heading(left_heading, left_clear, blocker["front"],
+                                   prev_heading, urgency, turn_balance)
+    right_cost = score_pass_heading(right_heading, right_clear, blocker["front"],
+                                    prev_heading, urgency, turn_balance)
 
     if urgency > 0.35 and abs(left_clear - right_clear) > CLEAR_DECISIVE_MARGIN:
         if left_clear > right_clear:
@@ -289,6 +299,16 @@ def apply_min_avoid_turn(w_target, heading, urgency):
     if w_target * turn_sign < min_w:
         return turn_sign * min_w
     return w_target
+
+
+def turn_balance_restore_w(turn_balance, heading, urgency):
+    if urgency > 0.20 or abs(heading) > np.deg2rad(HEADING_DEADBAND_DEG):
+        return 0.0
+    balance_excess = abs(turn_balance) - TURN_BALANCE_DEADBAND
+    if balance_excess <= 0.0:
+        return 0.0
+    w = TURN_BALANCE_RESTORE_K * math.copysign(balance_excess, turn_balance)
+    return float(np.clip(w, -TURN_BALANCE_W_LIMIT, TURN_BALANCE_W_LIMIT))
 
 
 def smooth_steering(prev_w, target_w, urgency=0.0):
@@ -351,6 +371,8 @@ def main():
     last_v, last_w = 0.0, 0.0
     last_log = 0.0
     prev_heading = 0.0
+    turn_balance = 0.0
+    last_cmd_time = time.time()
     try:
         while True:
             t = time.time() - t0
@@ -376,9 +398,10 @@ def main():
             last_scan_ok = time.time()
 
             heading, front_dist, path_clear, blocker, left_clear, right_clear, left_cost, right_cost, urgency = (
-                choose_heading_corridor(theta, dist, prev_heading)
+                choose_heading_corridor(theta, dist, prev_heading, turn_balance)
             )
             w_guard, left_near, right_near = side_guard_w(theta, dist)
+            w_balance = turn_balance_restore_w(turn_balance, heading, urgency)
 
             w_lane = 0.0
             if heading == 0.0 and front_dist > LANE_ACTIVE_DIST:
@@ -392,7 +415,7 @@ def main():
                                                W_LANE_LIMIT))
 
             w_heading = -K_HEADING * heading
-            w_target = float(np.clip(w_heading + w_guard + w_lane,
+            w_target = float(np.clip(w_heading + w_guard + w_lane + w_balance,
                                      -W_MAX,
                                      W_MAX))
             w_target = apply_min_avoid_turn(w_target, heading, urgency)
@@ -401,6 +424,12 @@ def main():
             v = V_CRUISE
 
             send_vw(v, w)
+            now = time.time()
+            dt_cmd = max(0.0, min(0.20, now - last_cmd_time))
+            last_cmd_time = now
+            turn_balance = float(np.clip(turn_balance - w * dt_cmd,
+                                         -TURN_BALANCE_CLAMP,
+                                         TURN_BALANCE_CLAMP))
             last_v, last_w = v, w
             prev_heading = heading
             if time.time() - last_log > 0.25:
@@ -414,7 +443,8 @@ def main():
                       f"obs=({obs_x:.2f},{obs_y:.2f},n={obs_n}) "
                       f"passL={left_clear:.2f} passR={right_clear:.2f} "
                       f"sideL={left_near:.2f} sideR={right_near:.2f} "
-                      f"urg={urgency:.2f} cL={left_cost:.2f} cR={right_cost:.2f}")
+                      f"urg={urgency:.2f} cL={left_cost:.2f} cR={right_cost:.2f} "
+                      f"bal={math.degrees(turn_balance):.1f} wb={w_balance:.2f}")
                 last_log = time.time()
             time.sleep(LOOP_DT_S)
 

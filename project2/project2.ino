@@ -2,7 +2,6 @@
 
 #define PI_F 3.1416f
 
-// ────────────── 핀 매핑 (1번 과제와 동일) ──────────────
 const byte PWMPin_r  = 9;
 const byte DirPin1_r = 10;
 const byte DirPin2_r = 11;
@@ -15,27 +14,22 @@ const byte DirPin2_l = 8;
 const byte ENC_A_l   = 3;
 const byte ENC_B_l   = 5;
 
-// ────────────── 부호 설정 (1번 과제와 동일) ──────────────
 const bool INVERT_ENC_R    = true;
 const bool INVERT_ENC_L    = false;
 const bool REVERSE_MOTOR_R = true;
 const bool REVERSE_MOTOR_L = true;
 
-// ────────────── 기구 파라미터 ──────────────
 const float WHEEL_R       = 0.034f;          // [m] 휠 반경
 const float WHEEL_BASE    = 0.179f;          // [m] **실측치 반영**
 const float PPR           = 1012.0f;
 const float COUNT_PER_RAD = PPR / (2.0f * PI_F);
 
-// ────────────── 전압/PWM (1번 과제 컨벤션) ──────────────
 const float V_MAX = 6.0f;
 const float V_MIN = -6.0f;
 const float DRIVER_DEADBAND_V = 0.05f;
 
-// ────────────── 휠 속도 한계 ──────────────
 const float WHEEL_SPEED_MAX = 8.0f;          // [rad/s]
 
-// ────────────── PID (좌/우 독립) ──────────────
 struct WheelPID {
   float kp, ki, kd;
   float integ, prev_e;
