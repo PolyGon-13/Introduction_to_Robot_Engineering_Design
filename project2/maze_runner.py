@@ -31,24 +31,23 @@ DISP_CLAMP      = 3.0      # [m]
 
 # 속도/조향 정책: 정상 회피 중에는 정지/감속/후진 없이 조향으로만 피함
 V_CRUISE        = 0.18     # [m/s]
-W_MAX           = 1.25     # [rad/s]
+W_MAX           = 0.85     # [rad/s]
 TURN_BOOST_DIST = 0.75     # [m] 이보다 가까우면 속도 대신 조향량 증가
-TURN_BOOST_GAIN = 0.45
-NO_GAP_TURN_W   = 1.0      # [rad/s] gap이 없을 때 넓은 쪽으로 강제 조향
-OBSTACLE_HALF_DEG = 32.0
-OBSTACLE_ON_DIST  = 1.15   # [m]
-OBSTACLE_OFF_DIST = 1.45   # [m]
-AVOID_W_MIN       = 0.45   # [rad/s]
-AVOID_W_MAX       = 1.05   # [rad/s]
-AVOID_SWITCH_MARGIN = 0.35 # [m]
+TURN_BOOST_GAIN = 0.15
+NO_GAP_TURN_W   = 0.75     # [rad/s] gap이 없을 때 넓은 쪽으로 강제 조향
+OBSTACLE_HALF_DEG = 16.0
+OBSTACLE_ON_DIST  = 0.90   # [m]
+OBSTACLE_OFF_DIST = 1.10   # [m]
+AVOID_W_MIN       = 0.28   # [rad/s]
+AVOID_W_MAX       = 0.72   # [rad/s]
 W_DEADBAND        = 0.05   # [rad/s]
-W_SMOOTH_ALPHA    = 0.35
-W_RATE_LIMIT_STEP = 0.12   # [rad/s] per loop
+W_SMOOTH_ALPHA    = 0.25
+W_RATE_LIMIT_STEP = 0.06   # [rad/s] per loop
 SCAN_HOLD_S     = 0.30     # [s] 짧은 스캔 누락은 직전 명령 유지
 LOOP_DT_S       = 0.05
 
 # 라인 키핑 (좌측 흰 벽 추종)
-K_LANE          = 0.20
+K_LANE          = 0.0
 LANE_ACTIVE_DIST = 1.5     # 정면이 이거보다 멀 때만 활성
 LANE_DEADBAND_M  = 0.04
 W_LANE_LIMIT     = 0.25
@@ -194,12 +193,8 @@ def side_clearance(theta, dist):
     return clearance_score(dist[left_mask]), clearance_score(dist[right_mask])
 
 
-def choose_avoid_dir(theta, dist, current_dir):
+def choose_avoid_dir(theta, dist):
     left_score, right_score = side_clearance(theta, dist)
-    if current_dir > 0 and left_score + AVOID_SWITCH_MARGIN >= right_score:
-        return current_dir
-    if current_dir < 0 and right_score + AVOID_SWITCH_MARGIN >= left_score:
-        return current_dir
     return 1.0 if left_score >= right_score else -1.0
 
 
@@ -301,7 +296,8 @@ def main():
             trigger_front = min_in_angle(theta, dist, OBSTACLE_HALF_DEG)
             if target_angle is None:
                 v = V_CRUISE
-                avoid_dir = choose_no_gap_turn(theta, dist) / abs(NO_GAP_TURN_W)
+                if avoid_dir == 0.0:
+                    avoid_dir = choose_no_gap_turn(theta, dist) / abs(NO_GAP_TURN_W)
                 w_target = avoid_dir * NO_GAP_TURN_W
                 w = smooth_steering(last_w, w_target)
                 send_vw(v, w)
@@ -314,11 +310,12 @@ def main():
                     avoid_dir = 0.0
             elif trigger_front < OBSTACLE_ON_DIST:
                 obstacle_mode = True
-                avoid_dir = choose_avoid_dir(theta, dist, avoid_dir)
+                avoid_dir = choose_avoid_dir(theta, dist)
 
             w_ftg = 0.0
             if obstacle_mode:
-                avoid_dir = choose_avoid_dir(theta, dist, avoid_dir)
+                if avoid_dir == 0.0:
+                    avoid_dir = choose_avoid_dir(theta, dist)
                 w_ftg = avoid_dir * avoid_turn_strength(trigger_front)
 
             w_lane = 0.0
