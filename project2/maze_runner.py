@@ -49,12 +49,20 @@ FORWARD_COST      = 0.60
 PREV_HEADING_COST = 0.85
 CLEARANCE_COST    = 1.80
 SWITCH_SIGN_COST  = 0.80
-SIDE_GUARD_DIST   = 0.38   # [m]
-SIDE_GUARD_GAIN   = 0.9
-SIDE_GUARD_W_MAX  = 0.22   # [rad/s]
+LOCKED_SIDE_CLEAR_MIN = 0.28 # [m]
+LOCK_RELEASE_SIDE_CLEAR = 0.45 # [m]
+SIDE_GUARD_DIST   = 0.42   # [m]
+SIDE_GUARD_GAIN   = 1.1
+SIDE_GUARD_W_MAX  = 0.30   # [rad/s]
+SIDE_HARD_DIST    = 0.24   # [m]
+SIDE_HARD_GAIN    = 2.6
+SIDE_HARD_W_MAX   = 0.55   # [rad/s]
+SIDE_HARD_MIN_TURN = 0.38  # [rad/s]
 W_DEADBAND        = 0.05   # [rad/s]
 W_SMOOTH_ALPHA    = 0.25
 W_RATE_LIMIT_STEP = 0.06   # [rad/s] per loop
+W_HARD_SMOOTH_ALPHA = 0.65
+W_HARD_RATE_LIMIT_STEP = 0.18 # [rad/s] per loop
 SCAN_HOLD_S     = 0.30     # [s] 짧은 스캔 누락은 직전 명령 유지
 LOOP_DT_S       = 0.05
 
@@ -211,12 +219,12 @@ def score_pass_heading(heading, clear, front, prev_heading):
     return cost
 
 
-def choose_heading_corridor(theta, dist, prev_heading):
+def choose_heading_corridor(theta, dist, prev_heading, locked_side):
     blocker = find_corridor_blocker(theta, dist)
     straight_clear = sector_clearance(theta, dist, 0.0, PATH_HALF_DEG)
     front = min_in_angle(theta, dist, FRONT_HALF_DEG)
     if blocker is None:
-        return 0.0, front, straight_clear, None, 0.0, 0.0
+        return 0.0, front, straight_clear, None, 0.0, 0.0, 0
 
     pass_half = CORRIDOR_HALF + PASS_TARGET_MARGIN
     left_y = blocker["y_min"] - pass_half
@@ -233,9 +241,14 @@ def choose_heading_corridor(theta, dist, prev_heading):
     left_cost = score_pass_heading(left_heading, left_clear, blocker["front"], prev_heading)
     right_cost = score_pass_heading(right_heading, right_clear, blocker["front"], prev_heading)
 
+    if locked_side < 0 and left_clear >= LOCKED_SIDE_CLEAR_MIN:
+        return left_heading, blocker["front"], left_clear, blocker, left_clear, right_clear, locked_side
+    if locked_side > 0 and right_clear >= LOCKED_SIDE_CLEAR_MIN:
+        return right_heading, blocker["front"], right_clear, blocker, left_clear, right_clear, locked_side
+
     if left_cost <= right_cost:
-        return left_heading, blocker["front"], left_clear, blocker, left_clear, right_clear
-    return right_heading, blocker["front"], right_clear, blocker, left_clear, right_clear
+        return left_heading, blocker["front"], left_clear, blocker, left_clear, right_clear, -1
+    return right_heading, blocker["front"], right_clear, blocker, left_clear, right_clear, 1
 
 
 def side_guard_w(theta, dist):
@@ -243,6 +256,11 @@ def side_guard_w(theta, dist):
     right_near = min_in_sector(theta, dist, 15.0, 60.0)
     left_push = max(0.0, SIDE_GUARD_DIST - left_near)
     right_push = max(0.0, SIDE_GUARD_DIST - right_near)
+    if left_near < SIDE_HARD_DIST or right_near < SIDE_HARD_DIST:
+        hard_left = max(0.0, SIDE_HARD_DIST - left_near)
+        hard_right = max(0.0, SIDE_HARD_DIST - right_near)
+        w = SIDE_HARD_GAIN * (hard_right - hard_left)
+        return float(np.clip(w, -SIDE_HARD_W_MAX, SIDE_HARD_W_MAX)), left_near, right_near
     w = SIDE_GUARD_GAIN * (right_push - left_push)
     return float(np.clip(w, -SIDE_GUARD_W_MAX, SIDE_GUARD_W_MAX)), left_near, right_near
 
@@ -251,11 +269,22 @@ def apply_deadband(value, deadband):
     return 0.0 if abs(value) < deadband else value
 
 
-def smooth_steering(prev_w, target_w):
-    filtered = prev_w + W_SMOOTH_ALPHA * (target_w - prev_w)
+def apply_side_priority(w_target, left_near, right_near):
+    hard_side = 0
+    if right_near < SIDE_HARD_DIST and right_near <= left_near:
+        hard_side = 1
+        w_target = max(w_target, SIDE_HARD_MIN_TURN)
+    elif left_near < SIDE_HARD_DIST and left_near < right_near:
+        hard_side = -1
+        w_target = min(w_target, -SIDE_HARD_MIN_TURN)
+    return float(np.clip(w_target, -W_MAX, W_MAX)), hard_side
+
+
+def smooth_steering(prev_w, target_w, alpha=W_SMOOTH_ALPHA, rate_limit=W_RATE_LIMIT_STEP):
+    filtered = prev_w + alpha * (target_w - prev_w)
     step = float(np.clip(filtered - prev_w,
-                         -W_RATE_LIMIT_STEP,
-                         W_RATE_LIMIT_STEP))
+                         -rate_limit,
+                         rate_limit))
     return prev_w + step
 
 
@@ -309,6 +338,7 @@ def main():
     last_v, last_w = 0.0, 0.0
     last_log = 0.0
     prev_heading = 0.0
+    locked_side = 0
     try:
         while True:
             t = time.time() - t0
@@ -333,10 +363,14 @@ def main():
                 time.sleep(LOOP_DT_S); continue
             last_scan_ok = time.time()
 
-            heading, front_dist, path_clear, blocker, left_clear, right_clear = (
-                choose_heading_corridor(theta, dist, prev_heading)
+            heading, front_dist, path_clear, blocker, left_clear, right_clear, chosen_side = (
+                choose_heading_corridor(theta, dist, prev_heading, locked_side)
             )
             w_guard, left_near, right_near = side_guard_w(theta, dist)
+            if chosen_side != 0:
+                locked_side = chosen_side
+            elif left_near > LOCK_RELEASE_SIDE_CLEAR and right_near > LOCK_RELEASE_SIDE_CLEAR:
+                locked_side = 0
 
             w_lane = 0.0
             if heading == 0.0 and front_dist > LANE_ACTIVE_DIST:
@@ -353,24 +387,33 @@ def main():
             w_target = float(np.clip(w_heading + w_guard + w_lane,
                                      -W_MAX,
                                      W_MAX))
+            w_target, hard_side = apply_side_priority(w_target, left_near, right_near)
             w_target = apply_deadband(w_target, W_DEADBAND)
-            w = smooth_steering(last_w, w_target)
+            if hard_side != 0:
+                w = smooth_steering(last_w, w_target,
+                                    W_HARD_SMOOTH_ALPHA,
+                                    W_HARD_RATE_LIMIT_STEP)
+            else:
+                w = smooth_steering(last_w, w_target)
             v = V_CRUISE
 
             send_vw(v, w)
             last_v, last_w = v, w
             prev_heading = heading
             if time.time() - last_log > 0.25:
-                mode = "AVOID" if abs(heading) > np.deg2rad(HEADING_DEADBAND_DEG) else ("GUARD" if abs(w_guard) > W_DEADBAND else "STRAIGHT")
+                mode = "HARD" if hard_side != 0 else ("AVOID" if abs(heading) > np.deg2rad(HEADING_DEADBAND_DEG) else ("GUARD" if abs(w_guard) > W_DEADBAND else "STRAIGHT"))
                 obs_x = blocker["x"] if blocker is not None else 0.0
                 obs_y = blocker["y"] if blocker is not None else 0.0
                 obs_n = blocker["points"] if blocker is not None else 0
+                lock_txt = "L" if locked_side < 0 else ("R" if locked_side > 0 else "-")
+                hard_txt = "L" if hard_side < 0 else ("R" if hard_side > 0 else "-")
                 print(f"[RUN] {mode} v={v:.2f} w={w:.2f} "
                       f"head={math.degrees(heading):.1f} "
                       f"front={front_dist:.2f} clear={path_clear:.2f} "
                       f"obs=({obs_x:.2f},{obs_y:.2f},n={obs_n}) "
                       f"passL={left_clear:.2f} passR={right_clear:.2f} "
-                      f"sideL={left_near:.2f} sideR={right_near:.2f}")
+                      f"sideL={left_near:.2f} sideR={right_near:.2f} "
+                      f"lock={lock_txt} hard={hard_txt}")
                 last_log = time.time()
             time.sleep(LOOP_DT_S)
 
