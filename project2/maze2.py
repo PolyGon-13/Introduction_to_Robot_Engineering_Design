@@ -26,18 +26,19 @@ MIN_LIDAR_DIST_M = 0.05
 MAX_LIDAR_DIST_M = 2.5
 MIN_QUALITY = 1
 MIN_X_FOR_PLANNING = -0.10
+FRONT_MIN_X = 0.08
 MAX_EVAL_POINTS = 720
 SCAN_HOLD_S = 0.30
 LOOP_DT_S = 0.05
 
 # 로컬 플래너 파라미터
 BASE_V = 0.18
-W_CANDIDATES = [-1.20, -0.90, -0.60, -0.35, -0.15, 0.0,
-                0.15, 0.35, 0.60, 0.90, 1.20]
+W_CANDIDATES = [-1.20, -0.95, -0.75, -0.55, -0.35, -0.18, 0.0,
+                0.18, 0.35, 0.55, 0.75, 0.95, 1.20]
 PREDICT_TIME = 1.20
 PREDICT_DT = 0.10
 ROBOT_RADIUS = 0.14
-SAFETY_MARGIN = 0.10
+SAFETY_MARGIN = 0.12
 COLLISION_DIST = ROBOT_RADIUS + SAFETY_MARGIN
 CLEARANCE_CAP = 1.0
 FRONT_CORRIDOR_HALF = COLLISION_DIST
@@ -52,6 +53,11 @@ GOAL_TOL_M = 0.08
 GOAL_HEADING_WEIGHT = 1.0
 GOAL_LATERAL_WEIGHT = 1.2
 GOAL_DISTANCE_WEIGHT = 0.4
+GOAL_FACTOR_MIN = 0.25
+GOAL_HEADING_RECOVERY_WEIGHT = 2.2
+GOAL_LATERAL_RECOVERY_WEIGHT = 1.0
+TRACK_HEADING_SOFT_LIMIT_RAD = math.radians(55.0)
+TRACK_HEADING_LIMIT_WEIGHT = 3.0
 USE_GOAL_SLOWDOWN = False
 GOAL_FINAL_SLOW_DIST = 0.30
 GOAL_MIN_V = 0.08
@@ -150,6 +156,30 @@ def transform_local_to_global(local_x, local_y):
     return gx, gy
 
 
+def candidate_goal_metrics(traj):
+    local_x = float(traj[-1, 0])
+    local_y = float(traj[-1, 1])
+    local_theta = float(traj[-1, 2])
+    candidate_x, candidate_y = transform_local_to_global(local_x, local_y)
+    candidate_theta = normalize_angle_rad(robot_theta + local_theta)
+    heading_err = goal_heading_error_from_pose(candidate_x, candidate_y, candidate_theta)
+    lateral_err = candidate_y - GOAL_Y_M
+    current_goal_dist = goal_distance()
+    candidate_goal_dist = math.hypot(GOAL_X_M - candidate_x, GOAL_Y_M - candidate_y)
+    goal_progress = current_goal_dist - candidate_goal_dist
+    heading_recovery = abs(robot_theta) - abs(candidate_theta)
+    lateral_recovery = abs(robot_y - GOAL_Y_M) - abs(candidate_y - GOAL_Y_M)
+    heading_excess = max(0.0, abs(candidate_theta) - TRACK_HEADING_SOFT_LIMIT_RAD)
+    return {
+        "heading_err": heading_err,
+        "lateral_err": lateral_err,
+        "goal_progress": goal_progress,
+        "heading_recovery": heading_recovery,
+        "lateral_recovery": lateral_recovery,
+        "heading_excess": heading_excess,
+    }
+
+
 def get_cmd_v():
     if USE_GOAL_SLOWDOWN:
         gd = goal_distance()
@@ -207,7 +237,7 @@ def predict_trajectory(v, w):
 def front_distance(points):
     if len(points) == 0:
         return MAX_LIDAR_DIST_M
-    mask = ((points[:, 0] > 0.0) &
+    mask = ((points[:, 0] > FRONT_MIN_X) &
             (points[:, 0] < ACTIVE_FRONT_DIST) &
             (np.abs(points[:, 1]) < FRONT_CORRIDOR_HALF))
     if not mask.any():
@@ -240,23 +270,17 @@ def evaluate_candidate(v, w, points, prev_w, front_dist):
     score -= turn_w * abs(w)
     score -= smooth_weight * abs(w - prev_w)
 
-    local_x = float(traj[-1, 0])
-    local_y = float(traj[-1, 1])
-    local_theta = float(traj[-1, 2])
-    candidate_x, candidate_y = transform_local_to_global(local_x, local_y)
-    candidate_theta = normalize_angle_rad(robot_theta + local_theta)
-    heading_err = goal_heading_error_from_pose(candidate_x, candidate_y, candidate_theta)
-    lateral_err = candidate_y - GOAL_Y_M
-    current_goal_dist = goal_distance()
-    candidate_goal_dist = math.hypot(GOAL_X_M - candidate_x, GOAL_Y_M - candidate_y)
-    goal_progress = current_goal_dist - candidate_goal_dist
-    goal_factor = 1.0 - front_factor
+    metrics = candidate_goal_metrics(traj)
+    goal_factor = max(GOAL_FACTOR_MIN, 1.0 - front_factor)
 
-    score += goal_factor * GOAL_DISTANCE_WEIGHT * goal_progress
-    score -= goal_factor * GOAL_HEADING_WEIGHT * abs(heading_err)
-    score -= goal_factor * GOAL_LATERAL_WEIGHT * abs(lateral_err)
+    score += goal_factor * GOAL_DISTANCE_WEIGHT * metrics["goal_progress"]
+    score -= goal_factor * GOAL_HEADING_WEIGHT * abs(metrics["heading_err"])
+    score -= goal_factor * GOAL_LATERAL_WEIGHT * abs(metrics["lateral_err"])
+    score += GOAL_HEADING_RECOVERY_WEIGHT * metrics["heading_recovery"]
+    score += GOAL_LATERAL_RECOVERY_WEIGHT * metrics["lateral_recovery"]
+    score -= TRACK_HEADING_LIMIT_WEIGHT * metrics["heading_excess"] * metrics["heading_excess"]
 
-    return score, min_clearance
+    return score, min_clearance, metrics
 
 
 def rate_limit_w(prev_w, target_w, urgent=False):
@@ -284,13 +308,18 @@ def choose_best_cmd(scan, prev_w, cmd_v):
     all_collision = True
     best_clear_w = 0.0
     best_clear_score = -float("inf")
+    best_metrics = None
 
     for w in W_CANDIDATES:
-        score, clearance = evaluate_candidate(cmd_v, w, points, prev_w, fdist)
+        score, clearance, metrics = evaluate_candidate(cmd_v, w, points, prev_w, fdist)
         collision = clearance < COLLISION_DIST
         if not collision:
             all_collision = False
-        clear_score = clearance + 0.03 * abs(w) - 0.02 * abs(w - prev_w)
+        clear_score = clearance
+        clear_score += 0.16 * metrics["heading_recovery"]
+        clear_score += 0.08 * metrics["lateral_recovery"]
+        clear_score -= 0.03 * abs(w - prev_w)
+        clear_score -= 0.01 * abs(w)
         if clear_score > best_clear_score:
             best_clear_score = clear_score
             best_clear_w = w
@@ -298,10 +327,11 @@ def choose_best_cmd(scan, prev_w, cmd_v):
             best_score = score
             best_w = w
             best_clearance = clearance
+            best_metrics = metrics
 
     if all_collision:
         best_w = best_clear_w
-        _, best_clearance = evaluate_candidate(cmd_v, best_w, points, prev_w, fdist)
+        best_score, best_clearance, best_metrics = evaluate_candidate(cmd_v, best_w, points, prev_w, fdist)
 
     raw_best_w = best_w
     best_w = rate_limit_w(prev_w, best_w, fdist < URGENT_FRONT_DIST or all_collision)
@@ -312,6 +342,8 @@ def choose_best_cmd(scan, prev_w, cmd_v):
         "points": len(points),
         "collision": best_clearance < COLLISION_DIST,
         "raw_w": raw_best_w,
+        "cand_he": best_metrics["heading_err"] if best_metrics is not None else 0.0,
+        "hrec": best_metrics["heading_recovery"] if best_metrics is not None else 0.0,
     }
 
 
@@ -389,7 +421,8 @@ def main():
                       f"v={v:.2f} w={w:.2f} raw={info['raw_w']:.2f} "
                       f"front={info['front']:.2f} clear={info['clear']:.2f} "
                       f"score={info['score']:.2f} pts={info['points']} "
-                      f"coll={int(info['collision'])}")
+                      f"coll={int(info['collision'])} "
+                      f"che={info['cand_he']:.2f} hrec={info['hrec']:.2f}")
                 last_log = time.time()
 
             time.sleep(LOOP_DT_S)
