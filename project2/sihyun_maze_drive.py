@@ -1,12 +1,21 @@
 #!/usr/bin/env python3
 # maze2.py
 # RPLiDAR C1 + 후보 각속도 평가 기반 로컬 플래너
+# LiDAR Occupancy Map Visualization Version
 
 import serial
 import time
 import math
 import threading
 import numpy as np
+
+try:
+    import matplotlib.pyplot as plt
+    MATPLOTLIB_AVAILABLE = True
+except ModuleNotFoundError:
+    plt = None
+    MATPLOTLIB_AVAILABLE = False
+
 
 # ─────────────── 사용자 튜닝 파라미터 ───────────────
 LIDAR_PORT = "/dev/ttyUSB0"
@@ -15,9 +24,13 @@ ARDU_PORT  = "/dev/ttyS0"
 ARDU_BAUD  = 9600
 
 # 라이다 시각화 옵션
-VISUALIZE_LIDAR = True      # True: 시각화 켜기 / False: 시각화 끄기
-LIDAR_VIS_RANGE_M = 2.0     # 시각화 범위 2m
-LIDAR_VIS_UPDATE_S = 0.10   # 시각화 갱신 주기
+VISUALIZE_LIDAR = True       # True: 시각화 켜기 / False: 시각화 끄기
+LIDAR_VIS_RANGE_M = 2.0      # 시각화 범위 2m
+LIDAR_VIS_UPDATE_S = 0.10    # 시각화 갱신 주기
+
+# 맵핑 시각화 옵션
+MAP_RESOLUTION_M = 0.04      # 격자 한 칸 크기 4cm
+WALL_INFLATE_CELL = 1        # 벽 두께 보정. 1이면 주변 1칸까지 벽처럼 표시
 
 # 라이다 캘리브레이션 (확정값)
 ANGLE_OFFSET_DEG = +1.54
@@ -224,29 +237,149 @@ def lidar_points_to_xy(scan):
     return points
 
 
-# ─────────────── 라이다 시각화 ───────────────
-class LidarVisualizer:
-    def __init__(self, range_m=2.0, update_s=0.10):
-        import matplotlib.pyplot as plt
-
-        self.plt = plt
+# ─────────────── 라이다 맵핑 시각화 ───────────────
+class LidarMapVisualizer:
+    def __init__(self, range_m=2.0, update_s=0.10, resolution=0.04):
         self.range_m = range_m
         self.update_s = update_s
+        self.resolution = resolution
         self.last_update = 0.0
 
-        self.plt.ion()
-        self.fig, self.ax = self.plt.subplots()
+        self.grid_size = int((2.0 * self.range_m) / self.resolution) + 1
+        self.center = self.grid_size // 2
 
-        self.scatter = self.ax.scatter([], [], s=5)
-        self.robot = self.ax.scatter([0], [0], s=80, marker="^")
+        plt.ion()
+        self.fig, self.ax = plt.subplots()
+
+        initial_grid = np.full((self.grid_size, self.grid_size), 0.5, dtype=np.float32)
+
+        self.img = self.ax.imshow(
+            initial_grid,
+            origin="lower",
+            extent=[-self.range_m, self.range_m, -self.range_m, self.range_m],
+            vmin=0.0,
+            vmax=1.0,
+            cmap="gray_r"
+        )
+
+        # 로봇 위치 표시: 로봇은 항상 지도 중앙, +X 방향이 전방
+        self.ax.plot(0.0, 0.0, marker="^", markersize=10)
+        self.ax.arrow(
+            0.0, 0.0,
+            0.25, 0.0,
+            head_width=0.07,
+            head_length=0.08,
+            length_includes_head=True
+        )
+
+        # 2m 범위 원 표시
+        circle = plt.Circle((0, 0), self.range_m, fill=False, linestyle="--")
+        self.ax.add_patch(circle)
 
         self.ax.set_aspect("equal", "box")
-        self.ax.set_xlim(-range_m, range_m)
-        self.ax.set_ylim(-range_m, range_m)
+        self.ax.set_xlim(-self.range_m, self.range_m)
+        self.ax.set_ylim(-self.range_m, self.range_m)
         self.ax.set_xlabel("X distance [m]")
         self.ax.set_ylabel("Y distance [m]")
-        self.ax.set_title("LiDAR Visualization within 2m")
+        self.ax.set_title("LiDAR Occupancy Map within 2m")
         self.ax.grid(True)
+
+    def xy_to_cell(self, x, y):
+        col = int(round((x + self.range_m) / self.resolution))
+        row = int(round((y + self.range_m) / self.resolution))
+
+        if 0 <= row < self.grid_size and 0 <= col < self.grid_size:
+            return row, col
+
+        return None
+
+    def bresenham(self, row0, col0, row1, col1):
+        cells = []
+
+        dx = abs(col1 - col0)
+        dy = -abs(row1 - row0)
+
+        sx = 1 if col0 < col1 else -1
+        sy = 1 if row0 < row1 else -1
+
+        err = dx + dy
+
+        row = row0
+        col = col0
+
+        while True:
+            cells.append((row, col))
+
+            if row == row1 and col == col1:
+                break
+
+            e2 = 2 * err
+
+            if e2 >= dy:
+                err += dy
+                col += sx
+
+            if e2 <= dx:
+                err += dx
+                row += sy
+
+        return cells
+
+    def build_occupancy_grid(self, points):
+        # 0.0 = 빈 공간, 0.5 = 미확인 공간, 1.0 = 벽/장애물
+        grid = np.full((self.grid_size, self.grid_size), 0.5, dtype=np.float32)
+
+        robot_cell = self.xy_to_cell(0.0, 0.0)
+        if robot_cell is None:
+            return grid
+
+        robot_row, robot_col = robot_cell
+
+        if len(points) == 0:
+            return grid
+
+        dist = np.sqrt(points[:, 0] ** 2 + points[:, 1] ** 2)
+        vis_points = points[dist <= self.range_m]
+
+        for p in vis_points:
+            x = float(p[0])
+            y = float(p[1])
+
+            cell = self.xy_to_cell(x, y)
+            if cell is None:
+                continue
+
+            hit_row, hit_col = cell
+
+            ray_cells = self.bresenham(robot_row, robot_col, hit_row, hit_col)
+
+            # 라이다 광선이 지나간 공간은 빈 공간으로 표시
+            for row, col in ray_cells[:-1]:
+                if 0 <= row < self.grid_size and 0 <= col < self.grid_size:
+                    grid[row, col] = 0.0
+
+            # 마지막 감지점은 벽/장애물로 표시
+            for dr in range(-WALL_INFLATE_CELL, WALL_INFLATE_CELL + 1):
+                for dc in range(-WALL_INFLATE_CELL, WALL_INFLATE_CELL + 1):
+                    rr = hit_row + dr
+                    cc = hit_col + dc
+
+                    if 0 <= rr < self.grid_size and 0 <= cc < self.grid_size:
+                        grid[rr, cc] = 1.0
+
+        # 로봇 주변은 빈 공간으로 처리
+        robot_clear_cells = int(ROBOT_RADIUS / self.resolution) + 1
+
+        for dr in range(-robot_clear_cells, robot_clear_cells + 1):
+            for dc in range(-robot_clear_cells, robot_clear_cells + 1):
+                rr = robot_row + dr
+                cc = robot_col + dc
+
+                if 0 <= rr < self.grid_size and 0 <= cc < self.grid_size:
+                    if dr * dr + dc * dc <= robot_clear_cells * robot_clear_cells:
+                        grid[rr, cc] = 0.0
+
+        return grid
 
     def update(self, points, info=None):
         now = time.time()
@@ -255,26 +388,22 @@ class LidarVisualizer:
 
         self.last_update = now
 
-        if len(points) > 0:
-            dist = np.sqrt(points[:, 0] ** 2 + points[:, 1] ** 2)
-            vis_points = points[dist <= self.range_m]
-        else:
-            vis_points = np.empty((0, 2), dtype=np.float32)
-
-        self.scatter.set_offsets(vis_points)
+        grid = self.build_occupancy_grid(points)
+        self.img.set_data(grid)
 
         if info is not None:
             self.ax.set_title(
-                f"LiDAR Visualization within {self.range_m:.1f}m | "
-                f"pts={len(vis_points)} front={info['front']:.2f}m"
+                f"LiDAR Occupancy Map within {self.range_m:.1f}m | "
+                f"front={info['front']:.2f}m clear={info['clear']:.2f}m "
+                f"pts={info['points']}"
             )
 
         self.fig.canvas.draw_idle()
-        self.plt.pause(0.001)
+        plt.pause(0.001)
 
     def close(self):
-        self.plt.ioff()
-        self.plt.close(self.fig)
+        plt.ioff()
+        plt.close(self.fig)
 
 
 def predict_trajectory(v, w):
@@ -523,10 +652,24 @@ def main():
     lidar = RPLidarC1(LIDAR_PORT, LIDAR_BAUD)
     ardu  = serial.Serial(ARDU_PORT, ARDU_BAUD, timeout=0.1)
 
-    visualizer = LidarVisualizer(
-        LIDAR_VIS_RANGE_M,
-        LIDAR_VIS_UPDATE_S
-    ) if VISUALIZE_LIDAR else None
+    visualizer = None
+
+    if VISUALIZE_LIDAR:
+        if MATPLOTLIB_AVAILABLE:
+            try:
+                visualizer = LidarMapVisualizer(
+                    LIDAR_VIS_RANGE_M,
+                    LIDAR_VIS_UPDATE_S,
+                    MAP_RESOLUTION_M
+                )
+            except Exception as e:
+                print("[WARN] 라이다 시각화 창을 열 수 없습니다.")
+                print(f"[WARN] 원인: {e}")
+                print("[WARN] 시각화 없이 주행합니다.")
+                visualizer = None
+        else:
+            print("[WARN] matplotlib가 설치되어 있지 않아 라이다 시각화를 끕니다.")
+            print("[WARN] 설치 명령어: sudo apt install -y python3-matplotlib")
 
     print("[INFO] 워밍업 2초...")
     time.sleep(2.0)
