@@ -70,6 +70,10 @@ W_CMD_RATE_LIMIT = 0.35
 W_CMD_RATE_LIMIT_URGENT = 0.70
 URGENT_FRONT_DIST = 0.55
 
+# 전방 장애물 강제 제자리 회전 파라미터
+FRONT_TURN_TRIGGER_DIST = 0.50
+FRONT_TURN_W = 0.75
+
 GOAL_X_M = 3.0
 GOAL_Y_M = 0.0
 GOAL_TOL_M = 0.15
@@ -498,10 +502,25 @@ def sector_min_distance(points, angle_min_deg, angle_max_deg):
 
 def is_dead_end(points):
     front_blocked = sector_min_distance(points, -20.0, 20.0) <= 0.50
-    left45_blocked = sector_min_distance(points, 25.0, 75.0) <= 0.20
-    right45_blocked = sector_min_distance(points, -75.0, -25.0) <= 0.20
+    left45_blocked = sector_min_distance(points, 25.0, 75.0) <= 0.15
+    right45_blocked = sector_min_distance(points, -75.0, -25.0) <= 0.15
 
     return front_blocked and left45_blocked and right45_blocked
+
+
+def front20_blocked(points):
+    return sector_min_distance(points, -20.0, 20.0) <= FRONT_TURN_TRIGGER_DIST
+
+
+def choose_front20_turn(points):
+    left_dist = sector_min_distance(points, 25.0, 90.0)
+    right_dist = sector_min_distance(points, -90.0, -25.0)
+
+    # 좌측 장애물이 더 멀면 좌회전(w +), 우측 장애물이 더 멀면 우회전(w -)
+    if left_dist >= right_dist:
+        return FRONT_TURN_W, left_dist, right_dist
+    else:
+        return -FRONT_TURN_W, left_dist, right_dist
 
 
 def trajectory_clearances(traj, points):
@@ -637,6 +656,24 @@ def choose_best_cmd(scan, prev_w, cmd_v):
         }
 
     fdist = front_distance(points)
+
+    if front20_blocked(points):
+        turn_w, left_dist, right_dist = choose_front20_turn(points)
+
+        dists = np.sqrt(points[:, 0] * points[:, 0] + points[:, 1] * points[:, 1])
+        body_clearance = float(np.min(dists))
+
+        return 0.0, turn_w, {
+            "score": 0.0,
+            "clear": fdist,
+            "side": min(left_dist, right_dist),
+            "body": body_clearance,
+            "front": fdist,
+            "points": len(points),
+            "collision": fdist < COLLISION_DIST,
+            "raw_w": turn_w,
+            "cth": robot_theta,
+        }
 
     best_w = 0.0
     best_score = -float("inf")
