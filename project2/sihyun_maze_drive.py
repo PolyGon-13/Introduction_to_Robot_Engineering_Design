@@ -510,11 +510,21 @@ def is_dead_end(points):
 
 
 def front20_blocked(points):
-    right_front_blocked = sector_min_distance(points, -45.0, -15.0) <= FRONT_TURN_TRIGGER_DIST
-    center_front_blocked = sector_min_distance(points, -15.0, 15.0) <= FRONT_TURN_TRIGGER_DIST
-    left_front_blocked = sector_min_distance(points, 15.0, 45.0) <= FRONT_TURN_TRIGGER_DIST
+    if len(points) == 0:
+        return False
 
-    return right_front_blocked and center_front_blocked and left_front_blocked
+    angles = np.rad2deg(np.arctan2(points[:, 1], points[:, 0]))
+    dists = np.sqrt(points[:, 0] * points[:, 0] + points[:, 1] * points[:, 1])
+
+    front_mask = (
+        (angles >= -15.0) &
+        (angles <= 15.0)
+    )
+
+    if not front_mask.any():
+        return False
+
+    return np.all(dists[front_mask] <= FRONT_TURN_TRIGGER_DIST)
 
 
 def front_turn_side_close(points):
