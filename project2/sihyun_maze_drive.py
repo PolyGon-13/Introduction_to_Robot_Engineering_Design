@@ -49,7 +49,6 @@ LIDAR_ANGLE_SIGN = -1.0
 MIN_LIDAR_DIST_M = 0.05
 MAX_LIDAR_DIST_M = 2.5
 MIN_QUALITY = 1
-MIN_X_FOR_PLANNING = -0.10
 MAX_EVAL_POINTS = 720
 SCAN_HOLD_S = 0.30
 LOOP_DT_S = 0.05
@@ -70,6 +69,13 @@ SIDE_NEAR_DIST = COLLISION_DIST + 0.12
 W_CMD_RATE_LIMIT = 0.35
 W_CMD_RATE_LIMIT_URGENT = 0.70
 URGENT_FRONT_DIST = 0.55
+
+# 전방 막힘 긴급 회피 파라미터
+FRONT_EMERGENCY_DIST = COLLISION_DIST + 0.08
+SIDE_ESCAPE_DIST = COLLISION_DIST + 0.12
+BACK_ESCAPE_DIST = COLLISION_DIST + 0.12
+ESCAPE_REVERSE_V = -0.10
+ESCAPE_TURN_W = 0.45
 
 GOAL_X_M = 3.0
 GOAL_Y_M = 0.0
@@ -230,11 +236,7 @@ def lidar_points_to_xy(scan):
     x = dist_m * np.cos(angle_rad)
     y = dist_m * np.sin(angle_rad)
 
-    mask_xy = x >= MIN_X_FOR_PLANNING
-    if not mask_xy.any():
-        return np.empty((0, 2), dtype=np.float32)
-
-    points = np.column_stack((x[mask_xy], y[mask_xy])).astype(np.float32)
+    points = np.column_stack((x, y)).astype(np.float32)
 
     if len(points) > MAX_EVAL_POINTS:
         order = np.argsort(points[:, 0] * points[:, 0] + points[:, 1] * points[:, 1])
@@ -599,6 +601,106 @@ def rate_limit_w(prev_w, target_w, urgent=False):
     return prev_w + delta
 
 
+def sector_min_distance(points, min_deg, max_deg):
+    if len(points) == 0:
+        return MAX_LIDAR_DIST_M
+
+    dist = np.sqrt(points[:, 0] ** 2 + points[:, 1] ** 2)
+    angle = np.rad2deg(np.arctan2(points[:, 1], points[:, 0]))
+
+    if min_deg <= max_deg:
+        mask = (angle >= min_deg) & (angle <= max_deg)
+    else:
+        mask = (angle >= min_deg) | (angle <= max_deg)
+
+    if not mask.any():
+        return MAX_LIDAR_DIST_M
+
+    return float(np.min(dist[mask]))
+
+
+def get_direction_clearances(points):
+    front_clear = sector_min_distance(points, -35.0, 35.0)
+    left_clear = sector_min_distance(points, 35.0, 145.0)
+    right_clear = sector_min_distance(points, -145.0, -35.0)
+
+    back_left = sector_min_distance(points, 145.0, 180.0)
+    back_right = sector_min_distance(points, -180.0, -145.0)
+    back_clear = min(back_left, back_right)
+
+    return {
+        "front": front_clear,
+        "left": left_clear,
+        "right": right_clear,
+        "back": back_clear,
+        "body": min(front_clear, left_clear, right_clear, back_clear)
+    }
+
+
+def choose_escape_cmd(points, prev_w, fdist, force=False):
+    clear = get_direction_clearances(points)
+
+    front_blocked = (
+        fdist < FRONT_EMERGENCY_DIST or
+        clear["front"] < FRONT_EMERGENCY_DIST
+    )
+
+    if not force and not front_blocked:
+        return None
+
+    left_ok = clear["left"] > SIDE_ESCAPE_DIST
+    right_ok = clear["right"] > SIDE_ESCAPE_DIST
+    back_ok = clear["back"] > BACK_ESCAPE_DIST
+
+    target_v = 0.0
+    target_w = 0.0
+
+    # 좌우 중 비어 있는 방향이 있으면 먼저 제자리 회전
+    if left_ok or right_ok:
+        if left_ok and right_ok:
+            if clear["left"] >= clear["right"]:
+                target_w = ESCAPE_TURN_W
+            else:
+                target_w = -ESCAPE_TURN_W
+        elif left_ok:
+            target_w = ESCAPE_TURN_W
+        else:
+            target_w = -ESCAPE_TURN_W
+
+        target_v = 0.0
+
+    # 좌우가 막혀 있고 뒤가 비어 있으면 후진
+    elif back_ok:
+        target_v = ESCAPE_REVERSE_V
+
+        if clear["left"] > clear["right"]:
+            target_w = 0.18
+        elif clear["right"] > clear["left"]:
+            target_w = -0.18
+        else:
+            target_w = 0.0
+
+    # 전부 막혀 있으면 정지
+    else:
+        target_v = 0.0
+        target_w = 0.0
+
+    limited_w = rate_limit_w(prev_w, target_w, urgent=True)
+
+    return target_v, limited_w, {
+        "score": -999.0,
+        "clear": clear["front"],
+        "side": max(clear["left"], clear["right"]),
+        "body": clear["body"],
+        "front": min(fdist, clear["front"]),
+        "points": len(points),
+        "collision": True,
+        "raw_w": target_w,
+        "cth": robot_theta,
+        "escape": True,
+    }
+
+
 def choose_best_cmd(scan, prev_w, cmd_v):
     points = lidar_points_to_xy(scan)
 
@@ -616,6 +718,10 @@ def choose_best_cmd(scan, prev_w, cmd_v):
         }
 
     fdist = front_distance(points)
+
+    escape_cmd = choose_escape_cmd(points, prev_w, fdist, force=False)
+    if escape_cmd is not None:
+        return escape_cmd
 
     best_w = 0.0
     best_score = -float("inf")
@@ -668,6 +774,10 @@ def choose_best_cmd(scan, prev_w, cmd_v):
             best_theta = candidate_theta
 
     if all_collision:
+        escape_cmd = choose_escape_cmd(points, prev_w, fdist, force=True)
+        if escape_cmd is not None:
+            return escape_cmd
+
         best_w = best_clear_w
         best_score, best_clearance, best_side_clearance, best_body_clearance, best_theta = (
             evaluate_candidate(cmd_v, best_w, points, prev_w, fdist)
