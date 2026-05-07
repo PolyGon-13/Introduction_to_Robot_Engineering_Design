@@ -478,6 +478,32 @@ def front_distance(points):
     return float(np.min(points[mask, 0]))
 
 
+def sector_min_distance(points, angle_min_deg, angle_max_deg):
+    if len(points) == 0:
+        return MAX_LIDAR_DIST_M
+
+    angles = np.rad2deg(np.arctan2(points[:, 1], points[:, 0]))
+    dists = np.sqrt(points[:, 0] * points[:, 0] + points[:, 1] * points[:, 1])
+
+    mask = (
+        (angles >= angle_min_deg) &
+        (angles <= angle_max_deg)
+    )
+
+    if not mask.any():
+        return MAX_LIDAR_DIST_M
+
+    return float(np.min(dists[mask]))
+
+
+def is_dead_end(points):
+    front_blocked = sector_min_distance(points, -20.0, 20.0) <= 0.50
+    left45_blocked = sector_min_distance(points, 25.0, 75.0) <= 0.40
+    right45_blocked = sector_min_distance(points, -75.0, -25.0) <= 0.40
+
+    return front_blocked and left45_blocked and right45_blocked
+
+
 def trajectory_clearances(traj, points):
     if len(points) == 0:
         return MAX_LIDAR_DIST_M, MAX_LIDAR_DIST_M, MAX_LIDAR_DIST_M
@@ -769,6 +795,13 @@ def main():
                 continue
 
             last_scan_ok = time.time()
+
+            dead_end_points = lidar_points_to_xy(scan)
+
+            if is_dead_end(dead_end_points):
+                stop()
+                print("[INFO] 막다른길 감지 정지")
+                break
 
             cmd_v = get_cmd_v()
             v, w, info = choose_best_cmd(scan, last_w, cmd_v)
