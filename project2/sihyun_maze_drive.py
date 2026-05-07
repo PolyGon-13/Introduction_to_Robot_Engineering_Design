@@ -49,6 +49,7 @@ LIDAR_ANGLE_SIGN = -1.0
 MIN_LIDAR_DIST_M = 0.05
 MAX_LIDAR_DIST_M = 2.5
 MIN_QUALITY = 1
+MIN_X_FOR_PLANNING = -0.10
 MAX_EVAL_POINTS = 720
 SCAN_HOLD_S = 0.30
 LOOP_DT_S = 0.05
@@ -69,19 +70,6 @@ SIDE_NEAR_DIST = COLLISION_DIST + 0.12
 W_CMD_RATE_LIMIT = 0.35
 W_CMD_RATE_LIMIT_URGENT = 0.70
 URGENT_FRONT_DIST = 0.55
-
-# 막다른 길 탈출 파라미터
-# 전방 + 좌45도 + 우45도가 모두 막혔을 때만 사용함
-FRONT_EMERGENCY_DIST = COLLISION_DIST + 0.08
-SIDE_ESCAPE_DIST = COLLISION_DIST + 0.12
-BACK_ESCAPE_DIST = COLLISION_DIST + 0.12
-ESCAPE_REVERSE_V = -0.10
-ESCAPE_TURN_W = 0.45
-
-# 좌우 45도 장애물 확인 파라미터
-SIDE_45_CENTER_DEG = 45.0
-SIDE_45_HALF_WIDTH_DEG = 15.0
-SIDE_45_BLOCK_DIST = COLLISION_DIST + 0.12
 
 GOAL_X_M = 3.0
 GOAL_Y_M = 0.0
@@ -242,7 +230,11 @@ def lidar_points_to_xy(scan):
     x = dist_m * np.cos(angle_rad)
     y = dist_m * np.sin(angle_rad)
 
-    points = np.column_stack((x, y)).astype(np.float32)
+    mask_xy = x >= MIN_X_FOR_PLANNING
+    if not mask_xy.any():
+        return np.empty((0, 2), dtype=np.float32)
+
+    points = np.column_stack((x[mask_xy], y[mask_xy])).astype(np.float32)
 
     if len(points) > MAX_EVAL_POINTS:
         order = np.argsort(points[:, 0] * points[:, 0] + points[:, 1] * points[:, 1])
@@ -607,137 +599,6 @@ def rate_limit_w(prev_w, target_w, urgent=False):
     return prev_w + delta
 
 
-def sector_min_distance(points, min_deg, max_deg):
-    if len(points) == 0:
-        return MAX_LIDAR_DIST_M
-
-    dist = np.sqrt(points[:, 0] ** 2 + points[:, 1] ** 2)
-    angle = np.rad2deg(np.arctan2(points[:, 1], points[:, 0]))
-
-    if min_deg <= max_deg:
-        mask = (angle >= min_deg) & (angle <= max_deg)
-    else:
-        mask = (angle >= min_deg) | (angle <= max_deg)
-
-    if not mask.any():
-        return MAX_LIDAR_DIST_M
-
-    return float(np.min(dist[mask]))
-
-
-def get_direction_clearances(points):
-    front_clear = sector_min_distance(points, -35.0, 35.0)
-    left_clear = sector_min_distance(points, 35.0, 145.0)
-    right_clear = sector_min_distance(points, -145.0, -35.0)
-
-    back_left = sector_min_distance(points, 145.0, 180.0)
-    back_right = sector_min_distance(points, -180.0, -145.0)
-    back_clear = min(back_left, back_right)
-
-    return {
-        "front": front_clear,
-        "left": left_clear,
-        "right": right_clear,
-        "back": back_clear,
-        "body": min(front_clear, left_clear, right_clear, back_clear)
-    }
-
-
-def get_front_left45_right45_state(points, fdist):
-    front_sector_clear = sector_min_distance(points, -20.0, 20.0)
-
-    left_min = SIDE_45_CENTER_DEG - SIDE_45_HALF_WIDTH_DEG
-    left_max = SIDE_45_CENTER_DEG + SIDE_45_HALF_WIDTH_DEG
-    right_min = -SIDE_45_CENTER_DEG - SIDE_45_HALF_WIDTH_DEG
-    right_max = -SIDE_45_CENTER_DEG + SIDE_45_HALF_WIDTH_DEG
-
-    left45_clear = sector_min_distance(points, left_min, left_max)
-    right45_clear = sector_min_distance(points, right_min, right_max)
-
-    front_clear = min(fdist, front_sector_clear)
-
-    front_blocked = front_clear < FRONT_EMERGENCY_DIST
-    left45_blocked = left45_clear < SIDE_45_BLOCK_DIST
-    right45_blocked = right45_clear < SIDE_45_BLOCK_DIST
-
-    both_45_blocked = left45_blocked and right45_blocked
-    escape_condition = front_blocked and both_45_blocked
-
-    return {
-        "front_clear": front_clear,
-        "left45_clear": left45_clear,
-        "right45_clear": right45_clear,
-        "front_blocked": front_blocked,
-        "left45_blocked": left45_blocked,
-        "right45_blocked": right45_blocked,
-        "escape_condition": escape_condition
-    }
-
-
-def choose_escape_cmd(points, prev_w, fdist):
-    state = get_front_left45_right45_state(points, fdist)
-
-    # 탈출 모드는 전방 + 좌45도 + 우45도가 모두 막혔을 때만 작동
-    if not state["escape_condition"]:
-        return None
-
-    clear = get_direction_clearances(points)
-
-    left_ok = clear["left"] > SIDE_ESCAPE_DIST
-    right_ok = clear["right"] > SIDE_ESCAPE_DIST
-    back_ok = clear["back"] > BACK_ESCAPE_DIST
-
-    target_v = 0.0
-    target_w = 0.0
-
-    # 좌우 전체 공간 중 더 넓은 방향으로 먼저 회전
-    if left_ok or right_ok:
-        if left_ok and right_ok:
-            if clear["left"] >= clear["right"]:
-                target_w = ESCAPE_TURN_W
-            else:
-                target_w = -ESCAPE_TURN_W
-        elif left_ok:
-            target_w = ESCAPE_TURN_W
-        else:
-            target_w = -ESCAPE_TURN_W
-
-        target_v = 0.0
-
-    # 좌우 전체 공간도 막혀 있고 뒤가 비어 있을 때만 후진
-    elif back_ok:
-        target_v = ESCAPE_REVERSE_V
-
-        if clear["left"] > clear["right"]:
-            target_w = 0.18
-        elif clear["right"] > clear["left"]:
-            target_w = -0.18
-        else:
-            target_w = 0.0
-
-    # 전부 막혀 있으면 정지
-    else:
-        target_v = 0.0
-        target_w = 0.0
-
-    limited_w = rate_limit_w(prev_w, target_w, urgent=True)
-
-    return target_v, limited_w, {
-        "score": -999.0,
-        "clear": state["front_clear"],
-        "side": max(clear["left"], clear["right"]),
-        "body": clear["body"],
-        "front": state["front_clear"],
-        "points": len(points),
-        "collision": True,
-        "raw_w": target_w,
-        "cth": robot_theta,
-        "escape": True,
-        "left45": state["left45_clear"],
-        "right45": state["right45_clear"],
-    }
-
-
 def choose_best_cmd(scan, prev_w, cmd_v):
     points = lidar_points_to_xy(scan)
 
@@ -755,12 +616,6 @@ def choose_best_cmd(scan, prev_w, cmd_v):
         }
 
     fdist = front_distance(points)
-
-    # 전방 + 좌45도 + 우45도가 모두 막힌 경우에만 회피 알고리즘 작동
-    # 좌우 45도 중 한쪽이라도 비어 있으면 아래 기존 후보 평가 알고리즘 그대로 실행
-    escape_cmd = choose_escape_cmd(points, prev_w, fdist)
-    if escape_cmd is not None:
-        return escape_cmd
 
     best_w = 0.0
     best_score = -float("inf")
