@@ -498,8 +498,8 @@ def sector_min_distance(points, angle_min_deg, angle_max_deg):
 
 def is_dead_end(points):
     front_blocked = sector_min_distance(points, -20.0, 20.0) <= 0.50
-    left45_blocked = sector_min_distance(points, 25.0, 75.0) <= 0.10
-    right45_blocked = sector_min_distance(points, -75.0, -25.0) <= 0.10
+    left45_blocked = sector_min_distance(points, 25.0, 75.0) <= 0.20
+    right45_blocked = sector_min_distance(points, -75.0, -25.0) <= 0.20
 
     return front_blocked and left45_blocked and right45_blocked
 
