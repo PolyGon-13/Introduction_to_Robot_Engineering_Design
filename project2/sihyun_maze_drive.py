@@ -71,13 +71,17 @@ W_CMD_RATE_LIMIT_URGENT = 0.70
 URGENT_FRONT_DIST = 0.55
 
 # 막다른 길 탈출 파라미터
-# 일반 장애물 회피에는 바로 사용하지 않고,
-# 후보 경로가 전부 충돌일 때만 사용함
+# 전방 + 좌45도 + 우45도가 모두 막혔을 때만 사용함
 FRONT_EMERGENCY_DIST = COLLISION_DIST + 0.08
 SIDE_ESCAPE_DIST = COLLISION_DIST + 0.12
 BACK_ESCAPE_DIST = COLLISION_DIST + 0.12
 ESCAPE_REVERSE_V = -0.10
 ESCAPE_TURN_W = 0.45
+
+# 좌우 45도 장애물 확인 파라미터
+SIDE_45_CENTER_DEG = 45.0
+SIDE_45_HALF_WIDTH_DEG = 15.0
+SIDE_45_BLOCK_DIST = COLLISION_DIST + 0.12
 
 GOAL_X_M = 3.0
 GOAL_Y_M = 0.0
@@ -639,18 +643,45 @@ def get_direction_clearances(points):
     }
 
 
+def get_front_left45_right45_state(points, fdist):
+    front_sector_clear = sector_min_distance(points, -20.0, 20.0)
+
+    left_min = SIDE_45_CENTER_DEG - SIDE_45_HALF_WIDTH_DEG
+    left_max = SIDE_45_CENTER_DEG + SIDE_45_HALF_WIDTH_DEG
+    right_min = -SIDE_45_CENTER_DEG - SIDE_45_HALF_WIDTH_DEG
+    right_max = -SIDE_45_CENTER_DEG + SIDE_45_HALF_WIDTH_DEG
+
+    left45_clear = sector_min_distance(points, left_min, left_max)
+    right45_clear = sector_min_distance(points, right_min, right_max)
+
+    front_clear = min(fdist, front_sector_clear)
+
+    front_blocked = front_clear < FRONT_EMERGENCY_DIST
+    left45_blocked = left45_clear < SIDE_45_BLOCK_DIST
+    right45_blocked = right45_clear < SIDE_45_BLOCK_DIST
+
+    both_45_blocked = left45_blocked and right45_blocked
+    escape_condition = front_blocked and both_45_blocked
+
+    return {
+        "front_clear": front_clear,
+        "left45_clear": left45_clear,
+        "right45_clear": right45_clear,
+        "front_blocked": front_blocked,
+        "left45_blocked": left45_blocked,
+        "right45_blocked": right45_blocked,
+        "escape_condition": escape_condition
+    }
+
+
 def choose_escape_cmd(points, prev_w, fdist):
-    clear = get_direction_clearances(points)
+    state = get_front_left45_right45_state(points, fdist)
 
-    # 진짜 막다른 길일 때만 탈출 모드 사용
-    # 전방이 가까운 거리에서 막히지 않았으면 탈출 모드 사용 안 함
-    front_blocked = (
-        fdist < FRONT_EMERGENCY_DIST or
-        clear["front"] < FRONT_EMERGENCY_DIST
-    )
-
-    if not front_blocked:
+    # 탈출 모드는 전방 + 좌45도 + 우45도가 모두 막혔을 때만 작동
+    if not state["escape_condition"]:
         return None
+
+    clear = get_direction_clearances(points)
 
     left_ok = clear["left"] > SIDE_ESCAPE_DIST
     right_ok = clear["right"] > SIDE_ESCAPE_DIST
@@ -659,7 +690,7 @@ def choose_escape_cmd(points, prev_w, fdist):
     target_v = 0.0
     target_w = 0.0
 
-    # 좌우 중 비어 있는 방향이 있으면 후진보다 먼저 제자리 회전
+    # 좌우 전체 공간 중 더 넓은 방향으로 먼저 회전
     if left_ok or right_ok:
         if left_ok and right_ok:
             if clear["left"] >= clear["right"]:
@@ -673,7 +704,7 @@ def choose_escape_cmd(points, prev_w, fdist):
 
         target_v = 0.0
 
-    # 좌우가 모두 막혀 있고 뒤가 비어 있을 때만 후진
+    # 좌우 전체 공간도 막혀 있고 뒤가 비어 있을 때만 후진
     elif back_ok:
         target_v = ESCAPE_REVERSE_V
 
@@ -693,15 +724,17 @@ def choose_escape_cmd(points, prev_w, fdist):
 
     return target_v, limited_w, {
         "score": -999.0,
-        "clear": clear["front"],
+        "clear": state["front_clear"],
         "side": max(clear["left"], clear["right"]),
         "body": clear["body"],
-        "front": min(fdist, clear["front"]),
+        "front": state["front_clear"],
         "points": len(points),
         "collision": True,
         "raw_w": target_w,
         "cth": robot_theta,
         "escape": True,
+        "left45": state["left45_clear"],
+        "right45": state["right45_clear"],
     }
 
 
@@ -722,6 +755,12 @@ def choose_best_cmd(scan, prev_w, cmd_v):
         }
 
     fdist = front_distance(points)
+
+    # 전방 + 좌45도 + 우45도가 모두 막힌 경우에만 회피 알고리즘 작동
+    # 좌우 45도 중 한쪽이라도 비어 있으면 아래 기존 후보 평가 알고리즘 그대로 실행
+    escape_cmd = choose_escape_cmd(points, prev_w, fdist)
+    if escape_cmd is not None:
+        return escape_cmd
 
     best_w = 0.0
     best_score = -float("inf")
@@ -773,14 +812,7 @@ def choose_best_cmd(scan, prev_w, cmd_v):
             best_body_clearance = body_clearance
             best_theta = candidate_theta
 
-    # 여기서만 막다른 길 탈출 실행
-    # 즉, 일반 장애물은 기존 후보 평가로 전진 회피하고,
-    # 모든 후보 경로가 충돌일 때만 탈출 모드로 전환
     if all_collision:
-        escape_cmd = choose_escape_cmd(points, prev_w, fdist)
-        if escape_cmd is not None:
-            return escape_cmd
-
         best_w = best_clear_w
         best_score, best_clearance, best_side_clearance, best_body_clearance, best_theta = (
             evaluate_candidate(cmd_v, best_w, points, prev_w, fdist)
