@@ -2,6 +2,7 @@
 # maze2.py
 # RPLiDAR C1 + 후보 각속도 평가 기반 로컬 플래너
 # LiDAR Occupancy Map Visualization Version
+# 화면 기준: 로봇 정면 = 화면 위쪽
 
 import serial
 import time
@@ -31,6 +32,11 @@ LIDAR_VIS_UPDATE_S = 0.10    # 시각화 갱신 주기
 # 맵핑 시각화 옵션
 MAP_RESOLUTION_M = 0.04      # 격자 한 칸 크기 4cm
 WALL_INFLATE_CELL = 1        # 벽 두께 보정. 1이면 주변 1칸까지 벽처럼 표시
+
+# 시각화 정면 보정값
+# 화면에서 정면이 약간 틀어져 보이면 이 값만 조정
+# 예: 정면 벽이 화면에서 오른쪽으로 기울면 -값, 왼쪽으로 기울면 +값을 조금씩 조정
+VIS_FRONT_ROT_DEG = 0.0
 
 # 라이다 캘리브레이션 (확정값)
 ANGLE_OFFSET_DEG = +1.54
@@ -237,6 +243,41 @@ def lidar_points_to_xy(scan):
     return points
 
 
+def convert_points_for_map_view(points):
+    """
+    주행 좌표계:
+        x = 로봇 정면
+        y = 로봇 왼쪽
+
+    화면 좌표계:
+        map_x = 화면 오른쪽
+        map_y = 화면 위쪽
+
+    따라서:
+        정면 x → 화면 위쪽 map_y
+        왼쪽 y → 화면 왼쪽 -map_x
+    """
+    if len(points) == 0:
+        return np.empty((0, 2), dtype=np.float32)
+
+    x_front = points[:, 0]
+    y_left = points[:, 1]
+
+    # 시각화용 회전 보정
+    rot = math.radians(VIS_FRONT_ROT_DEG)
+    cos_r = math.cos(rot)
+    sin_r = math.sin(rot)
+
+    x_rot = x_front * cos_r - y_left * sin_r
+    y_rot = x_front * sin_r + y_left * cos_r
+
+    # 화면에서는 정면이 위쪽으로 보이게 변환
+    map_x = -y_rot
+    map_y = x_rot
+
+    return np.column_stack((map_x, map_y)).astype(np.float32)
+
+
 # ─────────────── 라이다 맵핑 시각화 ───────────────
 class LidarMapVisualizer:
     def __init__(self, range_m=2.0, update_s=0.10, resolution=0.04):
@@ -262,11 +303,11 @@ class LidarMapVisualizer:
             cmap="gray_r"
         )
 
-        # 로봇 위치 표시: 로봇은 항상 지도 중앙, +X 방향이 전방
+        # 로봇 위치 표시: 로봇은 항상 지도 중앙, 화면 위쪽이 정면
         self.ax.plot(0.0, 0.0, marker="^", markersize=10)
         self.ax.arrow(
             0.0, 0.0,
-            0.25, 0.0,
+            0.0, 0.25,
             head_width=0.07,
             head_length=0.08,
             length_includes_head=True
@@ -279,9 +320,9 @@ class LidarMapVisualizer:
         self.ax.set_aspect("equal", "box")
         self.ax.set_xlim(-self.range_m, self.range_m)
         self.ax.set_ylim(-self.range_m, self.range_m)
-        self.ax.set_xlabel("X distance [m]")
-        self.ax.set_ylabel("Y distance [m]")
-        self.ax.set_title("LiDAR Occupancy Map within 2m")
+        self.ax.set_xlabel("Left / Right distance [m]")
+        self.ax.set_ylabel("Front / Back distance [m]")
+        self.ax.set_title("LiDAR Occupancy Map - Front is Up")
         self.ax.grid(True)
 
     def xy_to_cell(self, x, y):
@@ -338,8 +379,11 @@ class LidarMapVisualizer:
         if len(points) == 0:
             return grid
 
-        dist = np.sqrt(points[:, 0] ** 2 + points[:, 1] ** 2)
-        vis_points = points[dist <= self.range_m]
+        # 주행 좌표계를 화면 좌표계로 변환
+        map_points = convert_points_for_map_view(points)
+
+        dist = np.sqrt(map_points[:, 0] ** 2 + map_points[:, 1] ** 2)
+        vis_points = map_points[dist <= self.range_m]
 
         for p in vis_points:
             x = float(p[0])
@@ -393,9 +437,9 @@ class LidarMapVisualizer:
 
         if info is not None:
             self.ax.set_title(
-                f"LiDAR Occupancy Map within {self.range_m:.1f}m | "
+                f"LiDAR Occupancy Map - Front is Up | "
                 f"front={info['front']:.2f}m clear={info['clear']:.2f}m "
-                f"pts={info['points']}"
+                f"pts={info['points']} rot={VIS_FRONT_ROT_DEG:.1f}deg"
             )
 
         self.fig.canvas.draw_idle()
