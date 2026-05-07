@@ -855,15 +855,6 @@ def main():
 
             last_scan_ok = time.time()
 
-            dead_end_points = lidar_points_to_xy(scan)
-
-            if is_dead_end(dead_end_points):
-                stop()
-                last_v, last_w = 0.0, 0.0
-                print("[INFO] 막다른길 감지 정지")
-                time.sleep(LOOP_DT_S)
-                continue
-
             cmd_v = get_cmd_v()
             v, w, info = choose_best_cmd(scan, last_w, cmd_v)
 
