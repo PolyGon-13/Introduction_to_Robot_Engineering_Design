@@ -70,7 +70,9 @@ W_CMD_RATE_LIMIT = 0.35
 W_CMD_RATE_LIMIT_URGENT = 0.70
 URGENT_FRONT_DIST = 0.55
 
-# 전방 막힘 긴급 회피 파라미터
+# 막다른 길 탈출 파라미터
+# 일반 장애물 회피에는 바로 사용하지 않고,
+# 후보 경로가 전부 충돌일 때만 사용함
 FRONT_EMERGENCY_DIST = COLLISION_DIST + 0.08
 SIDE_ESCAPE_DIST = COLLISION_DIST + 0.12
 BACK_ESCAPE_DIST = COLLISION_DIST + 0.12
@@ -637,15 +639,17 @@ def get_direction_clearances(points):
     }
 
 
-def choose_escape_cmd(points, prev_w, fdist, force=False):
+def choose_escape_cmd(points, prev_w, fdist):
     clear = get_direction_clearances(points)
 
+    # 진짜 막다른 길일 때만 탈출 모드 사용
+    # 전방이 가까운 거리에서 막히지 않았으면 탈출 모드 사용 안 함
     front_blocked = (
         fdist < FRONT_EMERGENCY_DIST or
         clear["front"] < FRONT_EMERGENCY_DIST
     )
 
-    if not force and not front_blocked:
+    if not front_blocked:
         return None
 
     left_ok = clear["left"] > SIDE_ESCAPE_DIST
@@ -655,7 +659,7 @@ def choose_escape_cmd(points, prev_w, fdist, force=False):
     target_v = 0.0
     target_w = 0.0
 
-    # 좌우 중 비어 있는 방향이 있으면 먼저 제자리 회전
+    # 좌우 중 비어 있는 방향이 있으면 후진보다 먼저 제자리 회전
     if left_ok or right_ok:
         if left_ok and right_ok:
             if clear["left"] >= clear["right"]:
@@ -669,7 +673,7 @@ def choose_escape_cmd(points, prev_w, fdist, force=False):
 
         target_v = 0.0
 
-    # 좌우가 막혀 있고 뒤가 비어 있으면 후진
+    # 좌우가 모두 막혀 있고 뒤가 비어 있을 때만 후진
     elif back_ok:
         target_v = ESCAPE_REVERSE_V
 
@@ -718,10 +722,6 @@ def choose_best_cmd(scan, prev_w, cmd_v):
         }
 
     fdist = front_distance(points)
-
-    escape_cmd = choose_escape_cmd(points, prev_w, fdist, force=False)
-    if escape_cmd is not None:
-        return escape_cmd
 
     best_w = 0.0
     best_score = -float("inf")
@@ -773,8 +773,11 @@ def choose_best_cmd(scan, prev_w, cmd_v):
             best_body_clearance = body_clearance
             best_theta = candidate_theta
 
+    # 여기서만 막다른 길 탈출 실행
+    # 즉, 일반 장애물은 기존 후보 평가로 전진 회피하고,
+    # 모든 후보 경로가 충돌일 때만 탈출 모드로 전환
     if all_collision:
-        escape_cmd = choose_escape_cmd(points, prev_w, fdist, force=True)
+        escape_cmd = choose_escape_cmd(points, prev_w, fdist)
         if escape_cmd is not None:
             return escape_cmd
 
