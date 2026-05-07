@@ -498,8 +498,8 @@ def sector_min_distance(points, angle_min_deg, angle_max_deg):
 
 def is_dead_end(points):
     front_blocked = sector_min_distance(points, -20.0, 20.0) <= 0.50
-    left45_blocked = sector_min_distance(points, 25.0, 75.0) <= 0.40
-    right45_blocked = sector_min_distance(points, -75.0, -25.0) <= 0.40
+    left45_blocked = sector_min_distance(points, 25.0, 75.0) <= 0.10
+    right45_blocked = sector_min_distance(points, -75.0, -25.0) <= 0.10
 
     return front_blocked and left45_blocked and right45_blocked
 
@@ -800,8 +800,10 @@ def main():
 
             if is_dead_end(dead_end_points):
                 stop()
+                last_v, last_w = 0.0, 0.0
                 print("[INFO] 막다른길 감지 정지")
-                break
+                time.sleep(LOOP_DT_S)
+                continue
 
             cmd_v = get_cmd_v()
             v, w, info = choose_best_cmd(scan, last_w, cmd_v)
