@@ -510,7 +510,11 @@ def is_dead_end(points):
 
 
 def front20_blocked(points):
-    return sector_min_distance(points, -20.0, 20.0) <= FRONT_TURN_TRIGGER_DIST
+    right_front_blocked = sector_min_distance(points, -45.0, -15.0) <= FRONT_TURN_TRIGGER_DIST
+    center_front_blocked = sector_min_distance(points, -15.0, 15.0) <= FRONT_TURN_TRIGGER_DIST
+    left_front_blocked = sector_min_distance(points, 15.0, 45.0) <= FRONT_TURN_TRIGGER_DIST
+
+    return right_front_blocked and center_front_blocked and left_front_blocked
 
 
 def front_turn_side_close(points):
