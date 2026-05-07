@@ -73,6 +73,7 @@ URGENT_FRONT_DIST = 0.55
 # 전방 장애물 강제 제자리 회전 파라미터
 FRONT_TURN_TRIGGER_DIST = 0.50
 FRONT_TURN_W = 0.75
+FRONT_TURN_SIDE_TRIGGER_DIST = 0.35
 
 GOAL_X_M = 3.0
 GOAL_Y_M = 0.0
@@ -512,6 +513,13 @@ def front20_blocked(points):
     return sector_min_distance(points, -20.0, 20.0) <= FRONT_TURN_TRIGGER_DIST
 
 
+def front_turn_side_close(points):
+    left_dist = sector_min_distance(points, 25.0, 90.0)
+    right_dist = sector_min_distance(points, -90.0, -25.0)
+
+    return (left_dist < FRONT_TURN_SIDE_TRIGGER_DIST) or (right_dist < FRONT_TURN_SIDE_TRIGGER_DIST)
+
+
 def choose_front20_turn(points):
     left_dist = sector_min_distance(points, 25.0, 90.0)
     right_dist = sector_min_distance(points, -90.0, -25.0)
@@ -657,7 +665,7 @@ def choose_best_cmd(scan, prev_w, cmd_v):
 
     fdist = front_distance(points)
 
-    if front20_blocked(points):
+    if front20_blocked(points) and front_turn_side_close(points):
         turn_w, left_dist, right_dist = choose_front20_turn(points)
 
         dists = np.sqrt(points[:, 0] * points[:, 0] + points[:, 1] * points[:, 1])
