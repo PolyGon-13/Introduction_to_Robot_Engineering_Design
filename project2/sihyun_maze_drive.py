@@ -49,7 +49,6 @@ LIDAR_ANGLE_SIGN = -1.0
 MIN_LIDAR_DIST_M = 0.05
 MAX_LIDAR_DIST_M = 2.5
 MIN_QUALITY = 1
-MIN_X_FOR_PLANNING = -0.10
 MAX_EVAL_POINTS = 720
 SCAN_HOLD_S = 0.30
 LOOP_DT_S = 0.05
@@ -230,11 +229,7 @@ def lidar_points_to_xy(scan):
     x = dist_m * np.cos(angle_rad)
     y = dist_m * np.sin(angle_rad)
 
-    mask_xy = x >= MIN_X_FOR_PLANNING
-    if not mask_xy.any():
-        return np.empty((0, 2), dtype=np.float32)
-
-    points = np.column_stack((x[mask_xy], y[mask_xy])).astype(np.float32)
+    points = np.column_stack((x, y)).astype(np.float32)
 
     if len(points) > MAX_EVAL_POINTS:
         order = np.argsort(points[:, 0] * points[:, 0] + points[:, 1] * points[:, 1])
