@@ -71,6 +71,10 @@ W_CMD_RATE_LIMIT_URGENT = 0.70
 URGENT_FRONT_DIST = 0.55
 
 # 전방 장애물 강제 제자리 회전 파라미터
+# True  : 전방이 막혔고 좌우 중 한쪽이 가까울 때 v=0, w만 제어
+# False : 해당 특수 w제어를 끄고 기존 후보 평가 방식으로만 주행
+USE_FRONT_BLOCKED_W_CONTROL = True
+
 FRONT_TURN_TRIGGER_DIST = 0.50
 FRONT_TURN_W = 0.75
 FRONT_TURN_SIDE_TRIGGER_DIST = 0.20
@@ -679,7 +683,10 @@ def choose_best_cmd(scan, prev_w, cmd_v):
 
     fdist = front_distance(points)
 
-    if front20_blocked(points) and front_turn_side_close(points):
+    # 전방 막힘 시 w만 제어하는 특수 로직
+    # USE_FRONT_BLOCKED_W_CONTROL = True일 때만 작동
+    # False로 바꾸면 이 조건은 무시되고 아래 기존 후보 평가 방식으로 주행
+    if USE_FRONT_BLOCKED_W_CONTROL and front20_blocked(points) and front_turn_side_close(points):
         turn_w, left_dist, right_dist = choose_front20_turn(points)
 
         dists = np.sqrt(points[:, 0] * points[:, 0] + points[:, 1] * points[:, 1])
