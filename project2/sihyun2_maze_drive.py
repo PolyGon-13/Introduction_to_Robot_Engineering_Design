@@ -115,10 +115,6 @@ USE_PASSAGE_MODE = True
 # 전방이 이 거리 이상 비어 있으면 통로로 판단 가능
 PASSAGE_FRONT_FREE_DIST = 0.35
 
-# 통로 최소 폭 계산용 여유
-# 실제 필요 폭 = 로봇 지름 + PASSAGE_EXTRA_MARGIN
-PASSAGE_EXTRA_MARGIN = 0.00
-
 # 통로 중앙 정렬 제어
 PASSAGE_CENTER_KP = 0.85
 
@@ -632,7 +628,7 @@ def passage_width_status(points):
 
     # 통로 판단은 COLLISION_DIST가 아니라 실제 로봇 지름 기준으로 계산
     # 기존 COLLISION_DIST를 쓰면 너무 보수적이라 장애물 사이에 못 들어감
-    required_width = 2.0 * ROBOT_RADIUS + PASSAGE_EXTRA_MARGIN
+    required_width = 0.21
 
     fdist = front_distance(points)
 
