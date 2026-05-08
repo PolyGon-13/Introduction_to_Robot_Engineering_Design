@@ -628,7 +628,7 @@ def passage_width_status(points):
 
     # 통로 판단은 COLLISION_DIST가 아니라 실제 로봇 지름 기준으로 계산
     # 기존 COLLISION_DIST를 쓰면 너무 보수적이라 장애물 사이에 못 들어감
-    required_width = 0.21
+    required_width = 0.10
 
     fdist = front_distance(points)
 
