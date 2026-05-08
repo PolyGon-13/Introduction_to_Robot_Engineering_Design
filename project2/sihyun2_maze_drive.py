@@ -547,9 +547,13 @@ def sector_min_distance(points, angle_min_deg, angle_max_deg):
 
 
 def is_dead_end(points):
-    front_blocked = sector_min_distance(points, -30.0, 30.0) <= DEAD_END_FRONT_DIST
-    left_blocked = sector_min_distance(points, 30.0, 100.0) <= DEAD_END_SIDE_DIST
-    right_blocked = sector_min_distance(points, -100.0, -30.0) <= DEAD_END_SIDE_DIST
+    """
+    진짜 막다른길일 때만 True.
+    일반 장애물 회피 상황에서는 True가 되면 안 됨.
+    """
+    front_blocked = sector_min_distance(points, -25.0, 25.0) <= DEAD_END_FRONT_DIST
+    left_blocked = sector_min_distance(points, 45.0, 110.0) <= DEAD_END_SIDE_DIST
+    right_blocked = sector_min_distance(points, -110.0, -45.0) <= DEAD_END_SIDE_DIST
 
     return front_blocked and left_blocked and right_blocked
 
