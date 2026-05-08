@@ -118,12 +118,12 @@ PASSAGE_FRONT_FREE_DIST = 0.30
 
 # 통로 판단용 최소 폭
 # 25cm 통로를 들어가려면 0.21~0.23 정도 추천
-PASSAGE_REQUIRED_WIDTH = 0.21
+PASSAGE_REQUIRED_WIDTH = 0.15
 
 # 통로 판단용 전방 검사 폭
 # 기존 FRONT_CORRIDOR_HALF는 COLLISION_DIST 기준이라 너무 넓음
 # 25cm 통로의 좌우 벽을 전방 장애물로 착각하지 않게 정중앙 좁은 폭만 검사
-PASSAGE_FRONT_HALF_WIDTH = 0.045
+PASSAGE_FRONT_HALF_WIDTH = 0.020
 
 # 통로 폭을 측정할 전방 구간
 PASSAGE_X_MIN = 0.12
