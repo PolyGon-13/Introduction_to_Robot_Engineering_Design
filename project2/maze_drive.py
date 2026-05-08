@@ -79,74 +79,102 @@ robot_y = 0.0
 robot_theta = 0.0
 
 
-# ─────────────── 라이다 드라이버 ───────────────
+# RPLidar C1 시리얼 통신 드라이버
 class RPLidarC1:
     def __init__(self, port, baud):
-        self.ser = serial.Serial(port, baud, timeout=0.1)
-        self.ser.write(bytes([0xA5, 0x40])); time.sleep(2.0)
-        self.ser.reset_input_buffer()
-        self.ser.write(bytes([0xA5, 0x20])); self.ser.read(7)
+        self.ser = serial.Serial(port, baud, timeout=0.1) # 시리얼 포트 열기
+
+        self.ser.write(bytes([0xA5, 0x40])); time.sleep(2.0) # RESET
+        self.ser.reset_input_buffer() # 리셋 동안 들어온 노이즈 제거
+
+        self.ser.write(bytes([0xA5, 0x20])) # SCAN
+        header = self.ser.read(7) # 응답 헤더
+        if len(header) != 7 or header[0] != 0xA5 or header[1] != 0x5A:
+            self.ser.close()
+            raise RuntimeError("[LIDAR] Response Header Error")
+
         self.lock = threading.Lock()
-        self.latest_scan = None
+        self.latest_scan = None # 최근 스캔 데이터
         self.running = True
         self.thread = threading.Thread(target=self._loop, daemon=True)
         self.thread.start()
 
     def _loop(self):
-        buf_a, buf_d, buf_q = [], [], []
+        buf_a, buf_d, buf_q = [], [], [] # 각도, 거리, 품질 버퍼
         while self.running:
-            data = self.ser.read(5)
-            if len(data) != 5: continue
-            s_flag = data[0] & 0x01
-            s_inv  = (data[0] & 0x02) >> 1
-            if s_inv != (1 - s_flag): continue
-            if (data[1] & 0x01) != 1: continue
-            quality = data[0] >> 2
-            angle  = ((data[1] >> 1) | (data[2] << 7)) / 64.0
-            dist   = (data[3] | (data[4] << 8)) / 4.0
-            if s_flag == 1 and len(buf_a) > 50:
-                with self.lock:
-                    self.latest_scan = (np.array(buf_a, dtype=np.float32),
-                                        np.array(buf_d, dtype=np.float32),
-                                        np.array(buf_q, dtype=np.float32))
-                buf_a, buf_d, buf_q = [], [], []
-            if dist > 0 and quality > 0:
-                buf_a.append(angle); buf_d.append(dist); buf_q.append(quality)
+            try:
+                data = self.ser.read(5) # 5바이트 읽기
+                if len(data) != 5: continue
 
+                s_flag = data[0] & 0x01 # 시작 플래그
+                s_inv = (data[0] & 0x02) >> 1 # 시작 플래그 반전값
+                if s_inv != (1 - s_flag): continue # 시작 플래그 검증 (s_flag와 s_inv는 항상 반대)
+
+                if (data[1] & 0x01) != 1: continue # 두 번째 바이트의 bit0은 항상 1
+
+                quality = data[0] >> 2 # 신호 품질 (첫 바이트의 상위 6비트)
+                angle = ((data[1] >> 1) | (data[2] << 7)) / 64.0 # 각도 (degree)
+                dist = (data[3] | (data[4] << 8)) / 4.0 # 거리 (mm)
+
+                # 이전 바퀴가 끝나면, 버퍼 저장 후 초기화
+                if s_flag == 1 and len(buf_a) > 50:
+                    with self.lock:
+                        self.latest_scan = (np.array(buf_a, dtype=np.float32),
+                                            np.array(buf_d, dtype=np.float32),
+                                            np.array(buf_q, dtype=np.float32))
+                    buf_a, buf_d, buf_q = [], [], []
+
+                # 유효한 측정만 버퍼에 추가
+                if dist > 0 and quality > 0:
+                    buf_a.append(angle); buf_d.append(dist); buf_q.append(quality)
+
+            except (serial.SerialException, OSError) as e:
+                print(f"[LIDAR] Serial Error: {e}, retrying in 1 second...")
+                time.sleep(1.0)
+                try:
+                    self.ser.reset_input_buffer()
+                except:
+                    pass
+
+    # 가장 최근 스캔 반환
     def get_scan(self):
         with self.lock:
             return self.latest_scan
 
+    # 종료
     def close(self):
         self.running = False
-        try: self.ser.write(bytes([0xA5, 0x25]))
+        try: self.ser.write(bytes([0xA5, 0x25])) # STOP
         except: pass
         time.sleep(0.1); self.ser.close()
 
 
+# 각도(degree) -180° ~ +180° 범위 정규화
 def normalize_angle_deg(angle):
     angle = (angle + 180.0) % 360.0 - 180.0
     return angle
 
-
+# 각도(rad) -π ~ +π 범위 정규화
 def normalize_angle_rad(angle):
     return math.atan2(math.sin(angle), math.cos(angle))
 
 
+# 일정시간 동안 로봇이 이동한 거리/각도 계산
 def update_pose(v, w, dt):
     global robot_x, robot_y, robot_theta
-    robot_x += v * math.cos(robot_theta) * dt
-    robot_y += v * math.sin(robot_theta) * dt
-    robot_theta += w * dt
+    robot_x += v * math.cos(robot_theta) * dt # x축으로 간 거리
+    robot_y += v * math.sin(robot_theta) * dt # y축으로 간 거리
+    robot_theta += w * dt # 각도 변화량
     robot_theta = normalize_angle_rad(robot_theta)
 
 
+# 목표 지점까지의 직선 거리 계산
 def goal_distance():
     dx = GOAL_X_M - robot_x
     dy = GOAL_Y_M - robot_y
-    return math.hypot(dx, dy)
+    return math.hypot(dx, dy) # 유클리드 거리 (sqrt(dx^2 + dy^2)) - 빗변 계산
 
-
+# 목표 방향과 현재 헤딩의 차이 계산
 def goal_heading_error_from_pose(x, y, theta):
     dx = GOAL_X_M - x
     dy = GOAL_Y_M - y
