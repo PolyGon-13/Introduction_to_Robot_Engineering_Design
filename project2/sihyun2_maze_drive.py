@@ -25,20 +25,18 @@ ARDU_PORT  = "/dev/ttyS0"
 ARDU_BAUD  = 9600
 
 # 라이다 시각화 옵션
-VISUALIZE_LIDAR = True       # True: 시각화 켜기 / False: 시각화 끄기
-LIDAR_VIS_RANGE_M = 2.0      # 시각화 범위 2m
-LIDAR_VIS_UPDATE_S = 0.10    # 시각화 갱신 주기
+VISUALIZE_LIDAR = True
+LIDAR_VIS_RANGE_M = 2.0
+LIDAR_VIS_UPDATE_S = 0.10
 
 # 맵핑 시각화 옵션
-MAP_RESOLUTION_M = 0.04      # 격자 한 칸 크기 4cm
-WALL_INFLATE_CELL = 1        # 벽 두께 보정. 1이면 주변 1칸까지 벽처럼 표시
+MAP_RESOLUTION_M = 0.04
+WALL_INFLATE_CELL = 1
 
 # 시각화 정면 보정값
-# 화면에서 정면이 약간 틀어져 보이면 이 값만 조정
-# 예: 정면 벽이 화면에서 오른쪽으로 기울면 -값, 왼쪽으로 기울면 +값을 조금씩 조정
 VIS_FRONT_ROT_DEG = 0.0
 
-# 라이다 캘리브레이션 (확정값)
+# 라이다 캘리브레이션
 ANGLE_OFFSET_DEG = +1.54
 DIST_OFFSET_MM   = 0.0
 LIDAR_ANGLE_SIGN = -1.0
@@ -56,18 +54,18 @@ LOOP_DT_S = 0.05
 # 로컬 플래너 파라미터
 BASE_V = 0.18
 
-# 기존보다 후보 w 범위를 넓혀서 장애물 사이에서 더 크게 틀 수 있게 수정
+# 너무 큰 회전 후보를 줄여서 좌우로 흔들리는 현상 완화
 W_CANDIDATES = [-0.50, -0.35, -0.20, -0.10, 0.0,
                 0.10, 0.20, 0.35, 0.50]
 
-# 기존 1.20초 → 1.60초로 증가
-# 너무 짧게 보면 사진의 빨간 1번처럼 벽+장애물 사이 막다른 공간을 늦게 인식함
-PREDICT_TIME = 1.60
-
+# 너무 멀리 예측하면 통로까지 위험하다고 판단하므로 약간 줄임
+PREDICT_TIME = 1.30
 PREDICT_DT = 0.10
+
 ROBOT_RADIUS = 0.14
 SAFETY_MARGIN = 0.14
 COLLISION_DIST = ROBOT_RADIUS + SAFETY_MARGIN
+
 CLEARANCE_CAP = 1.0
 FRONT_CORRIDOR_HALF = COLLISION_DIST
 ACTIVE_FRONT_DIST = 0.50
@@ -77,35 +75,30 @@ W_CMD_RATE_LIMIT_URGENT = 0.70
 URGENT_FRONT_DIST = 0.55
 
 # 전방 장애물 강제 제자리 회전 파라미터
-# True  : 전방이 막혔고 좌우 중 한쪽이 가까울 때 v=0, w만 제어
-# False : 해당 특수 w제어를 끄고 기존 후보 평가 방식으로만 주행
 USE_FRONT_BLOCKED_W_CONTROL = False
 
 FRONT_TURN_TRIGGER_DIST = 0.50
 FRONT_TURN_W = 0.75
 FRONT_TURN_SIDE_TRIGGER_DIST = 0.20
 
+
 # ─────────────── 막다른길 / 좁은 포켓 회피 파라미터 ───────────────
-# True  : 사진의 빨간 1번처럼 벽+장애물 사이 좁은 막다른 공간으로 들어가는 후보를 강하게 감점
-# False : 기존 로컬 플래너 방식 그대로 사용
 USE_DEAD_END_AVOIDANCE = True
 
-# 기존 후보 평가는 PREDICT_TIME만큼 보고,
-# 막다른길 판단은 더 멀리 본다.
-DEAD_END_LOOKAHEAD_TIME = 3.00
-DEAD_END_LOOKAHEAD_DT = 0.10
-
-# 긴 예측 경로에서 이 거리보다 가까워질 후보는 막다른길 위험으로 판단
+# 너무 길게 보면 장애물 사이 통로도 막다른길로 오해하므로 줄임
 DEAD_END_LOOKAHEAD_TIME = 1.60
 DEAD_END_LOOKAHEAD_DT = 0.10
 
+# 감점 강도를 낮춰서 회전만 하는 현상 완화
 DEAD_END_CLEARANCE_MARGIN = 0.03
 DEAD_END_PENALTY_WEIGHT = 35.0
 
+# 진짜 막힌 경우만 막다른길로 판단하도록 기준 완화
 DEAD_END_FRONT_DIST = 0.38
 DEAD_END_SIDE_DIST = COLLISION_DIST - 0.03
 DEAD_END_ESCAPE_W = 0.50
 
+# 벽과 장애물 사이 좁은 포켓 감지용
 POCKET_SIDE_WALL_DIST = COLLISION_DIST + 0.12
 POCKET_DIAGONAL_OBS_DIST = 0.48
 POCKET_FRONT_IGNORE_DIST = 0.30
@@ -113,6 +106,28 @@ POCKET_MIN_W = 0.12
 POCKET_PENALTY_WEIGHT = 25.0
 POCKET_NEAR_WALL_WEIGHT = 3.5
 POCKET_TURN_AWAY_BONUS = 2.5
+
+
+# ─────────────── 장애물 사이 통과 모드 파라미터 ───────────────
+# True : 좌우에 장애물이 있어도 가운데 폭이 충분하면 회전만 하지 않고 전진
+USE_PASSAGE_MODE = True
+
+# 전방이 이 거리 이상 비어 있으면 통로로 판단 가능
+PASSAGE_FRONT_FREE_DIST = 0.35
+
+# 통로 최소 폭 계산용 여유
+# 실제 필요 폭 = 로봇 지름 + PASSAGE_EXTRA_MARGIN
+PASSAGE_EXTRA_MARGIN = 0.10
+
+# 통로 중앙 정렬 제어
+PASSAGE_CENTER_KP = 0.85
+
+# 통로 통과 시 최대 회전값
+PASSAGE_MAX_W = 0.18
+
+# 통로 통과 시 전진 속도
+PASSAGE_V = BASE_V * 0.90
+
 
 GOAL_X_M = 3.0
 GOAL_Y_M = 0.0
@@ -283,26 +298,12 @@ def lidar_points_to_xy(scan):
 
 
 def convert_points_for_map_view(points):
-    """
-    주행 좌표계:
-        x = 로봇 정면
-        y = 로봇 왼쪽
-
-    화면 좌표계:
-        map_x = 화면 오른쪽
-        map_y = 화면 위쪽
-
-    따라서:
-        정면 x → 화면 위쪽 map_y
-        왼쪽 y → 화면 왼쪽 -map_x
-    """
     if len(points) == 0:
         return np.empty((0, 2), dtype=np.float32)
 
     x_front = points[:, 0]
     y_left = points[:, 1]
 
-    # 시각화용 회전 보정
     rot = math.radians(VIS_FRONT_ROT_DEG)
     cos_r = math.cos(rot)
     sin_r = math.sin(rot)
@@ -310,7 +311,6 @@ def convert_points_for_map_view(points):
     x_rot = x_front * cos_r - y_left * sin_r
     y_rot = x_front * sin_r + y_left * cos_r
 
-    # 화면에서는 정면이 위쪽으로 보이게 변환
     map_x = -y_rot
     map_y = x_rot
 
@@ -342,7 +342,6 @@ class LidarMapVisualizer:
             cmap="gray_r"
         )
 
-        # 로봇 위치 표시: 로봇은 항상 지도 중앙, 화면 위쪽이 정면
         self.ax.plot(0.0, 0.0, marker="^", markersize=10)
         self.ax.arrow(
             0.0, 0.0,
@@ -352,7 +351,6 @@ class LidarMapVisualizer:
             length_includes_head=True
         )
 
-        # 2m 범위 원 표시
         circle = plt.Circle((0, 0), self.range_m, fill=False, linestyle="--")
         self.ax.add_patch(circle)
 
@@ -406,7 +404,6 @@ class LidarMapVisualizer:
         return cells
 
     def build_occupancy_grid(self, points):
-        # 0.0 = 빈 공간, 0.5 = 미확인 공간, 1.0 = 벽/장애물
         grid = np.full((self.grid_size, self.grid_size), 0.5, dtype=np.float32)
 
         robot_cell = self.xy_to_cell(0.0, 0.0)
@@ -418,7 +415,6 @@ class LidarMapVisualizer:
         if len(points) == 0:
             return grid
 
-        # 주행 좌표계를 화면 좌표계로 변환
         map_points = convert_points_for_map_view(points)
 
         dist = np.sqrt(map_points[:, 0] ** 2 + map_points[:, 1] ** 2)
@@ -436,12 +432,10 @@ class LidarMapVisualizer:
 
             ray_cells = self.bresenham(robot_row, robot_col, hit_row, hit_col)
 
-            # 라이다 광선이 지나간 공간은 빈 공간으로 표시
             for row, col in ray_cells[:-1]:
                 if 0 <= row < self.grid_size and 0 <= col < self.grid_size:
                     grid[row, col] = 0.0
 
-            # 마지막 감지점은 벽/장애물로 표시
             for dr in range(-WALL_INFLATE_CELL, WALL_INFLATE_CELL + 1):
                 for dc in range(-WALL_INFLATE_CELL, WALL_INFLATE_CELL + 1):
                     rr = hit_row + dr
@@ -450,7 +444,6 @@ class LidarMapVisualizer:
                     if 0 <= rr < self.grid_size and 0 <= cc < self.grid_size:
                         grid[rr, cc] = 1.0
 
-        # 로봇 주변은 빈 공간으로 처리
         robot_clear_cells = int(ROBOT_RADIUS / self.resolution) + 1
 
         for dr in range(-robot_clear_cells, robot_clear_cells + 1):
@@ -549,7 +542,7 @@ def sector_min_distance(points, angle_min_deg, angle_max_deg):
 def is_dead_end(points):
     """
     진짜 막다른길일 때만 True.
-    일반 장애물 회피 상황에서는 True가 되면 안 됨.
+    일반 장애물 사이 통로에서는 True가 되면 안 됨.
     """
     front_blocked = sector_min_distance(points, -25.0, 25.0) <= DEAD_END_FRONT_DIST
     left_blocked = sector_min_distance(points, 45.0, 110.0) <= DEAD_END_SIDE_DIST
@@ -560,15 +553,9 @@ def is_dead_end(points):
 
 def side_pocket_status(points):
     """
-    사진의 빨간 1번 상황 감지용.
-
-    left_pocket:
-        왼쪽 벽이 가깝고,
-        전방-왼쪽 대각선에 장애물이 가까우면
-        왼쪽 벽과 장애물 사이 좁은 막다른 포켓으로 판단
-
-    right_pocket:
-        오른쪽도 같은 방식
+    벽 + 대각선 장애물 사이의 좁은 막다른 포켓 감지.
+    단, 실제 감점은 evaluate_candidate 안에서
+    전방이 진짜 막혔을 때만 적용한다.
     """
     left_wall = sector_min_distance(points, 75.0, 115.0)
     right_wall = sector_min_distance(points, -115.0, -75.0)
@@ -596,7 +583,7 @@ def side_pocket_status(points):
 def choose_dead_end_escape(points):
     """
     실제 막다른길에 들어간 경우,
-    전진하지 않고 좌우 중 더 여유 있는 방향으로 제자리 회전한다.
+    좌우 중 더 여유 있는 방향으로 회전한다.
     """
     left_free = sector_min_distance(points, 35.0, 150.0)
     right_free = sector_min_distance(points, -150.0, -35.0)
@@ -605,6 +592,98 @@ def choose_dead_end_escape(points):
         return DEAD_END_ESCAPE_W, left_free, right_free
     else:
         return -DEAD_END_ESCAPE_W, left_free, right_free
+
+
+def passage_width_status(points):
+    """
+    로봇 전방 구간에서 좌우 장애물 사이 폭을 계산한다.
+    좌우에 장애물이 있어도 폭이 충분하고 전방이 열려 있으면 통로로 판단한다.
+    """
+    if len(points) == 0:
+        return False, MAX_LIDAR_DIST_M, 0.0, 0.0, 0.0
+
+    # 로봇 앞 15cm ~ 75cm 구간 확인
+    x_min = 0.15
+    x_max = 0.75
+
+    band_mask = (
+        (points[:, 0] > x_min) &
+        (points[:, 0] < x_max)
+    )
+
+    if not band_mask.any():
+        return False, MAX_LIDAR_DIST_M, 0.0, 0.0, 0.0
+
+    band = points[band_mask]
+
+    left_points = band[band[:, 1] > 0.0]
+    right_points = band[band[:, 1] < 0.0]
+
+    if len(left_points) == 0 or len(right_points) == 0:
+        return False, MAX_LIDAR_DIST_M, 0.0, 0.0, 0.0
+
+    # 왼쪽에서 가장 가까운 벽/장애물 y값
+    left_y = float(np.min(left_points[:, 1]))
+
+    # 오른쪽에서 가장 가까운 벽/장애물 y값
+    right_y = float(np.max(right_points[:, 1]))
+
+    width = left_y - right_y
+
+    # 통로 판단은 COLLISION_DIST가 아니라 실제 로봇 지름 기준으로 계산
+    # 기존 COLLISION_DIST를 쓰면 너무 보수적이라 장애물 사이에 못 들어감
+    required_width = 2.0 * ROBOT_RADIUS + PASSAGE_EXTRA_MARGIN
+
+    fdist = front_distance(points)
+
+    passable = (
+        fdist > PASSAGE_FRONT_FREE_DIST and
+        width > required_width
+    )
+
+    center_offset = (left_y + right_y) / 2.0
+
+    return passable, width, left_y, right_y, center_offset
+
+
+def rate_limit_w(prev_w, target_w, urgent=False):
+    limit = W_CMD_RATE_LIMIT_URGENT if urgent else W_CMD_RATE_LIMIT
+    delta = float(np.clip(target_w - prev_w, -limit, limit))
+    return prev_w + delta
+
+
+def choose_passage_cmd(points, prev_w):
+    """
+    장애물 사이 통과 모드.
+    좌우 폭이 충분하면 회전만 하지 않고 가운데로 정렬하면서 전진한다.
+    """
+    passable, width, left_y, right_y, center_offset = passage_width_status(points)
+
+    if not passable:
+        return None
+
+    # center_offset > 0 이면 통로 중심이 왼쪽 → 좌회전
+    # center_offset < 0 이면 통로 중심이 오른쪽 → 우회전
+    target_w = PASSAGE_CENTER_KP * center_offset
+    target_w = float(np.clip(target_w, -PASSAGE_MAX_W, PASSAGE_MAX_W))
+
+    w = rate_limit_w(prev_w, target_w, urgent=False)
+
+    fdist = front_distance(points)
+    dists = np.sqrt(points[:, 0] * points[:, 0] + points[:, 1] * points[:, 1])
+    body_clearance = float(np.min(dists))
+
+    return PASSAGE_V, w, {
+        "score": 0.0,
+        "clear": fdist,
+        "side": width,
+        "body": body_clearance,
+        "front": fdist,
+        "points": len(points),
+        "collision": False,
+        "raw_w": target_w,
+        "cth": robot_theta,
+    }
 
 
 def front20_blocked(points):
@@ -636,7 +715,6 @@ def choose_front20_turn(points):
     left_dist = sector_min_distance(points, 25.0, 90.0)
     right_dist = sector_min_distance(points, -90.0, -25.0)
 
-    # 좌측 장애물이 더 멀면 좌회전(w +), 우측 장애물이 더 멀면 우회전(w -)
     if left_dist >= right_dist:
         return FRONT_TURN_W, left_dist, right_dist
     else:
@@ -752,8 +830,6 @@ def evaluate_candidate(v, w, points, prev_w, front_dist):
 
     # ─────────────── 막다른길 / 좁은 포켓 회피 감점 ───────────────
     if USE_DEAD_END_AVOIDANCE:
-        # 기존 후보 평가는 짧게 보고,
-        # 막다른길 판단은 더 길게 예측해서 빨간 1번 같은 포켓 진입을 막는다.
         long_traj = predict_trajectory(
             v,
             w,
@@ -767,11 +843,9 @@ def evaluate_candidate(v, w, points, prev_w, front_dist):
 
         dead_clear = COLLISION_DIST + DEAD_END_CLEARANCE_MARGIN
 
-        # 긴 예측 경로 기준으로 몸체가 벽/장애물에 가까워지는 후보 감점
         if long_body_clearance < dead_clear:
             score -= DEAD_END_PENALTY_WEIGHT * (dead_clear - long_body_clearance + 1.0)
 
-        # 긴 예측 경로 기준으로 전방 충돌 가능성이 큰 후보 감점
         if long_front_clearance < dead_clear:
             score -= (DEAD_END_PENALTY_WEIGHT * 0.65) * (dead_clear - long_front_clearance + 1.0)
 
@@ -779,36 +853,31 @@ def evaluate_candidate(v, w, points, prev_w, front_dist):
             side_pocket_status(points)
         )
 
-        # 왼쪽 벽 + 왼쪽 대각선 장애물 사이 좁은 포켓이면
-        # 왼쪽으로 도는 후보를 강하게 감점
-        if left_pocket and w > POCKET_MIN_W:
-            score -= POCKET_PENALTY_WEIGHT * (1.0 + abs(w))
+        # 핵심 수정:
+        # 전방이 실제로 막혀 있을 때만 포켓 감점 적용.
+        # 전방이 열려 있으면 장애물 사이 통로일 수 있으므로 감점하지 않음.
+        front_really_blocked = front_dist < DEAD_END_FRONT_DIST
 
-        # 오른쪽 포켓이면 오른쪽으로 도는 후보 감점
-        if right_pocket and w < -POCKET_MIN_W:
-            score -= POCKET_PENALTY_WEIGHT * (1.0 + abs(w))
+        if front_really_blocked:
+            if left_pocket and w > POCKET_MIN_W:
+                score -= POCKET_PENALTY_WEIGHT * (1.0 + abs(w))
 
-        # 포켓 반대 방향으로 빠지는 후보는 약간 보너스
-        if left_pocket and w < -POCKET_MIN_W:
-            score += POCKET_TURN_AWAY_BONUS * abs(w)
+            if right_pocket and w < -POCKET_MIN_W:
+                score -= POCKET_PENALTY_WEIGHT * (1.0 + abs(w))
 
-        if right_pocket and w > POCKET_MIN_W:
-            score += POCKET_TURN_AWAY_BONUS * abs(w)
+            if left_pocket and w < -POCKET_MIN_W:
+                score += POCKET_TURN_AWAY_BONUS * abs(w)
 
-        # 벽이 가까운 쪽으로 더 파고드는 회전 방지
-        if left_wall < POCKET_SIDE_WALL_DIST and w > POCKET_MIN_W:
-            score -= POCKET_NEAR_WALL_WEIGHT * (POCKET_SIDE_WALL_DIST - left_wall) * (1.0 + abs(w))
+            if right_pocket and w > POCKET_MIN_W:
+                score += POCKET_TURN_AWAY_BONUS * abs(w)
 
-        if right_wall < POCKET_SIDE_WALL_DIST and w < -POCKET_MIN_W:
-            score -= POCKET_NEAR_WALL_WEIGHT * (POCKET_SIDE_WALL_DIST - right_wall) * (1.0 + abs(w))
+            if left_wall < POCKET_SIDE_WALL_DIST and w > POCKET_MIN_W:
+                score -= POCKET_NEAR_WALL_WEIGHT * (POCKET_SIDE_WALL_DIST - left_wall) * (1.0 + abs(w))
+
+            if right_wall < POCKET_SIDE_WALL_DIST and w < -POCKET_MIN_W:
+                score -= POCKET_NEAR_WALL_WEIGHT * (POCKET_SIDE_WALL_DIST - right_wall) * (1.0 + abs(w))
 
     return score, front_clearance, side_clearance, body_clearance, candidate_theta
-
-
-def rate_limit_w(prev_w, target_w, urgent=False):
-    limit = W_CMD_RATE_LIMIT_URGENT if urgent else W_CMD_RATE_LIMIT
-    delta = float(np.clip(target_w - prev_w, -limit, limit))
-    return prev_w + delta
 
 
 def choose_best_cmd(scan, prev_w, cmd_v):
@@ -829,15 +898,20 @@ def choose_best_cmd(scan, prev_w, cmd_v):
 
     fdist = front_distance(points)
 
-    # 실제 막다른길에 들어간 경우:
-    # 앞으로 더 밀고 가지 않고 v=0, w만 줘서 빠져나올 방향으로 회전
+    # 1순위: 장애물 사이 통과 가능하면 막다른길 회피보다 먼저 전진 통과
+    if USE_PASSAGE_MODE:
+        passage_cmd = choose_passage_cmd(points, prev_w)
+        if passage_cmd is not None:
+            return passage_cmd
+
+    # 2순위: 진짜 막다른길이면 천천히 움직이며 탈출 회전
     if USE_DEAD_END_AVOIDANCE and is_dead_end(points):
         turn_w, left_free, right_free = choose_dead_end_escape(points)
 
         dists = np.sqrt(points[:, 0] * points[:, 0] + points[:, 1] * points[:, 1])
         body_clearance = float(np.min(dists))
 
-        return 0.0, turn_w, {
+        return 0.04, turn_w, {
             "score": 0.0,
             "clear": fdist,
             "side": max(left_free, right_free),
@@ -849,9 +923,7 @@ def choose_best_cmd(scan, prev_w, cmd_v):
             "cth": robot_theta,
         }
 
-    # 전방 막힘 시 w만 제어하는 특수 로직
-    # USE_FRONT_BLOCKED_W_CONTROL = True일 때만 작동
-    # False로 바꾸면 이 조건은 무시되고 아래 기존 후보 평가 방식으로 주행
+    # 3순위: 전방 막힘 시 w만 제어하는 기존 특수 로직
     if USE_FRONT_BLOCKED_W_CONTROL and front20_blocked(points) and front_turn_side_close(points):
         turn_w, left_dist, right_dist = choose_front20_turn(points)
 
