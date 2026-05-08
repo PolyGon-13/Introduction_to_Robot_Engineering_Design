@@ -113,16 +113,31 @@ POCKET_TURN_AWAY_BONUS = 2.5
 USE_PASSAGE_MODE = True
 
 # 전방이 이 거리 이상 비어 있으면 통로로 판단 가능
-PASSAGE_FRONT_FREE_DIST = 0.35
+# 25cm 통로에서는 너무 크게 잡으면 진입 전에 막혔다고 판단함
+PASSAGE_FRONT_FREE_DIST = 0.30
+
+# 통로 판단용 최소 폭
+# 25cm 통로를 들어가려면 0.21~0.23 정도 추천
+PASSAGE_REQUIRED_WIDTH = 0.21
+
+# 통로 판단용 전방 검사 폭
+# 기존 FRONT_CORRIDOR_HALF는 COLLISION_DIST 기준이라 너무 넓음
+# 25cm 통로의 좌우 벽을 전방 장애물로 착각하지 않게 정중앙 좁은 폭만 검사
+PASSAGE_FRONT_HALF_WIDTH = 0.045
+
+# 통로 폭을 측정할 전방 구간
+PASSAGE_X_MIN = 0.12
+PASSAGE_X_MAX = 0.65
 
 # 통로 중앙 정렬 제어
-PASSAGE_CENTER_KP = 0.85
+# 25cm 통로에서는 회전값이 크면 입구에서 좌우로 흔들리므로 낮춤
+PASSAGE_CENTER_KP = 0.45
 
 # 통로 통과 시 최대 회전값
-PASSAGE_MAX_W = 0.18
+PASSAGE_MAX_W = 0.10
 
 # 통로 통과 시 전진 속도
-PASSAGE_V = BASE_V * 0.90
+PASSAGE_V = BASE_V * 0.55
 
 
 GOAL_X_M = 3.0
@@ -590,21 +605,42 @@ def choose_dead_end_escape(points):
         return -DEAD_END_ESCAPE_W, left_free, right_free
 
 
+def passage_front_distance(points):
+    """
+    통로 모드 전용 전방 거리 계산.
+
+    기존 front_distance()는 FRONT_CORRIDOR_HALF = COLLISION_DIST를 사용해서
+    검사 폭이 너무 넓다. 25cm 통로에서는 좌우 벽이 전방 장애물처럼 잡혀
+    통로 진입이 막힐 수 있으므로, 정중앙의 아주 좁은 폭만 확인한다.
+    """
+    if len(points) == 0:
+        return MAX_LIDAR_DIST_M
+
+    mask = (
+        (points[:, 0] > 0.0) &
+        (points[:, 0] < ACTIVE_FRONT_DIST) &
+        (np.abs(points[:, 1]) < PASSAGE_FRONT_HALF_WIDTH)
+    )
+
+    if not mask.any():
+        return MAX_LIDAR_DIST_M
+
+    return float(np.min(points[mask, 0]))
+
+
 def passage_width_status(points):
     """
     로봇 전방 구간에서 좌우 장애물 사이 폭을 계산한다.
-    좌우에 장애물이 있어도 폭이 충분하고 전방이 열려 있으면 통로로 판단한다.
+
+    25cm 통로에서는 기존 front_distance()를 쓰면 좌우 벽을 전방 장애물로
+    착각할 수 있으므로 passage_front_distance()를 사용한다.
     """
     if len(points) == 0:
         return False, MAX_LIDAR_DIST_M, 0.0, 0.0, 0.0
 
-    # 로봇 앞 15cm ~ 75cm 구간 확인
-    x_min = 0.15
-    x_max = 0.75
-
     band_mask = (
-        (points[:, 0] > x_min) &
-        (points[:, 0] < x_max)
+        (points[:, 0] > PASSAGE_X_MIN) &
+        (points[:, 0] < PASSAGE_X_MAX)
     )
 
     if not band_mask.any():
@@ -618,19 +654,14 @@ def passage_width_status(points):
     if len(left_points) == 0 or len(right_points) == 0:
         return False, MAX_LIDAR_DIST_M, 0.0, 0.0, 0.0
 
-    # 왼쪽에서 가장 가까운 벽/장애물 y값
     left_y = float(np.min(left_points[:, 1]))
-
-    # 오른쪽에서 가장 가까운 벽/장애물 y값
     right_y = float(np.max(right_points[:, 1]))
 
     width = left_y - right_y
 
-    # 통로 판단은 COLLISION_DIST가 아니라 실제 로봇 지름 기준으로 계산
-    # 기존 COLLISION_DIST를 쓰면 너무 보수적이라 장애물 사이에 못 들어감
-    required_width = 0.10
+    required_width = PASSAGE_REQUIRED_WIDTH
 
-    fdist = front_distance(points)
+    fdist = passage_front_distance(points)
 
     passable = (
         fdist > PASSAGE_FRONT_FREE_DIST and
@@ -665,7 +696,7 @@ def choose_passage_cmd(points, prev_w):
 
     w = rate_limit_w(prev_w, target_w, urgent=False)
 
-    fdist = front_distance(points)
+    fdist = passage_front_distance(points)
     dists = np.sqrt(points[:, 0] * points[:, 0] + points[:, 1] * points[:, 1])
     body_clearance = float(np.min(dists))
 
@@ -849,9 +880,8 @@ def evaluate_candidate(v, w, points, prev_w, front_dist):
             side_pocket_status(points)
         )
 
-        # 핵심 수정:
-        # 전방이 실제로 막혀 있을 때만 포켓 감점 적용.
-        # 전방이 열려 있으면 장애물 사이 통로일 수 있으므로 감점하지 않음.
+        # 전방이 실제로 막혀 있을 때만 포켓 감점 적용
+        # 전방이 열려 있으면 장애물 사이 통로일 수 있으므로 감점하지 않음
         front_really_blocked = front_dist < DEAD_END_FRONT_DIST
 
         if front_really_blocked:
