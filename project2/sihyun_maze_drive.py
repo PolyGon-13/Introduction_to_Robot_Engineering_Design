@@ -73,7 +73,7 @@ URGENT_FRONT_DIST = 0.55
 # 전방 장애물 강제 제자리 회전 파라미터
 # True  : 전방이 막혔고 좌우 중 한쪽이 가까울 때 v=0, w만 제어
 # False : 해당 특수 w제어를 끄고 기존 후보 평가 방식으로만 주행
-USE_FRONT_BLOCKED_W_CONTROL = True
+USE_FRONT_BLOCKED_W_CONTROL = False
 
 FRONT_TURN_TRIGGER_DIST = 0.50
 FRONT_TURN_W = 0.75
