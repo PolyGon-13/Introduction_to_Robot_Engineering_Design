@@ -1,6 +1,4 @@
 #!/usr/bin/env python3
-# maze2.py
-# RPLiDAR C1 + 후보 각속도 평가 기반 로컬 플래너
 
 import serial
 import time
@@ -8,7 +6,6 @@ import math
 import threading
 import numpy as np
 
-# ─────────────── 사용자 튜닝 파라미터 ───────────────
 LIDAR_PORT = "/dev/ttyUSB0"
 LIDAR_BAUD = 460800
 ARDU_PORT  = "/dev/ttyS0"
@@ -25,7 +22,7 @@ LIDAR_ANGLE_SIGN = -1.0
 MIN_LIDAR_DIST_M = 0.05
 MAX_LIDAR_DIST_M = 2.5
 MIN_QUALITY = 1
-MIN_X_FOR_PLANNING = -0.10
+MIN_X_FOR_PLANNING = 0.05
 MAX_EVAL_POINTS = 720
 SCAN_HOLD_S = 0.30
 LOOP_DT_S = 0.05
@@ -36,7 +33,7 @@ BASE_V = 0.18
 W_CANDIDATES = [-0.90, -0.70, -0.50, -0.35, -0.15, 0.0,
                 0.15, 0.35, 0.50, 0.70, 0.90]
 
-PREDICT_TIME = 1.20
+PREDICT_TIME = 1.50
 PREDICT_DT = 0.10
 ROBOT_RADIUS = 0.14
 SAFETY_MARGIN = 0.14
@@ -59,9 +56,6 @@ TURN_SOFT_LIMIT_RAD = math.radians(70.0)
 TURN_HARD_LIMIT_RAD = math.radians(88.0)
 TURN_LIMIT_WEIGHT = 28.0
 TURN_GROWTH_WEIGHT = 12.0
-USE_GOAL_SLOWDOWN = False
-GOAL_FINAL_SLOW_DIST = 0.30
-GOAL_MIN_V = 0.08
 
 clearance_weight = 3.0
 collision_weight = 100.0
@@ -182,87 +176,99 @@ def goal_heading_error_from_pose(x, y, theta):
     return normalize_angle_rad(target_heading - theta)
 
 
+# 로봇 기준 좌표(local) -> 전역 좌표(global)
+# 로봇의 전역좌표에 원하는 지점의 좌표를 전역좌표로 변경하여 더해주는 과정
 def transform_local_to_global(local_x, local_y):
-    gx = robot_x + local_x * math.cos(robot_theta) - local_y * math.sin(robot_theta)
-    gy = robot_y + local_x * math.sin(robot_theta) + local_y * math.cos(robot_theta)
+    gx = robot_x + (local_x * math.cos(robot_theta) - local_y * math.sin(robot_theta))
+    gy = robot_y + (local_x * math.sin(robot_theta) + local_y * math.cos(robot_theta))
     return gx, gy
 
 
-def get_cmd_v():
-    if USE_GOAL_SLOWDOWN:
-        gd = goal_distance()
-        if gd < GOAL_FINAL_SLOW_DIST:
-            return max(GOAL_MIN_V, BASE_V * gd / GOAL_FINAL_SLOW_DIST)
-    return BASE_V
-
-
 def lidar_points_to_xy(scan):
-    if scan is None:
+    if scan is None: # 스캔 없으면 빈 배열
         return np.empty((0, 2), dtype=np.float32)
 
     angles, dists, qualities = scan
-    dist_m = (dists.astype(np.float32) + DIST_OFFSET_MM) / 1000.0
-    angle_deg = normalize_angle_deg(angles.astype(np.float32) + ANGLE_OFFSET_DEG)
-    angle_deg = LIDAR_ANGLE_SIGN * angle_deg
+    dist_m = (dists.astype(np.float32) + DIST_OFFSET_MM) / 1000.0 # 거리 변환 mm -> m, DIST_OFFSET_MM만큼 보정
+    angle_deg = normalize_angle_deg(angles.astype(np.float32) + ANGLE_OFFSET_DEG) # 각도 변환
+    angle_deg = LIDAR_ANGLE_SIGN * angle_deg # 각도 부호 변환
 
-    mask = ((dist_m >= MIN_LIDAR_DIST_M) &
-            (dist_m <= MAX_LIDAR_DIST_M) &
-            (qualities >= MIN_QUALITY))
+    # 유효 측정 필터
+    mask = ((dist_m >= MIN_LIDAR_DIST_M) & # 일정 거리 미만은 무시 (5cm)
+            (dist_m <= MAX_LIDAR_DIST_M) & # 일정 거리 이상은 무시 (2.5m)
+            (qualities >= MIN_QUALITY)) # 낮은 신호 품질 측정은 무시
     if not mask.any():
         return np.empty((0, 2), dtype=np.float32)
 
+    # 극좌표(r,θ) -> 직교좌표(x,y) 변환
     dist_m = dist_m[mask]
     angle_rad = np.deg2rad(angle_deg[mask])
     x = dist_m * np.cos(angle_rad)
     y = dist_m * np.sin(angle_rad)
 
+    # 전방 필터링
     mask_xy = x >= MIN_X_FOR_PLANNING
     if not mask_xy.any():
         return np.empty((0, 2), dtype=np.float32)
 
+    # 필터링된 x,y 값들을 점 배열로 제작
     points = np.column_stack((x[mask_xy], y[mask_xy])).astype(np.float32)
-    if len(points) > MAX_EVAL_POINTS:
-        order = np.argsort(points[:, 0] * points[:, 0] + points[:, 1] * points[:, 1])
-        points = points[order[:MAX_EVAL_POINTS]]
+
+    if len(points) > MAX_EVAL_POINTS: # 점 개수가 720개 이상인 경우 (RPLidar C1이 한 회전에 400~600개 점이라 거의 실행될 일 없음)
+        order = np.argsort(points[:, 0] ** 2 + points[:, 1] ** 2)
+        points = points[order[:MAX_EVAL_POINTS]] # 가장 가까운 720개 점
     return points
+    # points[:, 0] : 모든 x좌표, points[:, 1] : 모든 y좌표
+    # argsort : 정렬했을 때 원래 인덱스가 어디로 가는지 반환
 
 
+# 후보 v,w 명령으로 로봇이 PREDICT_TIME초 동안 그릴 미래 경로 계산
 def predict_trajectory(v, w):
-    traj = []
-    x = 0.0
-    y = 0.0
-    theta = 0.0
-    t = 0.0
-    while t < PREDICT_TIME:
-        x += v * math.cos(theta) * PREDICT_DT
-        y += v * math.sin(theta) * PREDICT_DT
-        theta += w * PREDICT_DT
-        traj.append((x, y, theta))
-        t += PREDICT_DT
-    return np.array(traj, dtype=np.float32)
+    n_steps = int(PREDICT_TIME / PREDICT_DT) # step 수 미리 계산
+    ts = (np.arange(n_steps) + 1) * PREDICT_DT # 각 step의 누적 시간을 한 줄로 제작
+    thetas = w * ts # 모든 스텝의 헤딩
+
+    if abs(w) > 1e-6: # 곡선 주행
+        xs = (v / w) * np.sin(thetas)
+        ys = (v / w) * (1.0 - np.cos(thetas))
+    else: # 직진
+        xs = v * ts
+        ys = np.zeros(n_steps)
+
+    return np.column_stack((xs, ys, thetas)).astype(np.float32)
 
 
+# 로봇의 정면 범위 안에서 가장 가까운 장애물까지의 거리
 def front_distance(points):
-    if len(points) == 0:
+    if len(points) == 0: # 점이 하나도 없으면 안전으로 간주하고 MAX 거리 반환
         return MAX_LIDAR_DIST_M
-    mask = ((points[:, 0] > 0.0) &
-            (points[:, 0] < ACTIVE_FRONT_DIST) &
-            (np.abs(points[:, 1]) < FRONT_CORRIDOR_HALF))
+    
+    mask = ((points[:, 0] > 0.0) & # x가 양수 -> 로봇 앞쪽
+            (points[:, 0] < ACTIVE_FRONT_DIST) & # x가 특정값 이내 -> 너무 멀지 않음
+            (np.abs(points[:, 1]) < FRONT_CORRIDOR_HALF)) # |y|가 특정값 이내 -> 정면 범위 안
     if not mask.any():
         return MAX_LIDAR_DIST_M
-    return float(np.min(points[mask, 0]))
+    
+    # 가장 가까운 정면 장애물과의 거리
+    return float(np.min(points[mask, 0])) 
 
 
+# 경로를 따라가면 미래 스텝 동안 장애물에 얼마나 가까이 지나가는지 계산
+# points : (N,2) -> 라이다가 측정한 장애물 위치
+# traj : (steps,3) -> 미래 경로의 가상 위치들
 def trajectory_clearances(traj, points):
     if len(points) == 0:
         return MAX_LIDAR_DIST_M, MAX_LIDAR_DIST_M, MAX_LIDAR_DIST_M
 
-    traj_xy = traj[:, :2]
-    theta = traj[:, 2]
-    diff = points[None, :, :] - traj_xy[:, None, :]
-    dx = diff[:, :, 0]
-    dy = diff[:, :, 1]
-    dist = np.sqrt(dx * dx + dy * dy)
+    traj_xy = traj[:, :2] # 각 step의 (x,y) : (steps,2)
+    theta = traj[:, 2] # 각 step의 헤딩 : (steps, 1)
+
+    # 차원을 맞추어 브로드캐스팅을 이용하기 위해 None 추가
+    # (1,N,2) - (steps,1,2) = (steps,N,2) : 모든 step과 모든 점의 모든 쌍에 대해 좌표 차이 한 번에 계산
+    diff = points[None, :, :] - traj_xy[:, None, :] # 각 step에서 실제 장애물까지의 거리
+    dx = diff[:, :, 0] # Δx
+    dy = diff[:, :, 1] # Δy
+    dist = np.sqrt(dx ** 2 + dy ** 2) # 모든 점 쌍의 유클리드 거리
 
     c = np.cos(theta)[:, None]
     s = np.sin(theta)[:, None]
@@ -416,7 +422,6 @@ def choose_best_cmd(scan, prev_w, cmd_v):
     }
 
 
-# ─────────────── 메인 ───────────────
 def main():
     global robot_x, robot_y, robot_theta
     lidar = RPLidarC1(LIDAR_PORT, LIDAR_BAUD)
@@ -471,8 +476,7 @@ def main():
                 time.sleep(LOOP_DT_S); continue
 
             last_scan_ok = time.time()
-            cmd_v = get_cmd_v()
-            v, w, info = choose_best_cmd(scan, last_w, cmd_v)
+            v, w, info = choose_best_cmd(scan, last_w, BASE_V)
             send_vw(v, w)
             update_pose(v, w, dt)
             last_v, last_w = v, w
