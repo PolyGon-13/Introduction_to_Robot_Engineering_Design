@@ -229,8 +229,11 @@ def predict_trajectory(v, w):
     thetas = w * ts # 모든 스텝의 헤딩
 
     if abs(w) > 1e-6: # 곡선 주행
+        # v/w : 회전 반지름 R
         xs = (v / w) * np.sin(thetas)
         ys = (v / w) * (1.0 - np.cos(thetas))
+        # 회전중심이 (0,R), 로봇의 시작점은 (0,-R)
+        # 절대 좌표는 (0+Rsin(theta),R+(-Rcos(theta))
     else: # 직진
         xs = v * ts
         ys = np.zeros(n_steps)
@@ -270,37 +273,42 @@ def trajectory_clearances(traj, points):
     dy = diff[:, :, 1] # Δy
     dist = np.sqrt(dx ** 2 + dy ** 2) # 모든 점 쌍의 유클리드 거리
 
-    c = np.cos(theta)[:, None]
-    s = np.sin(theta)[:, None]
+    c = np.cos(theta)[:, None] # 각 step의 cos값
+    s = np.sin(theta)[:, None] # 각 step의 sin값
     rel_x = c * dx + s * dy
     rel_y = -s * dx + c * dy
+    # 2D 회전행렬
 
+    # 정면 위험도 검사
     front_mask = ((rel_x > 0.0) &
                   (rel_x < ACTIVE_FRONT_DIST) &
                   (np.abs(rel_y) < FRONT_CORRIDOR_HALF))
     if front_mask.any():
         front_clear = float(np.min(dist[front_mask]))
+        # 범위 안에 점이 하나라도 있으면 그 점들의 거리 중 최솟값
     else:
         front_clear = MAX_LIDAR_DIST_M
 
-    side_mask = ~front_mask
+    # 측면 위험도 검사
+    side_mask = ~front_mask # 범위 안에 들어오지 않은 모든 점
     if side_mask.any():
         side_clear = float(np.min(dist[side_mask]))
     else:
         side_clear = MAX_LIDAR_DIST_M
 
+    # 전체 위험도 검사
     body_clear = float(np.min(dist))
+
     return front_clear, side_clear, body_clear
 
 
+# (v,w)에 대해 cost항으로 점수 계산
 def evaluate_candidate(v, w, points, prev_w, front_dist):
-    traj = predict_trajectory(v, w)
-    front_clearance, side_clearance, body_clearance = trajectory_clearances(traj, points)
+    traj = predict_trajectory(v, w) # 후보 경로
+    front_clearance, side_clearance, body_clearance = trajectory_clearances(traj, points) # 정면/측면/전체 최단 거리
 
     max_abs_w = max(abs(wc) for wc in W_CANDIDATES)
-    front_factor = float(np.clip((ACTIVE_FRONT_DIST - front_dist) /
-                                 max(1e-6, ACTIVE_FRONT_DIST - COLLISION_DIST),
-                                 0.0, 1.0))
+    front_factor = float(np.clip((ACTIVE_FRONT_DIST - front_dist) / max(1e-6, ACTIVE_FRONT_DIST - COLLISION_DIST), 0.0, 1.0)) # 전방이 얼마나 위험한지를 0~1로 표현 (안전할수록 1에 가까움)
     forward_w = forward_weight + (1.0 - front_factor) * far_forward_weight
     turn_w = turn_weight + (1.0 - front_factor) * far_turn_weight
 
