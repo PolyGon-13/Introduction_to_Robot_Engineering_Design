@@ -56,14 +56,14 @@ CENTERING_WEIGHT = 0.8
 
 BOTH_BLOCKED_THRESH = 0.20
 HEADING_OFF_THRESH = math.radians(5.0)
-SQUEEZE_BOOST_WEIGHT = 8.0
+SQUEEZE_BOOST_WEIGHT = 10.0
 SQUEEZE_W_MIN = 0.20
 
 clearance_weight = 3.0
 collision_weight = 80.0
 side_clearance_weight = 0.6
 side_near_weight = 8.0
-side_collision_weight = 50.0
+side_collision_weight = 30.0
 forward_weight = 1.0
 far_forward_weight = 2.2
 turn_weight = 0.25
