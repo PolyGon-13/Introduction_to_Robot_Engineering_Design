@@ -387,11 +387,17 @@ def choose_best_cmd(scan, prev_w, cmd_v):
     near_thresh = 0.14
 
     heading_off = abs(robot_theta) > HEADING_OFF_THRESH
-    if prev_in_squeeze:
-        both_sides_blocked = (info_left < SQUEEZE_EXIT_THRESH and info_right < SQUEEZE_EXIT_THRESH)
-    else:
-        both_sides_blocked = (info_left < SQUEEZE_ENTER_THRESH and info_right < SQUEEZE_ENTER_THRESH)
-    in_squeeze = both_sides_blocked and heading_off
+    enter_squeeze = (
+        info_left < SQUEEZE_ENTER_THRESH and
+        info_right < SQUEEZE_ENTER_THRESH and
+        heading_off
+    )
+    stay_squeeze = (
+        prev_in_squeeze and
+        info_left < SQUEEZE_EXIT_THRESH and
+        info_right < SQUEEZE_EXIT_THRESH
+    )
+    in_squeeze = enter_squeeze or stay_squeeze
     prev_in_squeeze = in_squeeze
     if in_squeeze:
         recovery_sign = -math.copysign(1.0, robot_theta)
