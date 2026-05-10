@@ -55,7 +55,7 @@ X_PROGRESS_WEIGHT = 0.8
 CENTERING_WEIGHT = 0.8
 
 clearance_weight = 3.0
-collision_weight = 70.0
+collision_weight = 90.0
 side_clearance_weight = 0.6
 side_near_weight = 8.0
 side_collision_weight = 18.0
