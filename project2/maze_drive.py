@@ -390,7 +390,7 @@ def choose_best_cmd(scan, prev_w, cmd_v):
         if len(ry) > 0:
             info_right = float(-np.max(ry))
 
-    near_thresh = 0.05
+    near_thresh = 0.1
 
     best_w = 0.0
     best_score = -float("inf")
