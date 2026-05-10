@@ -386,9 +386,24 @@ def choose_best_cmd(scan, prev_w, cmd_v):
             "collision": False,
             "raw_w": 0.0,
             "cth": robot_theta,
+            "left": 1.0,
+            "right": 1.0,
         }
 
     fdist = front_distance(points)
+
+    info_left = 1.0
+    info_right = 1.0
+    sb = (np.abs(points[:, 0]) < 0.15) & (np.abs(points[:, 1]) < 0.30)
+    if sb.any():
+        ys_sb = points[sb, 1]
+        ly = ys_sb[ys_sb > 0.05]
+        ry = ys_sb[ys_sb < -0.05]
+        if len(ly) > 0:
+            info_left = float(np.min(ly))
+        if len(ry) > 0:
+            info_right = float(-np.max(ry))
+
     best_w = 0.0
     best_score = -float("inf")
     best_clearance = -float("inf")
@@ -442,6 +457,8 @@ def choose_best_cmd(scan, prev_w, cmd_v):
         "collision": best_clearance < COLLISION_DIST,
         "raw_w": raw_best_w,
         "cth": best_theta,
+        "left": info_left,
+        "right": info_right,
     }
 
 
@@ -513,12 +530,13 @@ def main():
 
             if time.time() - last_log > 0.25:
                 print(f"[RUN2] x={robot_x:.2f} y={robot_y:.2f} "
-                      f"th={robot_theta:.2f} gd={gd:.2f} he={he:.2f} "
-                      f"v={v:.2f} w={w:.2f} raw={info['raw_w']:.2f} "
-                      f"front={info['front']:.2f} clear={info['clear']:.2f} "
-                      f"side={info['side']:.2f} body={info['body']:.2f} "
-                      f"score={info['score']:.2f} pts={info['points']} "
-                      f"coll={int(info['collision'])} cth={info['cth']:.2f}")
+                    f"th={robot_theta:.2f} gd={gd:.2f} he={he:.2f} "
+                    f"v={v:.2f} w={w:.2f} raw={info['raw_w']:.2f} "
+                    f"front={info['front']:.2f} clear={info['clear']:.2f} "
+                    f"side={info['side']:.2f} body={info['body']:.2f} "
+                    f"score={info['score']:.2f} pts={info['points']} "
+                    f"coll={int(info['collision'])} cth={info['cth']:.2f} "
+                    f"L={info.get('left',-1):.2f} R={info.get('right',-1):.2f}")
                 last_log = time.time()
 
             time.sleep(LOOP_DT_S)
