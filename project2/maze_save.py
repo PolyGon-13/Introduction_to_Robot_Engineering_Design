@@ -33,8 +33,7 @@ BASE_V = 0.18
 W_CANDIDATES = [-0.90, -0.70, -0.50, -0.35, -0.20, -0.10, 0.0,
                 0.10, 0.20, 0.35, 0.50, 0.70, 0.90]
 
-PREDICT_TIME_NORMAL = 1.50
-PREDICT_TIME_SQUEEZE = 0.70
+PREDICT_TIME = 1.50
 PREDICT_DT = 0.10
 ROBOT_RADIUS = 0.16 # 로봇 반경
 SAFETY_MARGIN = 0.16 # 안전 여유
@@ -43,26 +42,23 @@ CLEARANCE_CAP = 1.0
 FRONT_CORRIDOR_HALF = COLLISION_DIST + 0.30 # 정면 통로 반폭
 ACTIVE_FRONT_DIST = 0.30 # 정면 위험 판정 거리
 SIDE_NEAR_DIST = COLLISION_DIST + 0.20 # 측면 근접 경고 거리
-W_CMD_RATE_LIMIT = 0.20
+W_CMD_RATE_LIMIT = 0.30
 W_CMD_RATE_LIMIT_URGENT = 0.40
 URGENT_FRONT_DIST = 0.30 # 위급 모드 진입 거리
 
 GOAL_X_M = 3.0
-TURN_SOFT_LIMIT_RAD = math.radians(60.0)
-TURN_HARD_LIMIT_RAD = math.radians(95.0)
+GOAL_Y_M = 0.0
+GOAL_TOL_M = 0.15
+GOAL_HEADING_WEIGHT = 1.0
+GOAL_LATERAL_WEIGHT = 1.2
+GOAL_DISTANCE_WEIGHT = 0.4
+TURN_SOFT_LIMIT_RAD = math.radians(70.0)
+TURN_HARD_LIMIT_RAD = math.radians(88.0)
 TURN_LIMIT_WEIGHT = 28.0
 TURN_GROWTH_WEIGHT = 12.0
-X_PROGRESS_WEIGHT = 0.8
-CENTERING_WEIGHT = 0.8
-
-SQUEEZE_ENTER_THRESH = 0.20
-SQUEEZE_EXIT_THRESH = 0.25
-HEADING_OFF_THRESH = math.radians(15.0)
-SQUEEZE_BOOST_WEIGHT = 30.0
-SQUEEZE_W_MIN = 0.35
 
 clearance_weight = 3.0
-collision_weight = 80.0
+collision_weight = 100.0
 side_clearance_weight = 0.6
 side_near_weight = 8.0
 side_collision_weight = 18.0
@@ -75,8 +71,6 @@ smooth_weight = 0.5
 robot_x = 0.0
 robot_y = 0.0
 robot_theta = 0.0
-
-prev_in_squeeze = False
 
 
 # RPLidar C1 시리얼 통신 드라이버
@@ -168,6 +162,20 @@ def update_pose(v, w, dt):
     robot_theta = normalize_angle_rad(robot_theta)
 
 
+# 목표 지점까지의 직선 거리 계산
+def goal_distance():
+    dx = GOAL_X_M - robot_x
+    dy = GOAL_Y_M - robot_y
+    return math.hypot(dx, dy) # 유클리드 거리 (sqrt(dx^2 + dy^2)) - 빗변 계산
+
+# 목표 방향과 현재 헤딩의 차이 계산
+def goal_heading_error_from_pose(x, y, theta):
+    dx = GOAL_X_M - x
+    dy = GOAL_Y_M - y
+    target_heading = math.atan2(dy, dx)
+    return normalize_angle_rad(target_heading - theta)
+
+
 # 로봇 기준 좌표(local) -> 전역 좌표(global)
 # 로봇의 전역좌표에 원하는 지점의 좌표를 전역좌표로 변경하여 더해주는 과정
 def transform_local_to_global(local_x, local_y):
@@ -215,8 +223,8 @@ def lidar_points_to_xy(scan):
 
 
 # 후보 v,w 명령으로 로봇이 PREDICT_TIME초 동안 그릴 미래 경로 계산
-def predict_trajectory(v, w, predict_time):
-    n_steps = int(predict_time / PREDICT_DT) # step 수 미리 계산
+def predict_trajectory(v, w):
+    n_steps = int(PREDICT_TIME / PREDICT_DT) # step 수 미리 계산
     ts = (np.arange(n_steps) + 1) * PREDICT_DT # 각 step의 누적 시간을 한 줄로 제작
     thetas = w * ts # 모든 스텝의 헤딩
 
@@ -296,8 +304,8 @@ def trajectory_clearances(traj, points):
 
 # (v,w)에 대해 cost항으로 점수 계산
 # (v,w)에 대해 cost항으로 점수 계산
-def evaluate_candidate(v, w, points, prev_w, front_dist, in_squeeze, recovery_sign, predict_time):
-    traj = predict_trajectory(v, w, predict_time) # 후보 경로
+def evaluate_candidate(v, w, points, prev_w, front_dist):
+    traj = predict_trajectory(v, w) # 후보 경로
     front_clearance, side_clearance, body_clearance = trajectory_clearances(traj, points) # 정면/측면/전체 최단 거리
 
     max_abs_w = max(abs(wc) for wc in W_CANDIDATES)
@@ -323,23 +331,24 @@ def evaluate_candidate(v, w, points, prev_w, front_dist, in_squeeze, recovery_si
     local_theta = float(traj[-1, 2])
     candidate_x, candidate_y = transform_local_to_global(local_x, local_y)
     candidate_theta = normalize_angle_rad(robot_theta + local_theta)
-    x_progress = candidate_x - robot_x
+    heading_err = goal_heading_error_from_pose(candidate_x, candidate_y, candidate_theta)
+    lateral_err = candidate_y - GOAL_Y_M
+    current_goal_dist = goal_distance()
+    candidate_goal_dist = math.hypot(GOAL_X_M - candidate_x, GOAL_Y_M - candidate_y)
+    goal_progress = current_goal_dist - candidate_goal_dist
+    goal_factor = 1.0 - front_factor
     theta_abs = abs(candidate_theta)
     theta_excess = max(0.0, theta_abs - TURN_SOFT_LIMIT_RAD)
     theta_growth = max(0.0, theta_abs - abs(robot_theta))
-    centering_progress = abs(robot_theta) - abs(candidate_theta)
-    centering_factor = min(abs(robot_theta) / TURN_SOFT_LIMIT_RAD, 1.0)
 
-    score += X_PROGRESS_WEIGHT * x_progress
-    score += CENTERING_WEIGHT * centering_factor * centering_progress
+    score += goal_factor * GOAL_DISTANCE_WEIGHT * goal_progress
+    score -= goal_factor * GOAL_HEADING_WEIGHT * abs(heading_err)
+    score -= goal_factor * GOAL_LATERAL_WEIGHT * abs(lateral_err)
     score -= TURN_LIMIT_WEIGHT * theta_excess * theta_excess
     if abs(robot_theta) > TURN_SOFT_LIMIT_RAD:
         score -= TURN_GROWTH_WEIGHT * theta_growth
     if theta_abs > TURN_HARD_LIMIT_RAD:
         score -= collision_weight * (theta_abs - TURN_HARD_LIMIT_RAD + 1.0)
-
-    if in_squeeze and abs(w) >= SQUEEZE_W_MIN and math.copysign(1.0, w) == recovery_sign:
-        score += SQUEEZE_BOOST_WEIGHT * abs(w)
 
     return score, front_clearance, side_clearance, body_clearance, candidate_theta
 
@@ -351,10 +360,8 @@ def rate_limit_w(prev_w, target_w, urgent=False):
 
 
 def choose_best_cmd(scan, prev_w, cmd_v):
-    global prev_in_squeeze
     points = lidar_points_to_xy(scan)
     if len(points) == 0:
-        prev_in_squeeze = False
         return cmd_v, rate_limit_w(prev_w, 0.0), {
             "score": 0.0,
             "clear": MAX_LIDAR_DIST_M,
@@ -367,7 +374,6 @@ def choose_best_cmd(scan, prev_w, cmd_v):
             "cth": robot_theta,
             "left": 1.0,
             "right": 1.0,
-            "squeeze": 0,
         }
 
     fdist = front_distance(points)
@@ -386,26 +392,6 @@ def choose_best_cmd(scan, prev_w, cmd_v):
 
     near_thresh = 0.14
 
-    heading_off = abs(robot_theta) > HEADING_OFF_THRESH
-    enter_squeeze = (
-        info_left < SQUEEZE_ENTER_THRESH and
-        info_right < SQUEEZE_ENTER_THRESH and
-        heading_off
-    )
-    stay_squeeze = (
-        prev_in_squeeze and
-        info_left < SQUEEZE_EXIT_THRESH and
-        info_right < SQUEEZE_EXIT_THRESH
-    )
-    in_squeeze = enter_squeeze or stay_squeeze
-    prev_in_squeeze = in_squeeze
-    if in_squeeze:
-        recovery_sign = -math.copysign(1.0, robot_theta)
-        predict_time = PREDICT_TIME_SQUEEZE
-    else:
-        recovery_sign = 0.0
-        predict_time = PREDICT_TIME_NORMAL
-
     best_w = 0.0
     best_score = -float("inf")
     best_clearance = -float("inf")
@@ -417,13 +403,8 @@ def choose_best_cmd(scan, prev_w, cmd_v):
     best_theta = 0.0
 
     for w in W_CANDIDATES:
-        if in_squeeze and robot_theta < 0.0 and w <= 0.0:
-            continue
-        if in_squeeze and robot_theta > 0.0 and w >= 0.0:
-            continue
-
         score, clearance, side_clearance, body_clearance, candidate_theta = (
-            evaluate_candidate(cmd_v, w, points, prev_w, fdist, in_squeeze, recovery_sign, predict_time)
+            evaluate_candidate(cmd_v, w, points, prev_w, fdist)
         )
         collision = clearance < COLLISION_DIST
         if not collision:
@@ -460,17 +441,11 @@ def choose_best_cmd(scan, prev_w, cmd_v):
     if all_collision:
         best_w = best_clear_w
         best_score, best_clearance, best_side_clearance, best_body_clearance, best_theta = (
-            evaluate_candidate(cmd_v, best_w, points, prev_w, fdist, in_squeeze, recovery_sign, predict_time)
+            evaluate_candidate(cmd_v, best_w, points, prev_w, fdist)
         )
 
     raw_best_w = best_w
     best_w = rate_limit_w(prev_w, best_w, fdist < URGENT_FRONT_DIST or all_collision)
-
-    if in_squeeze and robot_theta < 0.0 and best_w <= 0.0:
-        best_w = SQUEEZE_W_MIN
-    if in_squeeze and robot_theta > 0.0 and best_w >= 0.0:
-        best_w = -SQUEEZE_W_MIN
-
     return cmd_v, best_w, {
         "score": best_score,
         "clear": best_clearance,
@@ -483,12 +458,11 @@ def choose_best_cmd(scan, prev_w, cmd_v):
         "cth": best_theta,
         "left": info_left,
         "right": info_right,
-        "squeeze": int(in_squeeze),
     }
 
 
 def main():
-    global robot_x, robot_y, robot_theta, prev_in_squeeze
+    global robot_x, robot_y, robot_theta
     lidar = RPLidarC1(LIDAR_PORT, LIDAR_BAUD)
     ardu  = serial.Serial(ARDU_PORT, ARDU_BAUD, timeout=0.1)
     print("[INFO] Warming up for 2 seconds..."); time.sleep(2.0)
@@ -510,7 +484,6 @@ def main():
     robot_x = 0.0
     robot_y = 0.0
     robot_theta = 0.0
-    prev_in_squeeze = False
     last_scan_ok = 0.0
     last_v, last_w = BASE_V, 0.0
     last_log = 0.0
@@ -522,9 +495,9 @@ def main():
             dt = max(0.0, min(0.20, now - last_pose_time))
             last_pose_time = now
 
-            if robot_x >= GOAL_X_M:
+            if goal_distance() <= GOAL_TOL_M:
                 stop()
-                print("[INFO] Goal line crossed. Stopping.")
+                print("[INFO] Goal reached. Stopping.")
                 break
 
             scan = lidar.get_scan()
@@ -535,9 +508,9 @@ def main():
                 else:
                     send_vw(0.0, 0.0)
                     update_pose(0.0, 0.0, dt)
-                if robot_x >= GOAL_X_M:
+                if goal_distance() <= GOAL_TOL_M:
                     stop()
-                    print("[INFO] Goal line crossed. Stopping.")
+                    print("[INFO] Goal reached. Stopping.")
                     break
                 time.sleep(LOOP_DT_S); continue
 
@@ -547,21 +520,22 @@ def main():
             update_pose(v, w, dt)
             last_v, last_w = v, w
 
-            if robot_x >= GOAL_X_M:
+            gd = goal_distance()
+            he = goal_heading_error_from_pose(robot_x, robot_y, robot_theta)
+            if gd <= GOAL_TOL_M:
                 stop()
-                print("[INFO] Goal line crossed. Stopping.")
+                print("[INFO] Goal reached. Stopping.")
                 break
 
             if time.time() - last_log > 0.25:
                 print(f"[RUN2] x={robot_x:.2f} y={robot_y:.2f} "
-                    f"th={robot_theta:.2f} "
+                    f"th={robot_theta:.2f} gd={gd:.2f} he={he:.2f} "
                     f"v={v:.2f} w={w:.2f} raw={info['raw_w']:.2f} "
                     f"front={info['front']:.2f} clear={info['clear']:.2f} "
                     f"side={info['side']:.2f} body={info['body']:.2f} "
                     f"score={info['score']:.2f} pts={info['points']} "
                     f"coll={int(info['collision'])} cth={info['cth']:.2f} "
-                    f"L={info.get('left',-1):.2f} R={info.get('right',-1):.2f} "
-                    f"sq={info.get('squeeze',0)}")
+                    f"L={info.get('left',-1):.2f} R={info.get('right',-1):.2f}")
                 last_log = time.time()
 
             time.sleep(LOOP_DT_S)
