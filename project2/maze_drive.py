@@ -46,6 +46,12 @@ W_CMD_RATE_LIMIT = 0.30
 W_CMD_RATE_LIMIT_URGENT = 0.40
 URGENT_FRONT_DIST = 0.30 # 위급 모드 진입 거리
 
+POINTED_POCKET_SIDE_DIST = COLLISION_DIST + 0.12
+POINTED_POCKET_DIAG_DIST = 0.60
+POINTED_POCKET_FRONT_DIST = 0.75
+POINTED_POCKET_MIN_W = 0.10
+POINTED_POCKET_PENALTY_WEIGHT = 55.0
+
 GOAL_X_M = 3.0
 GOAL_Y_M = 0.0
 GOAL_TOL_M = 0.15
@@ -256,6 +262,70 @@ def front_distance(points):
     return float(np.min(points[mask, 0])) 
 
 
+def sector_min_distance(points, angle_min_deg, angle_max_deg):
+    if len(points) == 0:
+        return MAX_LIDAR_DIST_M
+
+    angles = np.rad2deg(np.arctan2(points[:, 1], points[:, 0]))
+    dists = np.sqrt(points[:, 0] * points[:, 0] + points[:, 1] * points[:, 1])
+
+    mask = (
+        (angles >= angle_min_deg) &
+        (angles <= angle_max_deg)
+    )
+
+    if not mask.any():
+        return MAX_LIDAR_DIST_M
+
+    return float(np.min(dists[mask]))
+
+
+def pointed_pocket_status(points):
+    front = sector_min_distance(points, -18.0, 18.0)
+    left_wall = sector_min_distance(points, 75.0, 115.0)
+    right_wall = sector_min_distance(points, -115.0, -75.0)
+    left_diag = sector_min_distance(points, 20.0, 75.0)
+    right_diag = sector_min_distance(points, -75.0, -20.0)
+
+    left_pocket = (
+        left_wall < POINTED_POCKET_SIDE_DIST and
+        left_diag < POINTED_POCKET_DIAG_DIST and
+        front < POINTED_POCKET_FRONT_DIST
+    )
+    right_pocket = (
+        right_wall < POINTED_POCKET_SIDE_DIST and
+        right_diag < POINTED_POCKET_DIAG_DIST and
+        front < POINTED_POCKET_FRONT_DIST
+    )
+
+    return left_pocket, right_pocket, left_wall, right_wall, left_diag, right_diag, front
+
+
+def pointed_pocket_penalty(points, w):
+    if abs(w) < POINTED_POCKET_MIN_W:
+        return 0.0
+
+    left_pocket, right_pocket, left_wall, right_wall, left_diag, right_diag, front = (
+        pointed_pocket_status(points)
+    )
+    max_abs_w = max(abs(wc) for wc in W_CANDIDATES)
+    turn_ratio = abs(w) / max_abs_w
+
+    if w > 0.0 and left_pocket:
+        wall_factor = (POINTED_POCKET_SIDE_DIST - left_wall) / POINTED_POCKET_SIDE_DIST
+        diag_factor = (POINTED_POCKET_DIAG_DIST - left_diag) / POINTED_POCKET_DIAG_DIST
+        front_factor = (POINTED_POCKET_FRONT_DIST - front) / POINTED_POCKET_FRONT_DIST
+        return POINTED_POCKET_PENALTY_WEIGHT * turn_ratio * (1.0 + wall_factor + diag_factor + front_factor)
+
+    if w < 0.0 and right_pocket:
+        wall_factor = (POINTED_POCKET_SIDE_DIST - right_wall) / POINTED_POCKET_SIDE_DIST
+        diag_factor = (POINTED_POCKET_DIAG_DIST - right_diag) / POINTED_POCKET_DIAG_DIST
+        front_factor = (POINTED_POCKET_FRONT_DIST - front) / POINTED_POCKET_FRONT_DIST
+        return POINTED_POCKET_PENALTY_WEIGHT * turn_ratio * (1.0 + wall_factor + diag_factor + front_factor)
+
+    return 0.0
+
+
 # 경로를 따라가면 미래 스텝 동안 장애물에 얼마나 가까이 지나가는지 계산
 # points : (N,2) -> 라이다가 측정한 장애물 위치
 # traj : (steps,3) -> 미래 경로의 가상 위치들
@@ -350,6 +420,8 @@ def evaluate_candidate(v, w, points, prev_w, front_dist):
     if theta_abs > TURN_HARD_LIMIT_RAD:
         score -= collision_weight * (theta_abs - TURN_HARD_LIMIT_RAD + 1.0)
 
+    score -= pointed_pocket_penalty(points, w)
+
     return score, front_clearance, side_clearance, body_clearance, candidate_theta
 
 
@@ -427,6 +499,7 @@ def choose_best_cmd(scan, prev_w, cmd_v):
             if nearest < near_thresh:
                 closeness = (near_thresh - nearest) / near_thresh
                 clear_score -= 0.7 * closeness
+        clear_score -= 0.02 * pointed_pocket_penalty(points, w)
         if clear_score > best_clear_score:
             best_clear_score = clear_score
             best_clear_w = w
