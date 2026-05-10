@@ -296,7 +296,6 @@ def trajectory_clearances(traj, points):
 
 
 # (v,w)에 대해 cost항으로 점수 계산
-# (v,w)에 대해 cost항으로 점수 계산
 def evaluate_candidate(v, w, points, prev_w, front_dist, in_squeeze, recovery_sign, predict_time):
     traj = predict_trajectory(v, w, predict_time) # 후보 경로
     front_clearance, side_clearance, body_clearance = trajectory_clearances(traj, points) # 정면/측면/전체 최단 거리
@@ -317,6 +316,7 @@ def evaluate_candidate(v, w, points, prev_w, front_dist, in_squeeze, recovery_si
         score -= side_w * (COLLISION_DIST - side_clearance + 1.0)
     elif side_clearance < SIDE_NEAR_DIST:
         score -= side_near_weight * (SIDE_NEAR_DIST - side_clearance)
+
     score += forward_w * (1.0 - abs(w) / max_abs_w)
     score -= turn_w * abs(w)
     score -= smooth_weight * abs(w - prev_w)
@@ -336,10 +336,16 @@ def evaluate_candidate(v, w, points, prev_w, front_dist, in_squeeze, recovery_si
     score += X_PROGRESS_WEIGHT * x_progress
     score += CENTERING_WEIGHT * centering_factor * centering_progress
     score -= TURN_LIMIT_WEIGHT * theta_excess * theta_excess
+
     if abs(robot_theta) > TURN_SOFT_LIMIT_RAD:
         score -= TURN_GROWTH_WEIGHT * theta_growth
+
     if theta_abs > TURN_HARD_LIMIT_RAD:
         score -= collision_weight * (theta_abs - TURN_HARD_LIMIT_RAD + 1.0)
+
+    if in_squeeze and robot_theta * w > 0.0:
+        same_turn_factor = min(abs(robot_theta) / TURN_SOFT_LIMIT_RAD, 1.0)
+        score -= SQUEEZE_SIDE_COLLISION_WEIGHT * same_turn_factor * abs(w)
 
     if in_squeeze and abs(w) >= SQUEEZE_W_MIN and math.copysign(1.0, w) == recovery_sign:
         score += SQUEEZE_BOOST_WEIGHT * abs(w)
