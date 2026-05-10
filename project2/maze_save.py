@@ -420,6 +420,9 @@ def choose_best_cmd(scan, prev_w, cmd_v):
     best_theta = 0.0
 
     for w in W_CANDIDATES:
+        if in_squeeze and robot_theta * w > 0.0:
+            continue
+
         score, clearance, side_clearance, body_clearance, candidate_theta = (
             evaluate_candidate(cmd_v, w, points, prev_w, fdist, in_squeeze, recovery_sign, predict_time)
         )
@@ -463,6 +466,10 @@ def choose_best_cmd(scan, prev_w, cmd_v):
 
     raw_best_w = best_w
     best_w = rate_limit_w(prev_w, best_w, fdist < URGENT_FRONT_DIST or all_collision)
+
+    if in_squeeze and robot_theta * best_w > 0.0:
+        best_w = 0.0
+
     return cmd_v, best_w, {
         "score": best_score,
         "clear": best_clearance,
