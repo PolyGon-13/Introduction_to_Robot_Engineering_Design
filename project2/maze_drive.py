@@ -434,7 +434,7 @@ def main():
     global robot_x, robot_y, robot_theta
     lidar = RPLidarC1(LIDAR_PORT, LIDAR_BAUD)
     ardu  = serial.Serial(ARDU_PORT, ARDU_BAUD, timeout=0.1)
-    print("[INFO] 워밍업 2초..."); time.sleep(2.0)
+    print("[INFO] Warming up for 2 seconds..."); time.sleep(2.0)
 
     def send_vw(v, w):
         ardu.write(f"V{v:.3f},{w:.3f}\n".encode())
@@ -443,12 +443,12 @@ def main():
         ardu.write(b"S\n")
 
     stop()
-    print("[READY] 초기화 완료. Enter를 누르면 후보 평가형 로컬 플래너 주행 시작.")
+    print("[INFO] Initialization Complete. Press Enter to start!")
     try:
         input()
     except EOFError:
-        print("[WARN] 표준입력을 읽을 수 없어 바로 주행 시작")
-    print("[GO]")
+        print("[WARN] Could not read standard input. Starting immediately.")
+    print("[INFO] Go!!")
 
     robot_x = 0.0
     robot_y = 0.0
@@ -466,7 +466,7 @@ def main():
 
             if goal_distance() <= GOAL_TOL_M:
                 stop()
-                print("[INFO] 목표 지점 도달 정지")
+                print("[INFO] Goal reached. Stopping.")
                 break
 
             scan = lidar.get_scan()
@@ -479,7 +479,7 @@ def main():
                     update_pose(0.0, 0.0, dt)
                 if goal_distance() <= GOAL_TOL_M:
                     stop()
-                    print("[INFO] 목표 지점 도달 정지")
+                    print("[INFO] Goal reached. Stopping.")
                     break
                 time.sleep(LOOP_DT_S); continue
 
@@ -493,7 +493,7 @@ def main():
             he = goal_heading_error_from_pose(robot_x, robot_y, robot_theta)
             if gd <= GOAL_TOL_M:
                 stop()
-                print("[INFO] 목표 지점 도달 정지")
+                print("[INFO] Goal reached. Stopping.")
                 break
 
             if time.time() - last_log > 0.25:
@@ -513,7 +513,7 @@ def main():
     finally:
         stop(); time.sleep(0.2)
         ardu.close(); lidar.close()
-        print("[INFO] 종료")
+        print("[INFO] Shutdown complete.")
 
 
 if __name__ == "__main__":
