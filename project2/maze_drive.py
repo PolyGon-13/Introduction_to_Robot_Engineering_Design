@@ -303,6 +303,7 @@ def trajectory_clearances(traj, points):
 
 
 # (v,w)에 대해 cost항으로 점수 계산
+# (v,w)에 대해 cost항으로 점수 계산
 def evaluate_candidate(v, w, points, prev_w, front_dist):
     traj = predict_trajectory(v, w) # 후보 경로
     front_clearance, side_clearance, body_clearance = trajectory_clearances(traj, points) # 정면/측면/전체 최단 거리
@@ -324,6 +325,20 @@ def evaluate_candidate(v, w, points, prev_w, front_dist):
     score += forward_w * (1.0 - abs(w) / max_abs_w)
     score -= turn_w * abs(w)
     score -= smooth_weight * abs(w - prev_w)
+
+    if len(points) > 0:
+        shoulder_band = (np.abs(points[:, 0]) < 0.15) & (np.abs(points[:, 1]) < 0.30)
+        if shoulder_band.any():
+            ys = points[shoulder_band, 1]
+            left_ys = ys[ys > 0.05]
+            right_ys = ys[ys < -0.05]
+            left_dist = float(np.min(left_ys)) if len(left_ys) > 0 else 1.0
+            right_dist = float(-np.max(right_ys)) if len(right_ys) > 0 else 1.0
+            shoulder_thresh = ROBOT_RADIUS + 0.05
+            if w < 0 and right_dist < shoulder_thresh:
+                score -= 50.0
+            if w > 0 and left_dist < shoulder_thresh:
+                score -= 50.0
 
     local_x = float(traj[-1, 0])
     local_y = float(traj[-1, 1])
