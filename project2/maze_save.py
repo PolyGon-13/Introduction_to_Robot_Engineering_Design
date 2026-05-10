@@ -34,7 +34,7 @@ W_CANDIDATES = [-0.90, -0.70, -0.50, -0.35, -0.20, -0.10, 0.0,
                 0.10, 0.20, 0.35, 0.50, 0.70, 0.90]
 
 PREDICT_TIME_NORMAL = 1.50
-PREDICT_TIME_SQUEEZE = 0.80
+PREDICT_TIME_SQUEEZE = 0.70
 PREDICT_DT = 0.10
 ROBOT_RADIUS = 0.16 # 로봇 반경
 SAFETY_MARGIN = 0.16 # 안전 여유
@@ -58,10 +58,8 @@ CENTERING_WEIGHT = 0.8
 SQUEEZE_ENTER_THRESH = 0.20
 SQUEEZE_EXIT_THRESH = 0.25
 HEADING_OFF_THRESH = math.radians(15.0)
-SQUEEZE_RELEASE_HEADING_RAD = math.radians(8.0)
 SQUEEZE_BOOST_WEIGHT = 8.0
-SQUEEZE_W_MIN = 0.50
-SQUEEZE_SIDE_COLLISION_WEIGHT = 50.0
+SQUEEZE_W_MIN = 0.20
 
 clearance_weight = 3.0
 collision_weight = 80.0
@@ -297,6 +295,7 @@ def trajectory_clearances(traj, points):
 
 
 # (v,w)에 대해 cost항으로 점수 계산
+# (v,w)에 대해 cost항으로 점수 계산
 def evaluate_candidate(v, w, points, prev_w, front_dist, in_squeeze, recovery_sign, predict_time):
     traj = predict_trajectory(v, w, predict_time) # 후보 경로
     front_clearance, side_clearance, body_clearance = trajectory_clearances(traj, points) # 정면/측면/전체 최단 거리
@@ -306,18 +305,15 @@ def evaluate_candidate(v, w, points, prev_w, front_dist, in_squeeze, recovery_si
     forward_w = forward_weight + (1.0 - front_factor) * far_forward_weight
     turn_w = turn_weight + (1.0 - front_factor) * far_turn_weight
 
-    side_w = SQUEEZE_SIDE_COLLISION_WEIGHT if in_squeeze else side_collision_weight
-
     score = 0.0
     score += clearance_weight * min(front_clearance, CLEARANCE_CAP)
     score += side_clearance_weight * min(side_clearance, CLEARANCE_CAP)
     if front_clearance < COLLISION_DIST:
         score -= collision_weight * (COLLISION_DIST - front_clearance + 1.0)
     if side_clearance < COLLISION_DIST:
-        score -= side_w * (COLLISION_DIST - side_clearance + 1.0)
+        score -= side_collision_weight * (COLLISION_DIST - side_clearance + 1.0)
     elif side_clearance < SIDE_NEAR_DIST:
         score -= side_near_weight * (SIDE_NEAR_DIST - side_clearance)
-
     score += forward_w * (1.0 - abs(w) / max_abs_w)
     score -= turn_w * abs(w)
     score -= smooth_weight * abs(w - prev_w)
@@ -337,16 +333,10 @@ def evaluate_candidate(v, w, points, prev_w, front_dist, in_squeeze, recovery_si
     score += X_PROGRESS_WEIGHT * x_progress
     score += CENTERING_WEIGHT * centering_factor * centering_progress
     score -= TURN_LIMIT_WEIGHT * theta_excess * theta_excess
-
     if abs(robot_theta) > TURN_SOFT_LIMIT_RAD:
         score -= TURN_GROWTH_WEIGHT * theta_growth
-
     if theta_abs > TURN_HARD_LIMIT_RAD:
         score -= collision_weight * (theta_abs - TURN_HARD_LIMIT_RAD + 1.0)
-
-    if in_squeeze and robot_theta * w > 0.0:
-        same_turn_factor = min(abs(robot_theta) / TURN_SOFT_LIMIT_RAD, 1.0)
-        score -= SQUEEZE_SIDE_COLLISION_WEIGHT * same_turn_factor * abs(w)
 
     if in_squeeze and abs(w) >= SQUEEZE_W_MIN and math.copysign(1.0, w) == recovery_sign:
         score += SQUEEZE_BOOST_WEIGHT * abs(w)
@@ -397,18 +387,11 @@ def choose_best_cmd(scan, prev_w, cmd_v):
     near_thresh = 0.14
 
     heading_off = abs(robot_theta) > HEADING_OFF_THRESH
-    enter_squeeze = (
-        info_left < SQUEEZE_ENTER_THRESH and
-        info_right < SQUEEZE_ENTER_THRESH and
-        heading_off
-    )
-    stay_squeeze = (
-        prev_in_squeeze and
-        info_left < SQUEEZE_EXIT_THRESH and
-        info_right < SQUEEZE_EXIT_THRESH and
-        abs(robot_theta) > SQUEEZE_RELEASE_HEADING_RAD
-    )
-    in_squeeze = enter_squeeze or stay_squeeze
+    if prev_in_squeeze:
+        both_sides_blocked = (info_left < SQUEEZE_EXIT_THRESH and info_right < SQUEEZE_EXIT_THRESH)
+    else:
+        both_sides_blocked = (info_left < SQUEEZE_ENTER_THRESH and info_right < SQUEEZE_ENTER_THRESH)
+    in_squeeze = both_sides_blocked and heading_off
     prev_in_squeeze = in_squeeze
     if in_squeeze:
         recovery_sign = -math.copysign(1.0, robot_theta)
@@ -428,9 +411,6 @@ def choose_best_cmd(scan, prev_w, cmd_v):
     best_theta = 0.0
 
     for w in W_CANDIDATES:
-        if in_squeeze and robot_theta * w > 0.0:
-            continue
-
         score, clearance, side_clearance, body_clearance, candidate_theta = (
             evaluate_candidate(cmd_v, w, points, prev_w, fdist, in_squeeze, recovery_sign, predict_time)
         )
@@ -474,10 +454,6 @@ def choose_best_cmd(scan, prev_w, cmd_v):
 
     raw_best_w = best_w
     best_w = rate_limit_w(prev_w, best_w, fdist < URGENT_FRONT_DIST or all_collision)
-
-    if in_squeeze and robot_theta * best_w > 0.0:
-        best_w = 0.0
-
     return cmd_v, best_w, {
         "score": best_score,
         "clear": best_clearance,
