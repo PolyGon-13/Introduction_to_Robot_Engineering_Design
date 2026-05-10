@@ -390,7 +390,8 @@ def choose_best_cmd(scan, prev_w, cmd_v):
         if len(ry) > 0:
             info_right = float(-np.max(ry))
 
-    near_thresh = 0.25
+    asym_thresh = 0.08
+    diff = info_left - info_right
 
     best_w = 0.0
     best_score = -float("inf")
@@ -416,12 +417,21 @@ def choose_best_cmd(scan, prev_w, cmd_v):
         clear_score -= 0.20 * theta_excess
         if abs(robot_theta) > TURN_SOFT_LIMIT_RAD:
             clear_score -= 0.12 * theta_growth
-        if w < 0 and info_right < near_thresh:
-            closeness = (near_thresh - info_right) / near_thresh
-            clear_score -= 0.5 * closeness * abs(w)
-        if w > 0 and info_left < near_thresh:
-            closeness = (near_thresh - info_left) / near_thresh
-            clear_score -= 0.5 * closeness * abs(w)
+        if abs(diff) > asym_thresh and min(info_left, info_right) < 0.25:
+            if diff > 0:
+                if w > 0:
+                    clear_score += 0.5 * abs(w)
+                elif w < 0:
+                    clear_score -= 0.5 * abs(w)
+                else:
+                    clear_score -= 0.3
+            else:
+                if w < 0:
+                    clear_score += 0.5 * abs(w)
+                elif w > 0:
+                    clear_score -= 0.5 * abs(w)
+                else:
+                    clear_score -= 0.3
         if clear_score > best_clear_score:
             best_clear_score = clear_score
             best_clear_w = w
