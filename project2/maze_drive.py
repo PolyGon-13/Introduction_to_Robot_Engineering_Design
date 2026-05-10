@@ -41,7 +41,7 @@ COLLISION_DIST = ROBOT_RADIUS + SAFETY_MARGIN # 충돌 판정 거리
 CLEARANCE_CAP = 1.0
 FRONT_CORRIDOR_HALF = COLLISION_DIST + 0.30 # 정면 통로 반폭
 ACTIVE_FRONT_DIST = 0.20 # 정면 위험 판정 거리
-SIDE_NEAR_DIST = COLLISION_DIST + 0.20 # 측면 근접 경고 거리
+SIDE_NEAR_DIST = COLLISION_DIST + 0.12 # 측면 근접 경고 거리
 W_CMD_RATE_LIMIT = 0.20
 W_CMD_RATE_LIMIT_URGENT = 0.40
 URGENT_FRONT_DIST = 0.15 # 위급 모드 진입 거리
@@ -60,7 +60,7 @@ TURN_GROWTH_WEIGHT = 12.0
 clearance_weight = 3.0
 collision_weight = 100.0
 side_clearance_weight = 0.6
-side_near_weight = 15.0
+side_near_weight = 8.0
 side_collision_weight = 18.0
 forward_weight = 1.0
 far_forward_weight = 2.2
@@ -390,8 +390,7 @@ def choose_best_cmd(scan, prev_w, cmd_v):
         if len(ry) > 0:
             info_right = float(-np.max(ry))
 
-    asym_thresh = 0.08
-    diff = info_left - info_right
+    near_thresh = 0.25
 
     best_w = 0.0
     best_score = -float("inf")
@@ -417,21 +416,12 @@ def choose_best_cmd(scan, prev_w, cmd_v):
         clear_score -= 0.20 * theta_excess
         if abs(robot_theta) > TURN_SOFT_LIMIT_RAD:
             clear_score -= 0.12 * theta_growth
-        if abs(diff) > asym_thresh and min(info_left, info_right) < 0.25:
-            if diff > 0:
-                if w > 0:
-                    clear_score += 0.5 * abs(w)
-                elif w < 0:
-                    clear_score -= 0.5 * abs(w)
-                else:
-                    clear_score -= 0.3
-            else:
-                if w < 0:
-                    clear_score += 0.5 * abs(w)
-                elif w > 0:
-                    clear_score -= 0.5 * abs(w)
-                else:
-                    clear_score -= 0.3
+        if w < 0 and info_right < near_thresh:
+            closeness = (near_thresh - info_right) / near_thresh
+            clear_score -= 0.5 * closeness * abs(w)
+        if w > 0 and info_left < near_thresh:
+            closeness = (near_thresh - info_left) / near_thresh
+            clear_score -= 0.5 * closeness * abs(w)
         if clear_score > best_clear_score:
             best_clear_score = clear_score
             best_clear_w = w
