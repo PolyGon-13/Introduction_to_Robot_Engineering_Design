@@ -303,7 +303,6 @@ def trajectory_clearances(traj, points):
 
 
 # (v,w)에 대해 cost항으로 점수 계산
-# (v,w)에 대해 cost항으로 점수 계산
 def evaluate_candidate(v, w, points, prev_w, front_dist):
     traj = predict_trajectory(v, w) # 후보 경로
     front_clearance, side_clearance, body_clearance = trajectory_clearances(traj, points) # 정면/측면/전체 최단 거리
