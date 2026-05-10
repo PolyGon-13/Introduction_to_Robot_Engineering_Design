@@ -58,6 +58,7 @@ CENTERING_WEIGHT = 0.8
 SQUEEZE_ENTER_THRESH = 0.20
 SQUEEZE_EXIT_THRESH = 0.25
 HEADING_OFF_THRESH = math.radians(15.0)
+SQUEEZE_HOLD_TIME_S = 0.50
 SQUEEZE_BOOST_WEIGHT = 8.0
 SQUEEZE_W_MIN = 0.50
 SQUEEZE_SIDE_COLLISION_WEIGHT = 50.0
@@ -78,6 +79,7 @@ robot_y = 0.0
 robot_theta = 0.0
 
 prev_in_squeeze = False
+squeeze_last_detected_time = 0.0
 
 
 # RPLidar C1 시리얼 통신 드라이버
@@ -360,10 +362,11 @@ def rate_limit_w(prev_w, target_w, urgent=False):
 
 
 def choose_best_cmd(scan, prev_w, cmd_v):
-    global prev_in_squeeze
+    global prev_in_squeeze, squeeze_last_detected_time
     points = lidar_points_to_xy(scan)
     if len(points) == 0:
         prev_in_squeeze = False
+        squeeze_last_detected_time = 0.0
         return cmd_v, rate_limit_w(prev_w, 0.0), {
             "score": 0.0,
             "clear": MAX_LIDAR_DIST_M,
@@ -400,7 +403,15 @@ def choose_best_cmd(scan, prev_w, cmd_v):
         both_sides_blocked = (info_left < SQUEEZE_EXIT_THRESH and info_right < SQUEEZE_EXIT_THRESH)
     else:
         both_sides_blocked = (info_left < SQUEEZE_ENTER_THRESH and info_right < SQUEEZE_ENTER_THRESH)
-    in_squeeze = both_sides_blocked and heading_off
+
+    now = time.time()
+    squeeze_detected = both_sides_blocked and heading_off
+    if squeeze_detected:
+        squeeze_last_detected_time = now
+
+    in_squeeze = both_sides_blocked and (
+        heading_off or now - squeeze_last_detected_time <= SQUEEZE_HOLD_TIME_S
+    )
     prev_in_squeeze = in_squeeze
     if in_squeeze:
         recovery_sign = -math.copysign(1.0, robot_theta)
@@ -487,7 +498,7 @@ def choose_best_cmd(scan, prev_w, cmd_v):
 
 
 def main():
-    global robot_x, robot_y, robot_theta, prev_in_squeeze
+    global robot_x, robot_y, robot_theta, prev_in_squeeze, squeeze_last_detected_time
     lidar = RPLidarC1(LIDAR_PORT, LIDAR_BAUD)
     ardu  = serial.Serial(ARDU_PORT, ARDU_BAUD, timeout=0.1)
     print("[INFO] Warming up for 2 seconds..."); time.sleep(2.0)
@@ -510,6 +521,7 @@ def main():
     robot_y = 0.0
     robot_theta = 0.0
     prev_in_squeeze = False
+    squeeze_last_detected_time = 0.0
     last_scan_ok = 0.0
     last_v, last_w = BASE_V, 0.0
     last_log = 0.0
