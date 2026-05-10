@@ -40,11 +40,11 @@ SAFETY_MARGIN = 0.16 # 안전 여유
 COLLISION_DIST = ROBOT_RADIUS + SAFETY_MARGIN # 충돌 판정 거리
 CLEARANCE_CAP = 1.0
 FRONT_CORRIDOR_HALF = COLLISION_DIST + 0.30 # 정면 통로 반폭
-ACTIVE_FRONT_DIST = 0.30 # 정면 위험 판정 거리
+ACTIVE_FRONT_DIST = 0.60 # 정면 위험 판정 거리
 SIDE_NEAR_DIST = COLLISION_DIST + 0.20 # 측면 근접 경고 거리
 W_CMD_RATE_LIMIT = 0.30
 W_CMD_RATE_LIMIT_URGENT = 0.40
-URGENT_FRONT_DIST = 0.30 # 위급 모드 진입 거리
+URGENT_FRONT_DIST = 0.42 # 위급 모드 진입 거리
 
 FRONT_DISTANCE_MIN_X = 0.03
 FRONT_DISTANCE_HALF = COLLISION_DIST
@@ -54,6 +54,12 @@ POINTED_POCKET_FRONT_DIST = 0.75
 POINTED_POCKET_MIN_W = 0.10
 POINTED_POCKET_PENALTY_WEIGHT = 55.0
 POINTED_WALL_TURN_PENALTY_WEIGHT = 35.0
+DANGER_CLEAR_DIST = COLLISION_DIST + 0.10
+DANGER_MIN_TURN_W = 0.35
+DANGER_STRAIGHT_PENALTY_WEIGHT = 85.0
+DANGER_SMALL_TURN_PENALTY_WEIGHT = 55.0
+DANGER_WALL_DIR_PENALTY_WEIGHT = 75.0
+DANGER_WALL_AWAY_BONUS_WEIGHT = 22.0
 
 GOAL_X_M = 3.0
 GOAL_Y_M = 0.0
@@ -341,6 +347,49 @@ def pointed_pocket_penalty(points, w):
     return penalty
 
 
+def danger_level(clearance, body_clearance):
+    near = min(clearance, body_clearance)
+    return float(np.clip(
+        (DANGER_CLEAR_DIST - near) / max(1e-6, DANGER_CLEAR_DIST - COLLISION_DIST),
+        0.0,
+        1.0
+    ))
+
+
+def danger_turn_adjustment(w, clearance, body_clearance, info_left, info_right):
+    danger = danger_level(clearance, body_clearance)
+    if danger <= 0.0:
+        return 0.0
+
+    max_abs_w = max(abs(wc) for wc in W_CANDIDATES)
+    abs_w = abs(w)
+    turn_ratio = abs_w / max_abs_w
+    adjust = 0.0
+
+    if abs_w < DANGER_MIN_TURN_W:
+        weak_ratio = (DANGER_MIN_TURN_W - abs_w) / DANGER_MIN_TURN_W
+        adjust -= DANGER_SMALL_TURN_PENALTY_WEIGHT * danger * weak_ratio
+
+    if abs_w < 1e-6:
+        adjust -= DANGER_STRAIGHT_PENALTY_WEIGHT * danger
+
+    if min(info_left, info_right) < SIDE_NEAR_DIST:
+        if info_right + 0.03 < info_left:
+            closeness = float(np.clip((SIDE_NEAR_DIST - info_right) / SIDE_NEAR_DIST, 0.0, 1.0))
+            if w <= POINTED_POCKET_MIN_W:
+                adjust -= DANGER_WALL_DIR_PENALTY_WEIGHT * danger * closeness * (1.0 + turn_ratio)
+            else:
+                adjust += DANGER_WALL_AWAY_BONUS_WEIGHT * danger * closeness * turn_ratio
+        elif info_left + 0.03 < info_right:
+            closeness = float(np.clip((SIDE_NEAR_DIST - info_left) / SIDE_NEAR_DIST, 0.0, 1.0))
+            if w >= -POINTED_POCKET_MIN_W:
+                adjust -= DANGER_WALL_DIR_PENALTY_WEIGHT * danger * closeness * (1.0 + turn_ratio)
+            else:
+                adjust += DANGER_WALL_AWAY_BONUS_WEIGHT * danger * closeness * turn_ratio
+
+    return adjust
+
+
 # 경로를 따라가면 미래 스텝 동안 장애물에 얼마나 가까이 지나가는지 계산
 # points : (N,2) -> 라이다가 측정한 장애물 위치
 # traj : (steps,3) -> 미래 경로의 가상 위치들
@@ -394,7 +443,8 @@ def evaluate_candidate(v, w, points, prev_w, front_dist):
     front_clearance, side_clearance, body_clearance = trajectory_clearances(traj, points) # 정면/측면/전체 최단 거리
 
     max_abs_w = max(abs(wc) for wc in W_CANDIDATES)
-    front_factor = float(np.clip((ACTIVE_FRONT_DIST - front_dist) / max(1e-6, ACTIVE_FRONT_DIST - COLLISION_DIST), 0.0, 1.0)) # 전방이 얼마나 위험한지를 0~1로 표현 (안전할수록 1에 가까움)
+    risk_dist = min(front_dist, front_clearance, body_clearance)
+    front_factor = float(np.clip((ACTIVE_FRONT_DIST - risk_dist) / max(1e-6, ACTIVE_FRONT_DIST - COLLISION_DIST), 0.0, 1.0)) # 전방이 얼마나 위험한지를 0~1로 표현 (안전할수록 1에 가까움)
     forward_w = forward_weight + (1.0 - front_factor) * far_forward_weight
     turn_w = turn_weight + (1.0 - front_factor) * far_turn_weight
 
@@ -493,7 +543,9 @@ def choose_best_cmd(scan, prev_w, cmd_v):
         score, clearance, side_clearance, body_clearance, candidate_theta = (
             evaluate_candidate(cmd_v, w, points, prev_w, fdist)
         )
-        collision = clearance < COLLISION_DIST
+        danger_adjust = danger_turn_adjustment(w, clearance, body_clearance, info_left, info_right)
+        score += danger_adjust
+        collision = min(clearance, body_clearance) < COLLISION_DIST
         if not collision:
             all_collision = False
         theta_abs = abs(candidate_theta)
@@ -515,6 +567,7 @@ def choose_best_cmd(scan, prev_w, cmd_v):
                 closeness = (near_thresh - nearest) / near_thresh
                 clear_score -= 0.7 * closeness
         clear_score -= 0.02 * pointed_pocket_penalty(points, w)
+        clear_score += 0.03 * danger_adjust
         if clear_score > best_clear_score:
             best_clear_score = clear_score
             best_clear_w = w
