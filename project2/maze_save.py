@@ -33,7 +33,7 @@ BASE_V = 0.18
 W_CANDIDATES = [-0.90, -0.70, -0.50, -0.35, -0.20, -0.10, 0.0,
                 0.10, 0.20, 0.35, 0.50, 0.70, 0.90]
 
-PREDICT_TIME = 1.50
+PREDICT_TIME = 0.80
 PREDICT_DT = 0.10
 ROBOT_RADIUS = 0.16 # 로봇 반경
 SAFETY_MARGIN = 0.16 # 안전 여유
@@ -57,7 +57,7 @@ CENTERING_WEIGHT = 0.8
 BOTH_BLOCKED_THRESH = 0.20
 HEADING_OFF_THRESH = math.radians(15.0)
 SQUEEZE_BOOST_WEIGHT = 8.0
-SQUEEZE_W_MIN = 0.50
+SQUEEZE_W_MIN = 0.20
 
 clearance_weight = 3.0
 collision_weight = 80.0
