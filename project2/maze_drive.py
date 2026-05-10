@@ -30,8 +30,8 @@ LOOP_DT_S = 0.05
 # 로컬 플래너 파라미터
 BASE_V = 0.18
 
-W_CANDIDATES = [-0.80, -0.70, -0.50, -0.35, -0.20, -0.10, 0.0,
-                0.10, 0.20, 0.35, 0.50, 0.70, 0.80]
+W_CANDIDATES = [-0.90, -0.70, -0.50, -0.35, -0.20, -0.10, 0.0,
+                0.10, 0.20, 0.35, 0.50, 0.70, 0.90]
 
 PREDICT_TIME = 1.50
 PREDICT_DT = 0.10
@@ -40,11 +40,11 @@ SAFETY_MARGIN = 0.14 # 안전 여유
 COLLISION_DIST = ROBOT_RADIUS + SAFETY_MARGIN # 충돌 판정 거리
 CLEARANCE_CAP = 1.0
 FRONT_CORRIDOR_HALF = COLLISION_DIST + 0.30 # 정면 통로 반폭
-ACTIVE_FRONT_DIST = 0.40 # 정면 위험 판정 거리
+ACTIVE_FRONT_DIST = 0.30 # 정면 위험 판정 거리
 SIDE_NEAR_DIST = COLLISION_DIST + 0.12 # 측면 근접 경고 거리
 W_CMD_RATE_LIMIT = 0.30
 W_CMD_RATE_LIMIT_URGENT = 0.40
-URGENT_FRONT_DIST = 0.40 # 위급 모드 진입 거리
+URGENT_FRONT_DIST = 0.30 # 위급 모드 진입 거리
 
 GOAL_X_M = 3.0
 GOAL_Y_M = 0.0
