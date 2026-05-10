@@ -58,7 +58,7 @@ CENTERING_WEIGHT = 0.8
 SQUEEZE_ENTER_THRESH = 0.20
 SQUEEZE_EXIT_THRESH = 0.25
 HEADING_OFF_THRESH = math.radians(15.0)
-SQUEEZE_BOOST_WEIGHT = 25.0
+SQUEEZE_BOOST_WEIGHT = 30.0
 SQUEEZE_W_MIN = 0.35
 
 clearance_weight = 3.0
@@ -417,9 +417,9 @@ def choose_best_cmd(scan, prev_w, cmd_v):
     best_theta = 0.0
 
     for w in W_CANDIDATES:
-        if in_squeeze and robot_theta < 0.0 and w < SQUEEZE_W_MIN:
+        if in_squeeze and robot_theta < 0.0 and w <= 0.0:
             continue
-        if in_squeeze and robot_theta > 0.0 and w > -SQUEEZE_W_MIN:
+        if in_squeeze and robot_theta > 0.0 and w >= 0.0:
             continue
 
         score, clearance, side_clearance, body_clearance, candidate_theta = (
