@@ -59,7 +59,8 @@ SQUEEZE_ENTER_THRESH = 0.20
 SQUEEZE_EXIT_THRESH = 0.25
 HEADING_OFF_THRESH = math.radians(15.0)
 SQUEEZE_BOOST_WEIGHT = 30.0
-SQUEEZE_W_MIN = 0.35
+SQUEEZE_W_MIN = 0.50
+SQUEEZE_W_MAX = 0.90
 
 clearance_weight = 3.0
 collision_weight = 80.0
@@ -424,9 +425,17 @@ def choose_best_cmd(scan, prev_w, cmd_v):
     best_theta = 0.0
 
     for w in W_CANDIDATES:
-        if in_squeeze and squeeze_recovery_sign > 0.0 and w < SQUEEZE_W_MIN:
+        if (
+            in_squeeze and
+            squeeze_recovery_sign > 0.0 and
+            not (SQUEEZE_W_MIN <= w <= SQUEEZE_W_MAX)
+        ):
             continue
-        if in_squeeze and squeeze_recovery_sign < 0.0 and w > -SQUEEZE_W_MIN:
+        if (
+            in_squeeze and
+            squeeze_recovery_sign < 0.0 and
+            not (-SQUEEZE_W_MAX <= w <= -SQUEEZE_W_MIN)
+        ):
             continue
 
         score, clearance, side_clearance, body_clearance, candidate_theta = (
@@ -472,11 +481,6 @@ def choose_best_cmd(scan, prev_w, cmd_v):
 
     raw_best_w = best_w
     best_w = rate_limit_w(prev_w, best_w, fdist < URGENT_FRONT_DIST or all_collision)
-
-    if in_squeeze and squeeze_recovery_sign > 0.0 and best_w < SQUEEZE_W_MIN:
-        best_w = SQUEEZE_W_MIN
-    if in_squeeze and squeeze_recovery_sign < 0.0 and best_w > -SQUEEZE_W_MIN:
-        best_w = -SQUEEZE_W_MIN
 
     return cmd_v, best_w, {
         "score": best_score,
