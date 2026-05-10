@@ -59,7 +59,7 @@ SQUEEZE_ENTER_THRESH = 0.20
 SQUEEZE_EXIT_THRESH = 0.25
 HEADING_OFF_THRESH = math.radians(15.0)
 SQUEEZE_BOOST_WEIGHT = 8.0
-SQUEEZE_W_MIN = 0.20
+SQUEEZE_W_MIN = 0.50
 
 clearance_weight = 3.0
 collision_weight = 80.0
