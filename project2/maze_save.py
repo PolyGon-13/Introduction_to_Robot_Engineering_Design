@@ -52,6 +52,7 @@ TURN_HARD_LIMIT_RAD = math.radians(95.0)
 TURN_LIMIT_WEIGHT = 28.0
 TURN_GROWTH_WEIGHT = 12.0
 X_PROGRESS_WEIGHT = 0.8
+CENTERING_WEIGHT = 0.8
 
 clearance_weight = 3.0
 collision_weight = 100.0
@@ -317,8 +318,11 @@ def evaluate_candidate(v, w, points, prev_w, front_dist):
     theta_abs = abs(candidate_theta)
     theta_excess = max(0.0, theta_abs - TURN_SOFT_LIMIT_RAD)
     theta_growth = max(0.0, theta_abs - abs(robot_theta))
+    centering_progress = abs(robot_theta) - abs(candidate_theta)
+    centering_factor = min(abs(robot_theta) / TURN_SOFT_LIMIT_RAD, 1.0)
 
     score += X_PROGRESS_WEIGHT * x_progress
+    score += CENTERING_WEIGHT * centering_factor * centering_progress
     score -= TURN_LIMIT_WEIGHT * theta_excess * theta_excess
     if abs(robot_theta) > TURN_SOFT_LIMIT_RAD:
         score -= TURN_GROWTH_WEIGHT * theta_growth
