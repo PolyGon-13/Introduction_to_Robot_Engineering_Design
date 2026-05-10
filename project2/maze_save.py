@@ -34,7 +34,7 @@ W_CANDIDATES = [-0.90, -0.70, -0.50, -0.35, -0.20, -0.10, 0.0,
                 0.10, 0.20, 0.35, 0.50, 0.70, 0.90]
 
 PREDICT_TIME_NORMAL = 1.50
-PREDICT_TIME_SQUEEZE = 1.0
+PREDICT_TIME_SQUEEZE = 0.80
 PREDICT_DT = 0.10
 ROBOT_RADIUS = 0.16 # 로봇 반경
 SAFETY_MARGIN = 0.16 # 안전 여유
@@ -60,7 +60,7 @@ SQUEEZE_EXIT_THRESH = 0.25
 HEADING_OFF_THRESH = math.radians(15.0)
 SQUEEZE_BOOST_WEIGHT = 8.0
 SQUEEZE_W_MIN = 0.50
-SQUEEZE_SIDE_COLLISION_WEIGHT = 30.0
+SQUEEZE_SIDE_COLLISION_WEIGHT = 50.0
 
 clearance_weight = 3.0
 collision_weight = 80.0
@@ -421,8 +421,6 @@ def choose_best_cmd(scan, prev_w, cmd_v):
 
     for w in W_CANDIDATES:
         if in_squeeze and robot_theta * w > 0.0:
-            continue
-        if in_squeeze and abs(w) < SQUEEZE_W_MIN:
             continue
 
         score, clearance, side_clearance, body_clearance, candidate_theta = (
