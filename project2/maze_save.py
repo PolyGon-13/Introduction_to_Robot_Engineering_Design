@@ -61,7 +61,6 @@ HEADING_OFF_THRESH = math.radians(15.0)
 SQUEEZE_BOOST_WEIGHT = 30.0
 SQUEEZE_W_MIN = 0.35
 
-
 clearance_weight = 3.0
 collision_weight = 80.0
 side_clearance_weight = 0.6
