@@ -34,7 +34,7 @@ W_CANDIDATES = [-0.90, -0.70, -0.50, -0.35, -0.20, -0.10, 0.0,
                 0.10, 0.20, 0.35, 0.50, 0.70, 0.90]
 
 PREDICT_TIME_NORMAL = 1.50
-PREDICT_TIME_SQUEEZE = 1.50
+PREDICT_TIME_SQUEEZE = 0.70
 PREDICT_DT = 0.10
 ROBOT_RADIUS = 0.16 # 로봇 반경
 SAFETY_MARGIN = 0.16 # 안전 여유
@@ -417,10 +417,10 @@ def choose_best_cmd(scan, prev_w, cmd_v):
     best_theta = 0.0
 
     for w in W_CANDIDATES:
-        if in_squeeze and robot_theta < 0.0 and w <= 0.0:
-            best_w = SQUEEZE_W_MIN
-        if in_squeeze and robot_theta > 0.0 and w >= 0.0:
-            best_w = -SQUEEZE_W_MIN
+        if in_squeeze and robot_theta < 0.0 and w < SQUEEZE_W_MIN:
+            continue
+        if in_squeeze and robot_theta > 0.0 and w > -SQUEEZE_W_MIN:
+            continue
 
         score, clearance, side_clearance, body_clearance, candidate_theta = (
             evaluate_candidate(cmd_v, w, points, prev_w, fdist, in_squeeze, recovery_sign, predict_time)
