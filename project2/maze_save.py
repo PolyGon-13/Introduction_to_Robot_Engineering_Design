@@ -47,7 +47,7 @@ W_CMD_RATE_LIMIT_URGENT = 0.40
 URGENT_FRONT_DIST = 0.30 # 위급 모드 진입 거리
 
 GOAL_X_M = 3.0
-TURN_SOFT_LIMIT_RAD = math.radians(80.0)
+TURN_SOFT_LIMIT_RAD = math.radians(60.0)
 TURN_HARD_LIMIT_RAD = math.radians(95.0)
 TURN_LIMIT_WEIGHT = 28.0
 TURN_GROWTH_WEIGHT = 12.0
@@ -55,7 +55,7 @@ X_PROGRESS_WEIGHT = 0.8
 CENTERING_WEIGHT = 0.8
 
 clearance_weight = 3.0
-collision_weight = 100.0
+collision_weight = 80.0
 side_clearance_weight = 0.6
 side_near_weight = 8.0
 side_collision_weight = 18.0
