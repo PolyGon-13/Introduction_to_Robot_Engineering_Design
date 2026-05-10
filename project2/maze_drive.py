@@ -326,20 +326,6 @@ def evaluate_candidate(v, w, points, prev_w, front_dist):
     score -= turn_w * abs(w)
     score -= smooth_weight * abs(w - prev_w)
 
-    if len(points) > 0:
-        shoulder_band = (np.abs(points[:, 0]) < 0.15) & (np.abs(points[:, 1]) < 0.30)
-        if shoulder_band.any():
-            ys = points[shoulder_band, 1]
-            left_ys = ys[ys > 0.05]
-            right_ys = ys[ys < -0.05]
-            left_dist = float(np.min(left_ys)) if len(left_ys) > 0 else 1.0
-            right_dist = float(-np.max(right_ys)) if len(right_ys) > 0 else 1.0
-            shoulder_thresh = ROBOT_RADIUS + 0.05
-            if w < 0 and right_dist < shoulder_thresh:
-                score -= 50.0
-            if w > 0 and left_dist < shoulder_thresh:
-                score -= 50.0
-
     local_x = float(traj[-1, 0])
     local_y = float(traj[-1, 1])
     local_theta = float(traj[-1, 2])
