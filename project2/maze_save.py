@@ -427,7 +427,7 @@ def choose_best_cmd(scan, prev_w, cmd_v):
         in_squeeze and
         recovery_side_clear >= SQUEEZE_STRONG_TURN_SIDE_MIN
     )
-    squeeze_w_min = SQUEEZE_STRONG_W_MIN if use_strong_squeeze_turn else 0.10
+    squeeze_w_min = SQUEEZE_STRONG_W_MIN if use_strong_squeeze_turn else 0.35
     squeeze_w_max = SQUEEZE_W_MAX if use_strong_squeeze_turn else SQUEEZE_W_MIN
 
     best_w = 0.0
