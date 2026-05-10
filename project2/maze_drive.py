@@ -54,12 +54,16 @@ POINTED_POCKET_FRONT_DIST = 0.75
 POINTED_POCKET_MIN_W = 0.10
 POINTED_POCKET_PENALTY_WEIGHT = 55.0
 POINTED_WALL_TURN_PENALTY_WEIGHT = 35.0
-DANGER_CLEAR_DIST = COLLISION_DIST + 0.10
-DANGER_MIN_TURN_W = 0.35
-DANGER_STRAIGHT_PENALTY_WEIGHT = 85.0
-DANGER_SMALL_TURN_PENALTY_WEIGHT = 55.0
+DANGER_CLEAR_DIST = COLLISION_DIST + 0.03
+DANGER_MIN_TURN_W = 0.20
+DANGER_STRAIGHT_PENALTY_WEIGHT = 55.0
+DANGER_SMALL_TURN_PENALTY_WEIGHT = 30.0
 DANGER_WALL_DIR_PENALTY_WEIGHT = 75.0
 DANGER_WALL_AWAY_BONUS_WEIGHT = 22.0
+TURN_SIDE_CLEAR_MARGIN = 0.08
+TURN_SIDE_BLOCK_DIST = 0.70
+TURN_SIDE_DIR_PENALTY_WEIGHT = 65.0
+TURN_SIDE_AWAY_BONUS_WEIGHT = 14.0
 
 GOAL_X_M = 3.0
 GOAL_Y_M = 0.0
@@ -390,6 +394,38 @@ def danger_turn_adjustment(w, clearance, body_clearance, info_left, info_right):
     return adjust
 
 
+def turn_side_adjustment(points, w):
+    if abs(w) < POINTED_POCKET_MIN_W:
+        return 0.0
+
+    left_front = sector_min_distance(points, 0.0, 55.0)
+    right_front = sector_min_distance(points, -55.0, 0.0)
+    left_diag = sector_min_distance(points, 20.0, 85.0)
+    right_diag = sector_min_distance(points, -85.0, -20.0)
+    left_free = min(left_front, left_diag)
+    right_free = min(right_front, right_diag)
+    max_abs_w = max(abs(wc) for wc in W_CANDIDATES)
+    turn_ratio = abs(w) / max_abs_w
+
+    if w < 0.0 and right_free + TURN_SIDE_CLEAR_MARGIN < left_free:
+        closeness = float(np.clip((TURN_SIDE_BLOCK_DIST - right_free) / TURN_SIDE_BLOCK_DIST, 0.0, 1.0))
+        return -TURN_SIDE_DIR_PENALTY_WEIGHT * closeness * (0.5 + turn_ratio)
+
+    if w > 0.0 and left_free + TURN_SIDE_CLEAR_MARGIN < right_free:
+        closeness = float(np.clip((TURN_SIDE_BLOCK_DIST - left_free) / TURN_SIDE_BLOCK_DIST, 0.0, 1.0))
+        return -TURN_SIDE_DIR_PENALTY_WEIGHT * closeness * (0.5 + turn_ratio)
+
+    if w > 0.0 and right_free + TURN_SIDE_CLEAR_MARGIN < left_free:
+        closeness = float(np.clip((TURN_SIDE_BLOCK_DIST - right_free) / TURN_SIDE_BLOCK_DIST, 0.0, 1.0))
+        return TURN_SIDE_AWAY_BONUS_WEIGHT * closeness * turn_ratio
+
+    if w < 0.0 and left_free + TURN_SIDE_CLEAR_MARGIN < right_free:
+        closeness = float(np.clip((TURN_SIDE_BLOCK_DIST - left_free) / TURN_SIDE_BLOCK_DIST, 0.0, 1.0))
+        return TURN_SIDE_AWAY_BONUS_WEIGHT * closeness * turn_ratio
+
+    return 0.0
+
+
 # 경로를 따라가면 미래 스텝 동안 장애물에 얼마나 가까이 지나가는지 계산
 # points : (N,2) -> 라이다가 측정한 장애물 위치
 # traj : (steps,3) -> 미래 경로의 가상 위치들
@@ -544,7 +580,8 @@ def choose_best_cmd(scan, prev_w, cmd_v):
             evaluate_candidate(cmd_v, w, points, prev_w, fdist)
         )
         danger_adjust = danger_turn_adjustment(w, clearance, body_clearance, info_left, info_right)
-        score += danger_adjust
+        side_adjust = turn_side_adjustment(points, w)
+        score += danger_adjust + side_adjust
         collision = min(clearance, body_clearance) < COLLISION_DIST
         if not collision:
             all_collision = False
@@ -567,7 +604,7 @@ def choose_best_cmd(scan, prev_w, cmd_v):
                 closeness = (near_thresh - nearest) / near_thresh
                 clear_score -= 0.7 * closeness
         clear_score -= 0.02 * pointed_pocket_penalty(points, w)
-        clear_score += 0.03 * danger_adjust
+        clear_score += 0.03 * danger_adjust + 0.02 * side_adjust
         if clear_score > best_clear_score:
             best_clear_score = clear_score
             best_clear_w = w
