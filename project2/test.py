@@ -391,7 +391,7 @@ def choose_best_cmd(scan, prev_w, cmd_v):
         if len(ry) > 0:
             info_right = max(0.0, float(-np.max(ry)) - ROBOT_RADIUS)
 
-    near_thresh = 0.25
+    near_thresh = 0.15
 
     best_w = 0.0
     best_score = -float("inf")
@@ -419,10 +419,14 @@ def choose_best_cmd(scan, prev_w, cmd_v):
             clear_score -= 0.12 * theta_growth
         if w < 0 and info_right < near_thresh:
             closeness = (near_thresh - info_right) / near_thresh
-            clear_score -= 0.5 * closeness * abs(w)
+            clear_score -= 0.3 * closeness * abs(w)
         if w > 0 and info_left < near_thresh:
             closeness = (near_thresh - info_left) / near_thresh
-            clear_score -= 0.5 * closeness * abs(w)
+            clear_score -= 0.3 * closeness * abs(w)
+        if w == 0.0 and (info_left < near_thresh or info_right < near_thresh):
+            nearest = min(info_left, info_right)
+            closeness = (near_thresh - nearest) / near_thresh
+            clear_score -= 0.4 * closeness
         if clear_score > best_clear_score:
             best_clear_score = clear_score
             best_clear_w = w
