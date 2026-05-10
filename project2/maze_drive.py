@@ -422,6 +422,11 @@ def choose_best_cmd(scan, prev_w, cmd_v):
         if w > 0 and info_left < near_thresh:
             closeness = (near_thresh - info_left) / near_thresh
             clear_score -= 0.5 * closeness * abs(w)
+        if w == 0.0:
+            nearest = min(info_left, info_right)
+            if nearest < near_thresh:
+                closeness = (near_thresh - nearest) / near_thresh
+                clear_score -= 0.4 * closeness
         if clear_score > best_clear_score:
             best_clear_score = clear_score
             best_clear_w = w
