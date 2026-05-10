@@ -430,10 +430,12 @@ def choose_best_cmd(scan, prev_w, cmd_v):
         clear_score -= 0.20 * theta_excess
         if abs(robot_theta) > TURN_SOFT_LIMIT_RAD:
             clear_score -= 0.12 * theta_growth
+
         if w < 0 and info_right < shoulder_thresh:
-            clear_score -= 1.0
+            clear_score -= 0.15
         if w > 0 and info_left < shoulder_thresh:
-            clear_score -= 1.0
+            clear_score -= 0.15
+
         if clear_score > best_clear_score:
             best_clear_score = clear_score
             best_clear_w = w
