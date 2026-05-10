@@ -59,7 +59,7 @@ SQUEEZE_ENTER_THRESH = 0.20
 SQUEEZE_EXIT_THRESH = 0.25
 HEADING_OFF_THRESH = math.radians(15.0)
 SQUEEZE_BOOST_WEIGHT = 8.0
-SQUEEZE_W_MIN = 0.50
+SQUEEZE_W_MIN = 0.35
 
 clearance_weight = 3.0
 collision_weight = 80.0
@@ -418,9 +418,9 @@ def choose_best_cmd(scan, prev_w, cmd_v):
 
     for w in W_CANDIDATES:
         if in_squeeze and robot_theta < 0.0 and w <= 0.0:
-            continue
+            best_w = SQUEEZE_W_MIN
         if in_squeeze and robot_theta > 0.0 and w >= 0.0:
-            continue
+            best_w = -SQUEEZE_W_MIN
 
         score, clearance, side_clearance, body_clearance, candidate_theta = (
             evaluate_candidate(cmd_v, w, points, prev_w, fdist, in_squeeze, recovery_sign, predict_time)
