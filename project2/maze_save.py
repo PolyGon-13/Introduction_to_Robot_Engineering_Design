@@ -34,7 +34,7 @@ W_CANDIDATES = [-0.90, -0.70, -0.50, -0.35, -0.20, -0.10, 0.0,
                 0.10, 0.20, 0.35, 0.50, 0.70, 0.90]
 
 PREDICT_TIME_NORMAL = 1.50
-PREDICT_TIME_SQUEEZE = 0.70
+PREDICT_TIME_SQUEEZE = 0.80
 PREDICT_DT = 0.10
 ROBOT_RADIUS = 0.16 # 로봇 반경
 SAFETY_MARGIN = 0.16 # 안전 여유
@@ -60,6 +60,7 @@ SQUEEZE_EXIT_THRESH = 0.25
 HEADING_OFF_THRESH = math.radians(15.0)
 SQUEEZE_BOOST_WEIGHT = 8.0
 SQUEEZE_W_MIN = 0.20
+SQUEEZE_SIDE_COLLISION_WEIGHT = 50.0
 
 clearance_weight = 3.0
 collision_weight = 80.0
@@ -305,13 +306,15 @@ def evaluate_candidate(v, w, points, prev_w, front_dist, in_squeeze, recovery_si
     forward_w = forward_weight + (1.0 - front_factor) * far_forward_weight
     turn_w = turn_weight + (1.0 - front_factor) * far_turn_weight
 
+    side_w = SQUEEZE_SIDE_COLLISION_WEIGHT if in_squeeze else side_collision_weight
+
     score = 0.0
     score += clearance_weight * min(front_clearance, CLEARANCE_CAP)
     score += side_clearance_weight * min(side_clearance, CLEARANCE_CAP)
     if front_clearance < COLLISION_DIST:
         score -= collision_weight * (COLLISION_DIST - front_clearance + 1.0)
     if side_clearance < COLLISION_DIST:
-        score -= side_collision_weight * (COLLISION_DIST - side_clearance + 1.0)
+        score -= side_w * (COLLISION_DIST - side_clearance + 1.0)
     elif side_clearance < SIDE_NEAR_DIST:
         score -= side_near_weight * (SIDE_NEAR_DIST - side_clearance)
     score += forward_w * (1.0 - abs(w) / max_abs_w)
