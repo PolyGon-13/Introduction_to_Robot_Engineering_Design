@@ -47,15 +47,11 @@ W_CMD_RATE_LIMIT_URGENT = 0.40
 URGENT_FRONT_DIST = 0.30 # 위급 모드 진입 거리
 
 GOAL_X_M = 3.0
-GOAL_Y_M = 0.0
-GOAL_TOL_M = 0.15
-GOAL_HEADING_WEIGHT = 1.0
-GOAL_LATERAL_WEIGHT = 1.2
-GOAL_DISTANCE_WEIGHT = 0.4
-TURN_SOFT_LIMIT_RAD = math.radians(70.0)
-TURN_HARD_LIMIT_RAD = math.radians(88.0)
+TURN_SOFT_LIMIT_RAD = math.radians(80.0)
+TURN_HARD_LIMIT_RAD = math.radians(95.0)
 TURN_LIMIT_WEIGHT = 28.0
 TURN_GROWTH_WEIGHT = 12.0
+X_PROGRESS_WEIGHT = 0.8
 
 clearance_weight = 3.0
 collision_weight = 100.0
@@ -160,20 +156,6 @@ def update_pose(v, w, dt):
     robot_y += v * math.sin(robot_theta) * dt # y축으로 간 거리
     robot_theta += w * dt # 각도 변화량
     robot_theta = normalize_angle_rad(robot_theta)
-
-
-# 목표 지점까지의 직선 거리 계산
-def goal_distance():
-    dx = GOAL_X_M - robot_x
-    dy = GOAL_Y_M - robot_y
-    return math.hypot(dx, dy) # 유클리드 거리 (sqrt(dx^2 + dy^2)) - 빗변 계산
-
-# 목표 방향과 현재 헤딩의 차이 계산
-def goal_heading_error_from_pose(x, y, theta):
-    dx = GOAL_X_M - x
-    dy = GOAL_Y_M - y
-    target_heading = math.atan2(dy, dx)
-    return normalize_angle_rad(target_heading - theta)
 
 
 # 로봇 기준 좌표(local) -> 전역 좌표(global)
@@ -331,19 +313,12 @@ def evaluate_candidate(v, w, points, prev_w, front_dist):
     local_theta = float(traj[-1, 2])
     candidate_x, candidate_y = transform_local_to_global(local_x, local_y)
     candidate_theta = normalize_angle_rad(robot_theta + local_theta)
-    heading_err = goal_heading_error_from_pose(candidate_x, candidate_y, candidate_theta)
-    lateral_err = candidate_y - GOAL_Y_M
-    current_goal_dist = goal_distance()
-    candidate_goal_dist = math.hypot(GOAL_X_M - candidate_x, GOAL_Y_M - candidate_y)
-    goal_progress = current_goal_dist - candidate_goal_dist
-    goal_factor = 1.0 - front_factor
+    x_progress = candidate_x - robot_x
     theta_abs = abs(candidate_theta)
     theta_excess = max(0.0, theta_abs - TURN_SOFT_LIMIT_RAD)
     theta_growth = max(0.0, theta_abs - abs(robot_theta))
 
-    score += goal_factor * GOAL_DISTANCE_WEIGHT * goal_progress
-    score -= goal_factor * GOAL_HEADING_WEIGHT * abs(heading_err)
-    score -= goal_factor * GOAL_LATERAL_WEIGHT * abs(lateral_err)
+    score += X_PROGRESS_WEIGHT * x_progress
     score -= TURN_LIMIT_WEIGHT * theta_excess * theta_excess
     if abs(robot_theta) > TURN_SOFT_LIMIT_RAD:
         score -= TURN_GROWTH_WEIGHT * theta_growth
@@ -495,9 +470,9 @@ def main():
             dt = max(0.0, min(0.20, now - last_pose_time))
             last_pose_time = now
 
-            if goal_distance() <= GOAL_TOL_M:
+            if robot_x >= GOAL_X_M:
                 stop()
-                print("[INFO] Goal reached. Stopping.")
+                print("[INFO] Goal line crossed. Stopping.")
                 break
 
             scan = lidar.get_scan()
@@ -508,9 +483,9 @@ def main():
                 else:
                     send_vw(0.0, 0.0)
                     update_pose(0.0, 0.0, dt)
-                if goal_distance() <= GOAL_TOL_M:
+                if robot_x >= GOAL_X_M:
                     stop()
-                    print("[INFO] Goal reached. Stopping.")
+                    print("[INFO] Goal line crossed. Stopping.")
                     break
                 time.sleep(LOOP_DT_S); continue
 
@@ -520,16 +495,14 @@ def main():
             update_pose(v, w, dt)
             last_v, last_w = v, w
 
-            gd = goal_distance()
-            he = goal_heading_error_from_pose(robot_x, robot_y, robot_theta)
-            if gd <= GOAL_TOL_M:
+            if robot_x >= GOAL_X_M:
                 stop()
-                print("[INFO] Goal reached. Stopping.")
+                print("[INFO] Goal line crossed. Stopping.")
                 break
 
             if time.time() - last_log > 0.25:
                 print(f"[RUN2] x={robot_x:.2f} y={robot_y:.2f} "
-                    f"th={robot_theta:.2f} gd={gd:.2f} he={he:.2f} "
+                    f"th={robot_theta:.2f} "
                     f"v={v:.2f} w={w:.2f} raw={info['raw_w']:.2f} "
                     f"front={info['front']:.2f} clear={info['clear']:.2f} "
                     f"side={info['side']:.2f} body={info['body']:.2f} "
