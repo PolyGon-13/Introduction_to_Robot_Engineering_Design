@@ -40,11 +40,20 @@ SAFETY_MARGIN = 0.16 # 안전 여유
 COLLISION_DIST = ROBOT_RADIUS + SAFETY_MARGIN # 충돌 판정 거리
 CLEARANCE_CAP = 1.0
 FRONT_CORRIDOR_HALF = COLLISION_DIST + 0.30 # 정면 통로 반폭
-ACTIVE_FRONT_DIST = 0.60 # 정면 위험 판정 거리 (COLLISION_DIST보다 커야 danger 계산이 정상)
+ACTIVE_FRONT_DIST = 0.30 # 정면 위험 판정 거리
 SIDE_NEAR_DIST = COLLISION_DIST + 0.20 # 측면 근접 경고 거리
 W_CMD_RATE_LIMIT = 0.30
 W_CMD_RATE_LIMIT_URGENT = 0.40
-URGENT_FRONT_DIST = 0.42 # 위급 모드 진입 거리
+URGENT_FRONT_DIST = 0.30 # 위급 모드 진입 거리
+
+FRONT_DISTANCE_MIN_X = 0.03
+FRONT_DISTANCE_HALF = COLLISION_DIST
+POINTED_POCKET_SIDE_DIST = COLLISION_DIST + 0.12
+POINTED_POCKET_DIAG_DIST = 0.60
+POINTED_POCKET_FRONT_DIST = 0.75
+POINTED_POCKET_MIN_W = 0.10
+POINTED_POCKET_PENALTY_WEIGHT = 55.0
+POINTED_WALL_TURN_PENALTY_WEIGHT = 35.0
 
 GOAL_X_M = 3.0
 GOAL_Y_M = 0.0
@@ -67,18 +76,6 @@ far_forward_weight = 2.2
 turn_weight = 0.25
 far_turn_weight = 0.55
 smooth_weight = 0.5
-
-# 막힌 뾰족 공간/데드엔드 회전 패널티 파라미터
-# w > 0: 좌회전 방향(+y), w < 0: 우회전 방향(-y)을 검사한다.
-POCKET_MIN_W_FOR_CHECK = 0.15
-POCKET_ANGLE_MIN_DEG = 18.0
-POCKET_ANGLE_MAX_DEG = 88.0
-POCKET_LOOKAHEAD_R = 0.75
-POCKET_SIDE_MIN_Y = 0.10
-POCKET_SIDE_MAX_Y = 0.75
-POCKET_BINS = 8
-POCKET_OCC_RATIO_TH = 0.30
-POCKET_BLOCK_WEIGHT = 45.0
 
 robot_x = 0.0
 robot_y = 0.0
@@ -258,9 +255,9 @@ def front_distance(points):
     if len(points) == 0: # 점이 하나도 없으면 안전으로 간주하고 MAX 거리 반환
         return MAX_LIDAR_DIST_M
     
-    mask = ((points[:, 0] > 0.0) & # x가 양수 -> 로봇 앞쪽
+    mask = ((points[:, 0] > FRONT_DISTANCE_MIN_X) & # x가 양수 -> 로봇 앞쪽
             (points[:, 0] < ACTIVE_FRONT_DIST) & # x가 특정값 이내 -> 너무 멀지 않음
-            (np.abs(points[:, 1]) < FRONT_CORRIDOR_HALF)) # |y|가 특정값 이내 -> 정면 범위 안
+            (np.abs(points[:, 1]) < FRONT_DISTANCE_HALF)) # |y|가 특정값 이내 -> 정면 범위 안
     if not mask.any():
         return MAX_LIDAR_DIST_M
     
@@ -268,64 +265,80 @@ def front_distance(points):
     return float(np.min(points[mask, 0])) 
 
 
-def turn_pocket_penalty(points, w):
-    """
-    회전하려는 방향의 전방-측면 부채꼴 영역이 여러 각도 bin에서 가까운 장애물로
-    채워져 있으면, 그 방향은 '막힌 뾰족 공간/데드엔드'로 보고 큰 페널티를 준다.
+def sector_min_distance(points, angle_min_deg, angle_max_deg):
+    if len(points) == 0:
+        return MAX_LIDAR_DIST_M
 
-    좌표계: +y는 좌측, -y는 우측.
-    w > 0이면 좌회전 후보라서 좌측(+y)을 검사하고,
-    w < 0이면 우회전 후보라서 우측(-y)을 검사한다.
-    """
-    if len(points) == 0 or abs(w) < POCKET_MIN_W_FOR_CHECK:
-        return 0.0, 0.0
+    angles = np.rad2deg(np.arctan2(points[:, 1], points[:, 0]))
+    dists = np.sqrt(points[:, 0] * points[:, 0] + points[:, 1] * points[:, 1])
 
-    side = 1.0 if w > 0 else -1.0
-    x = points[:, 0]
-    y = side * points[:, 1]  # 검사하려는 회전 방향을 항상 +y로 정규화
-    r = np.sqrt(x * x + y * y)
-    ang = np.rad2deg(np.arctan2(y, x))
+    mask = (
+        (angles >= angle_min_deg) &
+        (angles <= angle_max_deg)
+    )
 
-    # 로봇이 회전하며 들어가려는 전방-측면 부채꼴 영역
-    mask = ((x > 0.02) &
-            (y > POCKET_SIDE_MIN_Y) &
-            (y < POCKET_SIDE_MAX_Y) &
-            (r < POCKET_LOOKAHEAD_R) &
-            (ang > POCKET_ANGLE_MIN_DEG) &
-            (ang < POCKET_ANGLE_MAX_DEG))
     if not mask.any():
-        return 0.0, 0.0
+        return MAX_LIDAR_DIST_M
 
-    a = ang[mask]
-    rr = r[mask]
-    bin_edges = np.linspace(POCKET_ANGLE_MIN_DEG, POCKET_ANGLE_MAX_DEG, POCKET_BINS + 1)
+    return float(np.min(dists[mask]))
 
-    occupied_bins = 0
-    near_sum = 0.0
-    for b0, b1 in zip(bin_edges[:-1], bin_edges[1:]):
-        bm = (a >= b0) & (a < b1)
-        if not bm.any():
-            continue
 
-        nearest = float(np.min(rr[bm]))
-        if nearest < POCKET_LOOKAHEAD_R:
-            occupied_bins += 1
-            near_sum += float(np.clip(
-                (POCKET_LOOKAHEAD_R - nearest) / max(1e-6, POCKET_LOOKAHEAD_R - COLLISION_DIST),
-                0.0,
-                1.0
-            ))
+def pointed_pocket_status(points):
+    front_left = sector_min_distance(points, 0.0, 35.0)
+    front_right = sector_min_distance(points, -35.0, 0.0)
+    left_wall = sector_min_distance(points, 75.0, 115.0)
+    right_wall = sector_min_distance(points, -115.0, -75.0)
+    left_diag = sector_min_distance(points, 20.0, 75.0)
+    right_diag = sector_min_distance(points, -75.0, -20.0)
 
-    occ_ratio = occupied_bins / float(POCKET_BINS)
-    if occ_ratio < POCKET_OCC_RATIO_TH:
-        return 0.0, occ_ratio
+    left_pocket = (
+        left_wall < POINTED_POCKET_SIDE_DIST and
+        left_diag < POINTED_POCKET_DIAG_DIST and
+        front_left < POINTED_POCKET_FRONT_DIST
+    )
+    right_pocket = (
+        right_wall < POINTED_POCKET_SIDE_DIST and
+        right_diag < POINTED_POCKET_DIAG_DIST and
+        front_right < POINTED_POCKET_FRONT_DIST
+    )
 
-    near_ratio = near_sum / max(1, occupied_bins)
+    front = min(front_left, front_right)
+
+    return left_pocket, right_pocket, left_wall, right_wall, left_diag, right_diag, front
+
+
+def pointed_pocket_penalty(points, w):
+    left_pocket, right_pocket, left_wall, right_wall, left_diag, right_diag, front = (
+        pointed_pocket_status(points)
+    )
     max_abs_w = max(abs(wc) for wc in W_CANDIDATES)
-    turn_ratio = abs(w) / max(1e-6, max_abs_w)
+    turn_ratio = abs(w) / max_abs_w
+    penalty = 0.0
 
-    penalty = POCKET_BLOCK_WEIGHT * occ_ratio * near_ratio * turn_ratio
-    return penalty, occ_ratio
+    if w >= -POINTED_POCKET_MIN_W and left_wall < POINTED_POCKET_SIDE_DIST:
+        wall_factor = (POINTED_POCKET_SIDE_DIST - left_wall) / POINTED_POCKET_SIDE_DIST
+        penalty += POINTED_WALL_TURN_PENALTY_WEIGHT * (1.0 + turn_ratio) * wall_factor
+
+    if w <= POINTED_POCKET_MIN_W and right_wall < POINTED_POCKET_SIDE_DIST:
+        wall_factor = (POINTED_POCKET_SIDE_DIST - right_wall) / POINTED_POCKET_SIDE_DIST
+        penalty += POINTED_WALL_TURN_PENALTY_WEIGHT * (1.0 + turn_ratio) * wall_factor
+
+    if abs(w) < POINTED_POCKET_MIN_W:
+        return penalty
+
+    if w > 0.0 and left_pocket:
+        wall_factor = (POINTED_POCKET_SIDE_DIST - left_wall) / POINTED_POCKET_SIDE_DIST
+        diag_factor = (POINTED_POCKET_DIAG_DIST - left_diag) / POINTED_POCKET_DIAG_DIST
+        front_factor = (POINTED_POCKET_FRONT_DIST - front) / POINTED_POCKET_FRONT_DIST
+        penalty += POINTED_POCKET_PENALTY_WEIGHT * turn_ratio * (1.0 + wall_factor + diag_factor + front_factor)
+
+    if w < 0.0 and right_pocket:
+        wall_factor = (POINTED_POCKET_SIDE_DIST - right_wall) / POINTED_POCKET_SIDE_DIST
+        diag_factor = (POINTED_POCKET_DIAG_DIST - right_diag) / POINTED_POCKET_DIAG_DIST
+        front_factor = (POINTED_POCKET_FRONT_DIST - front) / POINTED_POCKET_FRONT_DIST
+        penalty += POINTED_POCKET_PENALTY_WEIGHT * turn_ratio * (1.0 + wall_factor + diag_factor + front_factor)
+
+    return penalty
 
 
 # 경로를 따라가면 미래 스텝 동안 장애물에 얼마나 가까이 지나가는지 계산
@@ -381,16 +394,9 @@ def evaluate_candidate(v, w, points, prev_w, front_dist):
     front_clearance, side_clearance, body_clearance = trajectory_clearances(traj, points) # 정면/측면/전체 최단 거리
 
     max_abs_w = max(abs(wc) for wc in W_CANDIDATES)
-    # 전방 위험도를 0~1로 표현한다. 0: 안전, 1: 매우 위험.
-    # ACTIVE_FRONT_DIST는 반드시 COLLISION_DIST보다 커야 한다.
-    front_danger = float(np.clip(
-        (ACTIVE_FRONT_DIST - front_dist) / max(1e-6, ACTIVE_FRONT_DIST - COLLISION_DIST),
-        0.0,
-        1.0
-    ))
-    forward_w = forward_weight + (1.0 - front_danger) * far_forward_weight
-    turn_w = turn_weight + (1.0 - front_danger) * far_turn_weight
-    pocket_penalty, pocket_ratio = turn_pocket_penalty(points, w)
+    front_factor = float(np.clip((ACTIVE_FRONT_DIST - front_dist) / max(1e-6, ACTIVE_FRONT_DIST - COLLISION_DIST), 0.0, 1.0)) # 전방이 얼마나 위험한지를 0~1로 표현 (안전할수록 1에 가까움)
+    forward_w = forward_weight + (1.0 - front_factor) * far_forward_weight
+    turn_w = turn_weight + (1.0 - front_factor) * far_turn_weight
 
     score = 0.0
     score += clearance_weight * min(front_clearance, CLEARANCE_CAP)
@@ -404,7 +410,6 @@ def evaluate_candidate(v, w, points, prev_w, front_dist):
     score += forward_w * (1.0 - abs(w) / max_abs_w)
     score -= turn_w * abs(w)
     score -= smooth_weight * abs(w - prev_w)
-    score -= pocket_penalty
 
     local_x = float(traj[-1, 0])
     local_y = float(traj[-1, 1])
@@ -416,7 +421,7 @@ def evaluate_candidate(v, w, points, prev_w, front_dist):
     current_goal_dist = goal_distance()
     candidate_goal_dist = math.hypot(GOAL_X_M - candidate_x, GOAL_Y_M - candidate_y)
     goal_progress = current_goal_dist - candidate_goal_dist
-    goal_factor = 1.0 - front_danger
+    goal_factor = 1.0 - front_factor
     theta_abs = abs(candidate_theta)
     theta_excess = max(0.0, theta_abs - TURN_SOFT_LIMIT_RAD)
     theta_growth = max(0.0, theta_abs - abs(robot_theta))
@@ -430,7 +435,9 @@ def evaluate_candidate(v, w, points, prev_w, front_dist):
     if theta_abs > TURN_HARD_LIMIT_RAD:
         score -= collision_weight * (theta_abs - TURN_HARD_LIMIT_RAD + 1.0)
 
-    return score, front_clearance, side_clearance, body_clearance, candidate_theta, pocket_penalty, pocket_ratio
+    score -= pointed_pocket_penalty(points, w)
+
+    return score, front_clearance, side_clearance, body_clearance, candidate_theta
 
 
 def rate_limit_w(prev_w, target_w, urgent=False):
@@ -454,8 +461,6 @@ def choose_best_cmd(scan, prev_w, cmd_v):
             "cth": robot_theta,
             "left": 1.0,
             "right": 1.0,
-            "pocket": 0.0,
-            "pocket_ratio": 0.0,
         }
 
     fdist = front_distance(points)
@@ -483,11 +488,9 @@ def choose_best_cmd(scan, prev_w, cmd_v):
     best_clear_w = 0.0
     best_clear_score = -float("inf")
     best_theta = 0.0
-    best_pocket_penalty = 0.0
-    best_pocket_ratio = 0.0
 
     for w in W_CANDIDATES:
-        score, clearance, side_clearance, body_clearance, candidate_theta, pocket_penalty, pocket_ratio = (
+        score, clearance, side_clearance, body_clearance, candidate_theta = (
             evaluate_candidate(cmd_v, w, points, prev_w, fdist)
         )
         collision = clearance < COLLISION_DIST
@@ -497,7 +500,6 @@ def choose_best_cmd(scan, prev_w, cmd_v):
         theta_excess = max(0.0, theta_abs - TURN_SOFT_LIMIT_RAD)
         theta_growth = max(0.0, theta_abs - abs(robot_theta))
         clear_score = clearance + 0.18 * side_clearance + 0.03 * abs(w) - 0.02 * abs(w - prev_w)
-        clear_score -= 0.15 * pocket_penalty
         clear_score -= 0.20 * theta_excess
         if abs(robot_theta) > TURN_SOFT_LIMIT_RAD:
             clear_score -= 0.12 * theta_growth
@@ -512,6 +514,7 @@ def choose_best_cmd(scan, prev_w, cmd_v):
             if nearest < near_thresh:
                 closeness = (near_thresh - nearest) / near_thresh
                 clear_score -= 0.7 * closeness
+        clear_score -= 0.02 * pointed_pocket_penalty(points, w)
         if clear_score > best_clear_score:
             best_clear_score = clear_score
             best_clear_w = w
@@ -522,17 +525,16 @@ def choose_best_cmd(scan, prev_w, cmd_v):
             best_side_clearance = side_clearance
             best_body_clearance = body_clearance
             best_theta = candidate_theta
-            best_pocket_penalty = pocket_penalty
-            best_pocket_ratio = pocket_ratio
 
     if all_collision:
         best_w = best_clear_w
-        best_score, best_clearance, best_side_clearance, best_body_clearance, best_theta, best_pocket_penalty, best_pocket_ratio = (
+        best_score, best_clearance, best_side_clearance, best_body_clearance, best_theta = (
             evaluate_candidate(cmd_v, best_w, points, prev_w, fdist)
         )
 
     raw_best_w = best_w
-    best_w = rate_limit_w(prev_w, best_w, fdist < URGENT_FRONT_DIST or all_collision)
+    urgent = fdist < URGENT_FRONT_DIST or all_collision
+    best_w = rate_limit_w(prev_w, best_w, urgent)
     return cmd_v, best_w, {
         "score": best_score,
         "clear": best_clearance,
@@ -540,13 +542,11 @@ def choose_best_cmd(scan, prev_w, cmd_v):
         "body": best_body_clearance,
         "front": fdist,
         "points": len(points),
-        "collision": best_clearance < COLLISION_DIST,
+        "collision": min(best_clearance, best_body_clearance) < COLLISION_DIST,
         "raw_w": raw_best_w,
         "cth": best_theta,
         "left": info_left,
         "right": info_right,
-        "pocket": best_pocket_penalty,
-        "pocket_ratio": best_pocket_ratio,
     }
 
 
@@ -624,8 +624,7 @@ def main():
                     f"side={info['side']:.2f} body={info['body']:.2f} "
                     f"score={info['score']:.2f} pts={info['points']} "
                     f"coll={int(info['collision'])} cth={info['cth']:.2f} "
-                    f"L={info.get('left',-1):.2f} R={info.get('right',-1):.2f} "
-                    f"pocket={info.get('pocket',0.0):.2f} pr={info.get('pocket_ratio',0.0):.2f}")
+                    f"L={info.get('left',-1):.2f} R={info.get('right',-1):.2f}")
                 last_log = time.time()
 
             time.sleep(LOOP_DT_S)
