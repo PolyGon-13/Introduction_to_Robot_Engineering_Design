@@ -422,6 +422,8 @@ def choose_best_cmd(scan, prev_w, cmd_v):
     for w in W_CANDIDATES:
         if in_squeeze and robot_theta * w > 0.0:
             continue
+        if in_squeeze and abs(w) < SQUEEZE_W_MIN:
+            continue
 
         score, clearance, side_clearance, body_clearance, candidate_theta = (
             evaluate_candidate(cmd_v, w, points, prev_w, fdist, in_squeeze, recovery_sign, predict_time)
