@@ -78,6 +78,7 @@ robot_y = 0.0
 robot_theta = 0.0
 
 prev_in_squeeze = False
+squeeze_recovery_sign = 0.0
 
 
 # RPLidar C1 시리얼 통신 드라이버
@@ -352,10 +353,11 @@ def rate_limit_w(prev_w, target_w, urgent=False):
 
 
 def choose_best_cmd(scan, prev_w, cmd_v):
-    global prev_in_squeeze
+    global prev_in_squeeze, squeeze_recovery_sign
     points = lidar_points_to_xy(scan)
     if len(points) == 0:
         prev_in_squeeze = False
+        squeeze_recovery_sign = 0.0
         return cmd_v, rate_limit_w(prev_w, 0.0), {
             "score": 0.0,
             "clear": MAX_LIDAR_DIST_M,
@@ -399,9 +401,14 @@ def choose_best_cmd(scan, prev_w, cmd_v):
         info_right < SQUEEZE_EXIT_THRESH
     )
     in_squeeze = enter_squeeze or stay_squeeze
+    if enter_squeeze:
+        squeeze_recovery_sign = -math.copysign(1.0, robot_theta)
+    elif not in_squeeze:
+        squeeze_recovery_sign = 0.0
+
     prev_in_squeeze = in_squeeze
     if in_squeeze:
-        recovery_sign = -math.copysign(1.0, robot_theta)
+        recovery_sign = squeeze_recovery_sign
         predict_time = PREDICT_TIME_SQUEEZE
     else:
         recovery_sign = 0.0
@@ -418,9 +425,9 @@ def choose_best_cmd(scan, prev_w, cmd_v):
     best_theta = 0.0
 
     for w in W_CANDIDATES:
-        if in_squeeze and robot_theta < 0.0 and w <= 0.0:
+        if in_squeeze and squeeze_recovery_sign > 0.0 and w < SQUEEZE_W_MIN:
             continue
-        if in_squeeze and robot_theta > 0.0 and w >= 0.0:
+        if in_squeeze and squeeze_recovery_sign < 0.0 and w > -SQUEEZE_W_MIN:
             continue
 
         score, clearance, side_clearance, body_clearance, candidate_theta = (
@@ -467,9 +474,9 @@ def choose_best_cmd(scan, prev_w, cmd_v):
     raw_best_w = best_w
     best_w = rate_limit_w(prev_w, best_w, fdist < URGENT_FRONT_DIST or all_collision)
 
-    if in_squeeze and robot_theta < 0.0 and best_w <= 0.0:
+    if in_squeeze and squeeze_recovery_sign > 0.0 and best_w < SQUEEZE_W_MIN:
         best_w = SQUEEZE_W_MIN
-    if in_squeeze and robot_theta > 0.0 and best_w >= 0.0:
+    if in_squeeze and squeeze_recovery_sign < 0.0 and best_w > -SQUEEZE_W_MIN:
         best_w = -SQUEEZE_W_MIN
 
     return cmd_v, best_w, {
@@ -489,7 +496,7 @@ def choose_best_cmd(scan, prev_w, cmd_v):
 
 
 def main():
-    global robot_x, robot_y, robot_theta, prev_in_squeeze
+    global robot_x, robot_y, robot_theta, prev_in_squeeze, squeeze_recovery_sign
     lidar = RPLidarC1(LIDAR_PORT, LIDAR_BAUD)
     ardu  = serial.Serial(ARDU_PORT, ARDU_BAUD, timeout=0.1)
     print("[INFO] Warming up for 2 seconds..."); time.sleep(2.0)
@@ -512,6 +519,7 @@ def main():
     robot_y = 0.0
     robot_theta = 0.0
     prev_in_squeeze = False
+    squeeze_recovery_sign = 0.0
     last_scan_ok = 0.0
     last_v, last_w = BASE_V, 0.0
     last_log = 0.0
