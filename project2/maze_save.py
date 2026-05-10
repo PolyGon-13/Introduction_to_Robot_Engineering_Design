@@ -59,8 +59,10 @@ SQUEEZE_ENTER_THRESH = 0.20
 SQUEEZE_EXIT_THRESH = 0.25
 HEADING_OFF_THRESH = math.radians(15.0)
 SQUEEZE_BOOST_WEIGHT = 30.0
-SQUEEZE_W_MIN = 0.50
+SQUEEZE_W_MIN = 0.35
 SQUEEZE_W_MAX = 0.90
+SQUEEZE_STRONG_W_MIN = 0.50
+SQUEEZE_STRONG_TURN_SIDE_MIN = 0.16
 
 clearance_weight = 3.0
 collision_weight = 80.0
@@ -414,6 +416,20 @@ def choose_best_cmd(scan, prev_w, cmd_v):
         recovery_sign = 0.0
         predict_time = PREDICT_TIME_NORMAL
 
+    if squeeze_recovery_sign > 0.0:
+        recovery_side_clear = info_left
+    elif squeeze_recovery_sign < 0.0:
+        recovery_side_clear = info_right
+    else:
+        recovery_side_clear = MAX_LIDAR_DIST_M
+
+    use_strong_squeeze_turn = (
+        in_squeeze and
+        recovery_side_clear >= SQUEEZE_STRONG_TURN_SIDE_MIN
+    )
+    squeeze_w_min = SQUEEZE_STRONG_W_MIN if use_strong_squeeze_turn else 0.10
+    squeeze_w_max = SQUEEZE_W_MAX if use_strong_squeeze_turn else SQUEEZE_W_MIN
+
     best_w = 0.0
     best_score = -float("inf")
     best_clearance = -float("inf")
@@ -428,13 +444,13 @@ def choose_best_cmd(scan, prev_w, cmd_v):
         if (
             in_squeeze and
             squeeze_recovery_sign > 0.0 and
-            not (SQUEEZE_W_MIN <= w <= SQUEEZE_W_MAX)
+            not (squeeze_w_min <= w <= squeeze_w_max)
         ):
             continue
         if (
             in_squeeze and
             squeeze_recovery_sign < 0.0 and
-            not (-SQUEEZE_W_MAX <= w <= -SQUEEZE_W_MIN)
+            not (-squeeze_w_max <= w <= -squeeze_w_min)
         ):
             continue
 
