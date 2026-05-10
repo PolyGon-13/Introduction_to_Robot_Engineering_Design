@@ -62,6 +62,8 @@ SQUEEZE_BOOST_WEIGHT = 8.0
 SQUEEZE_W_MIN = 0.20
 SQUEEZE_SIDE_COLLISION_WEIGHT = 50.0
 
+SQUEEZE_HOLD_STEPS = 5
+
 clearance_weight = 3.0
 collision_weight = 80.0
 side_clearance_weight = 0.6
@@ -78,7 +80,7 @@ robot_y = 0.0
 robot_theta = 0.0
 
 prev_in_squeeze = False
-
+squeeze_hold_steps = 0
 
 # RPLidar C1 시리얼 통신 드라이버
 class RPLidarC1:
