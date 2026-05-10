@@ -60,9 +60,7 @@ SQUEEZE_EXIT_THRESH = 0.25
 HEADING_OFF_THRESH = math.radians(15.0)
 SQUEEZE_BOOST_WEIGHT = 8.0
 SQUEEZE_W_MIN = 0.20
-SQUEEZE_SIDE_COLLISION_WEIGHT = 40.0
-
-SQUEEZE_HOLD_STEPS = 10
+SQUEEZE_SIDE_COLLISION_WEIGHT = 50.0
 
 clearance_weight = 3.0
 collision_weight = 80.0
@@ -80,7 +78,7 @@ robot_y = 0.0
 robot_theta = 0.0
 
 prev_in_squeeze = False
-squeeze_hold_steps = 0
+
 
 # RPLidar C1 시리얼 통신 드라이버
 class RPLidarC1:
@@ -362,12 +360,10 @@ def rate_limit_w(prev_w, target_w, urgent=False):
 
 
 def choose_best_cmd(scan, prev_w, cmd_v):
-    global prev_in_squeeze, squeeze_hold_steps
-
+    global prev_in_squeeze
     points = lidar_points_to_xy(scan)
     if len(points) == 0:
         prev_in_squeeze = False
-        squeeze_hold_steps = 0
         return cmd_v, rate_limit_w(prev_w, 0.0), {
             "score": 0.0,
             "clear": MAX_LIDAR_DIST_M,
@@ -404,20 +400,8 @@ def choose_best_cmd(scan, prev_w, cmd_v):
         both_sides_blocked = (info_left < SQUEEZE_EXIT_THRESH and info_right < SQUEEZE_EXIT_THRESH)
     else:
         both_sides_blocked = (info_left < SQUEEZE_ENTER_THRESH and info_right < SQUEEZE_ENTER_THRESH)
-
-    squeeze_detected = both_sides_blocked and heading_off
-
-    if squeeze_detected:
-        squeeze_hold_steps = SQUEEZE_HOLD_STEPS
-        in_squeeze = True
-    elif squeeze_hold_steps > 0:
-        squeeze_hold_steps -= 1
-        in_squeeze = True
-    else:
-        in_squeeze = False
-
+    in_squeeze = both_sides_blocked and heading_off
     prev_in_squeeze = in_squeeze
-
     if in_squeeze:
         recovery_sign = -math.copysign(1.0, robot_theta)
         predict_time = PREDICT_TIME_SQUEEZE
@@ -439,39 +423,30 @@ def choose_best_cmd(scan, prev_w, cmd_v):
         score, clearance, side_clearance, body_clearance, candidate_theta = (
             evaluate_candidate(cmd_v, w, points, prev_w, fdist, in_squeeze, recovery_sign, predict_time)
         )
-
         collision = clearance < COLLISION_DIST
         if not collision:
             all_collision = False
-
         theta_abs = abs(candidate_theta)
         theta_excess = max(0.0, theta_abs - TURN_SOFT_LIMIT_RAD)
         theta_growth = max(0.0, theta_abs - abs(robot_theta))
-
         clear_score = clearance + 0.18 * side_clearance + 0.03 * abs(w) - 0.02 * abs(w - prev_w)
         clear_score -= 0.20 * theta_excess
-
         if abs(robot_theta) > TURN_SOFT_LIMIT_RAD:
             clear_score -= 0.12 * theta_growth
-
         if w < 0 and info_right < near_thresh:
             closeness = (near_thresh - info_right) / near_thresh
             clear_score -= 0.5 * closeness * abs(w)
-
         if w > 0 and info_left < near_thresh:
             closeness = (near_thresh - info_left) / near_thresh
             clear_score -= 0.7 * closeness * abs(w)
-
         if w == 0.0:
             nearest = min(info_left, info_right)
             if nearest < near_thresh:
                 closeness = (near_thresh - nearest) / near_thresh
                 clear_score -= 0.7 * closeness
-
         if clear_score > best_clear_score:
             best_clear_score = clear_score
             best_clear_w = w
-
         if score > best_score:
             best_score = score
             best_w = w
@@ -488,7 +463,6 @@ def choose_best_cmd(scan, prev_w, cmd_v):
 
     raw_best_w = best_w
     best_w = rate_limit_w(prev_w, best_w, fdist < URGENT_FRONT_DIST or all_collision)
-
     return cmd_v, best_w, {
         "score": best_score,
         "clear": best_clearance,
