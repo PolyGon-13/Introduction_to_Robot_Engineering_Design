@@ -48,22 +48,17 @@ URGENT_FRONT_DIST = 0.42 # 위급 모드 진입 거리
 
 FRONT_DISTANCE_MIN_X = 0.03
 FRONT_DISTANCE_HALF = COLLISION_DIST
-POINTED_POCKET_SIDE_DIST = COLLISION_DIST + 0.12
-POINTED_POCKET_DIAG_DIST = 0.60
-POINTED_POCKET_FRONT_DIST = 0.75
-POINTED_POCKET_MIN_W = 0.10
-POINTED_POCKET_PENALTY_WEIGHT = 55.0
-POINTED_WALL_TURN_PENALTY_WEIGHT = 35.0
-DANGER_CLEAR_DIST = COLLISION_DIST + 0.03
-DANGER_MIN_TURN_W = 0.20
-DANGER_STRAIGHT_PENALTY_WEIGHT = 55.0
-DANGER_SMALL_TURN_PENALTY_WEIGHT = 30.0
-DANGER_WALL_DIR_PENALTY_WEIGHT = 75.0
-DANGER_WALL_AWAY_BONUS_WEIGHT = 22.0
-TURN_SIDE_CLEAR_MARGIN = 0.08
-TURN_SIDE_BLOCK_DIST = 0.70
-TURN_SIDE_DIR_PENALTY_WEIGHT = 65.0
-TURN_SIDE_AWAY_BONUS_WEIGHT = 14.0
+
+GAP_FOV_DEG = 100.0
+GAP_BIN_DEG = 2.0
+GAP_INFLATION_RADIUS = COLLISION_DIST
+GAP_MIN_WIDTH_DEG = 8.0
+GAP_MIN_DEPTH_M = COLLISION_DIST + 0.05
+GAP_DEPTH_WEIGHT = 1.0
+GAP_WIDTH_WEIGHT = 0.25
+GAP_TARGET_WEIGHT = 1.1
+GAP_HEADING_WEIGHT = 4.5
+GAP_BLOCKED_PENALTY = 90.0
 
 GOAL_X_M = 3.0
 GOAL_Y_M = 0.0
@@ -275,155 +270,108 @@ def front_distance(points):
     return float(np.min(points[mask, 0])) 
 
 
-def sector_min_distance(points, angle_min_deg, angle_max_deg):
-    if len(points) == 0:
-        return MAX_LIDAR_DIST_M
+def analyze_drivable_gaps(points):
+    angle_min = -GAP_FOV_DEG
+    angle_max = GAP_FOV_DEG
+    n_bins = int(round((angle_max - angle_min) / GAP_BIN_DEG)) + 1
+    centers = angle_min + np.arange(n_bins, dtype=np.float32) * GAP_BIN_DEG
+    min_ranges = np.full(n_bins, MAX_LIDAR_DIST_M, dtype=np.float32)
+    blocked = np.zeros(n_bins, dtype=bool)
 
-    angles = np.rad2deg(np.arctan2(points[:, 1], points[:, 0]))
-    dists = np.sqrt(points[:, 0] * points[:, 0] + points[:, 1] * points[:, 1])
+    if len(points) > 0:
+        angles = np.rad2deg(np.arctan2(points[:, 1], points[:, 0]))
+        ranges = np.sqrt(points[:, 0] * points[:, 0] + points[:, 1] * points[:, 1])
+        mask = (
+            (angles >= angle_min) &
+            (angles <= angle_max) &
+            (ranges >= MIN_LIDAR_DIST_M) &
+            (ranges <= MAX_LIDAR_DIST_M)
+        )
 
-    mask = (
-        (angles >= angle_min_deg) &
-        (angles <= angle_max_deg)
-    )
+        for angle, dist in zip(angles[mask], ranges[mask]):
+            idx = int(round((float(angle) - angle_min) / GAP_BIN_DEG))
+            if 0 <= idx < n_bins and dist < min_ranges[idx]:
+                min_ranges[idx] = float(dist)
 
-    if not mask.any():
-        return MAX_LIDAR_DIST_M
+        for idx in np.nonzero(min_ranges < MAX_LIDAR_DIST_M)[0]:
+            dist = float(min_ranges[idx])
+            if dist <= 1e-6:
+                continue
+            ratio = min(1.0, GAP_INFLATION_RADIUS / dist)
+            inflate_deg = math.degrees(math.asin(ratio))
+            half_bins = int(math.ceil(inflate_deg / GAP_BIN_DEG))
+            lo = max(0, idx - half_bins)
+            hi = min(n_bins, idx + half_bins + 1)
+            blocked[lo:hi] = True
 
-    return float(np.min(dists[mask]))
+    target_angle = math.degrees(goal_heading_error_from_pose(robot_x, robot_y, robot_theta))
+    target_angle = float(np.clip(target_angle, angle_min, angle_max))
+    gaps = []
+    i = 0
 
+    while i < n_bins:
+        while i < n_bins and blocked[i]:
+            i += 1
+        start = i
+        while i < n_bins and not blocked[i]:
+            i += 1
+        end = i - 1
 
-def pointed_pocket_status(points):
-    front_left = sector_min_distance(points, 0.0, 35.0)
-    front_right = sector_min_distance(points, -35.0, 0.0)
-    left_wall = sector_min_distance(points, 75.0, 115.0)
-    right_wall = sector_min_distance(points, -115.0, -75.0)
-    left_diag = sector_min_distance(points, 20.0, 75.0)
-    right_diag = sector_min_distance(points, -75.0, -20.0)
+        if start <= end:
+            start_angle = float(centers[start] - GAP_BIN_DEG * 0.5)
+            end_angle = float(centers[end] + GAP_BIN_DEG * 0.5)
+            center_angle = 0.5 * (start_angle + end_angle)
+            width = end_angle - start_angle
+            depth = float(np.min(min_ranges[start:end + 1]))
 
-    left_pocket = (
-        left_wall < POINTED_POCKET_SIDE_DIST and
-        left_diag < POINTED_POCKET_DIAG_DIST and
-        front_left < POINTED_POCKET_FRONT_DIST
-    )
-    right_pocket = (
-        right_wall < POINTED_POCKET_SIDE_DIST and
-        right_diag < POINTED_POCKET_DIAG_DIST and
-        front_right < POINTED_POCKET_FRONT_DIST
-    )
+            if width >= GAP_MIN_WIDTH_DEG and depth >= GAP_MIN_DEPTH_M:
+                target_err = abs(normalize_angle_deg(center_angle - target_angle))
+                score = (
+                    GAP_DEPTH_WEIGHT * depth +
+                    GAP_WIDTH_WEIGHT * (width / 100.0) -
+                    GAP_TARGET_WEIGHT * (target_err / 100.0)
+                )
+                gaps.append({
+                    "start": start_angle,
+                    "end": end_angle,
+                    "angle": center_angle,
+                    "width": width,
+                    "depth": depth,
+                    "score": score,
+                })
 
-    front = min(front_left, front_right)
+    if gaps:
+        best = max(gaps, key=lambda g: g["score"])
+        selected_angle = float(best["angle"])
+        selected_width = float(best["width"])
+        selected_depth = float(best["depth"])
+    else:
+        left_mask = centers > 0.0
+        right_mask = centers < 0.0
+        left_depth = float(np.max(min_ranges[left_mask])) if left_mask.any() else 0.0
+        right_depth = float(np.max(min_ranges[right_mask])) if right_mask.any() else 0.0
+        selected_angle = 45.0 if left_depth >= right_depth else -45.0
+        selected_width = 0.0
+        selected_depth = max(left_depth, right_depth)
 
-    return left_pocket, right_pocket, left_wall, right_wall, left_diag, right_diag, front
-
-
-def pointed_pocket_penalty(points, w):
-    left_pocket, right_pocket, left_wall, right_wall, left_diag, right_diag, front = (
-        pointed_pocket_status(points)
-    )
-    max_abs_w = max(abs(wc) for wc in W_CANDIDATES)
-    turn_ratio = abs(w) / max_abs_w
-    penalty = 0.0
-
-    if w >= -POINTED_POCKET_MIN_W and left_wall < POINTED_POCKET_SIDE_DIST:
-        wall_factor = (POINTED_POCKET_SIDE_DIST - left_wall) / POINTED_POCKET_SIDE_DIST
-        penalty += POINTED_WALL_TURN_PENALTY_WEIGHT * (1.0 + turn_ratio) * wall_factor
-
-    if w <= POINTED_POCKET_MIN_W and right_wall < POINTED_POCKET_SIDE_DIST:
-        wall_factor = (POINTED_POCKET_SIDE_DIST - right_wall) / POINTED_POCKET_SIDE_DIST
-        penalty += POINTED_WALL_TURN_PENALTY_WEIGHT * (1.0 + turn_ratio) * wall_factor
-
-    if abs(w) < POINTED_POCKET_MIN_W:
-        return penalty
-
-    if w > 0.0 and left_pocket:
-        wall_factor = (POINTED_POCKET_SIDE_DIST - left_wall) / POINTED_POCKET_SIDE_DIST
-        diag_factor = (POINTED_POCKET_DIAG_DIST - left_diag) / POINTED_POCKET_DIAG_DIST
-        front_factor = (POINTED_POCKET_FRONT_DIST - front) / POINTED_POCKET_FRONT_DIST
-        penalty += POINTED_POCKET_PENALTY_WEIGHT * turn_ratio * (1.0 + wall_factor + diag_factor + front_factor)
-
-    if w < 0.0 and right_pocket:
-        wall_factor = (POINTED_POCKET_SIDE_DIST - right_wall) / POINTED_POCKET_SIDE_DIST
-        diag_factor = (POINTED_POCKET_DIAG_DIST - right_diag) / POINTED_POCKET_DIAG_DIST
-        front_factor = (POINTED_POCKET_FRONT_DIST - front) / POINTED_POCKET_FRONT_DIST
-        penalty += POINTED_POCKET_PENALTY_WEIGHT * turn_ratio * (1.0 + wall_factor + diag_factor + front_factor)
-
-    return penalty
-
-
-def danger_level(clearance, body_clearance):
-    near = min(clearance, body_clearance)
-    return float(np.clip(
-        (DANGER_CLEAR_DIST - near) / max(1e-6, DANGER_CLEAR_DIST - COLLISION_DIST),
-        0.0,
-        1.0
-    ))
-
-
-def danger_turn_adjustment(w, clearance, body_clearance, info_left, info_right):
-    danger = danger_level(clearance, body_clearance)
-    if danger <= 0.0:
-        return 0.0
-
-    max_abs_w = max(abs(wc) for wc in W_CANDIDATES)
-    abs_w = abs(w)
-    turn_ratio = abs_w / max_abs_w
-    adjust = 0.0
-
-    if abs_w < DANGER_MIN_TURN_W:
-        weak_ratio = (DANGER_MIN_TURN_W - abs_w) / DANGER_MIN_TURN_W
-        adjust -= DANGER_SMALL_TURN_PENALTY_WEIGHT * danger * weak_ratio
-
-    if abs_w < 1e-6:
-        adjust -= DANGER_STRAIGHT_PENALTY_WEIGHT * danger
-
-    if min(info_left, info_right) < SIDE_NEAR_DIST:
-        if info_right + 0.03 < info_left:
-            closeness = float(np.clip((SIDE_NEAR_DIST - info_right) / SIDE_NEAR_DIST, 0.0, 1.0))
-            if w <= POINTED_POCKET_MIN_W:
-                adjust -= DANGER_WALL_DIR_PENALTY_WEIGHT * danger * closeness * (1.0 + turn_ratio)
-            else:
-                adjust += DANGER_WALL_AWAY_BONUS_WEIGHT * danger * closeness * turn_ratio
-        elif info_left + 0.03 < info_right:
-            closeness = float(np.clip((SIDE_NEAR_DIST - info_left) / SIDE_NEAR_DIST, 0.0, 1.0))
-            if w >= -POINTED_POCKET_MIN_W:
-                adjust -= DANGER_WALL_DIR_PENALTY_WEIGHT * danger * closeness * (1.0 + turn_ratio)
-            else:
-                adjust += DANGER_WALL_AWAY_BONUS_WEIGHT * danger * closeness * turn_ratio
-
-    return adjust
+    return {
+        "angle": selected_angle,
+        "width": selected_width,
+        "depth": selected_depth,
+        "count": len(gaps),
+        "centers": centers,
+        "blocked": blocked,
+    }
 
 
-def turn_side_adjustment(points, w):
-    if abs(w) < POINTED_POCKET_MIN_W:
-        return 0.0
+def gap_direction_blocked(gap_info, angle_deg):
+    centers = gap_info["centers"]
+    if angle_deg < centers[0] or angle_deg > centers[-1]:
+        return True
 
-    left_front = sector_min_distance(points, 0.0, 55.0)
-    right_front = sector_min_distance(points, -55.0, 0.0)
-    left_diag = sector_min_distance(points, 20.0, 85.0)
-    right_diag = sector_min_distance(points, -85.0, -20.0)
-    left_free = min(left_front, left_diag)
-    right_free = min(right_front, right_diag)
-    max_abs_w = max(abs(wc) for wc in W_CANDIDATES)
-    turn_ratio = abs(w) / max_abs_w
-
-    if w < 0.0 and right_free + TURN_SIDE_CLEAR_MARGIN < left_free:
-        closeness = float(np.clip((TURN_SIDE_BLOCK_DIST - right_free) / TURN_SIDE_BLOCK_DIST, 0.0, 1.0))
-        return -TURN_SIDE_DIR_PENALTY_WEIGHT * closeness * (0.5 + turn_ratio)
-
-    if w > 0.0 and left_free + TURN_SIDE_CLEAR_MARGIN < right_free:
-        closeness = float(np.clip((TURN_SIDE_BLOCK_DIST - left_free) / TURN_SIDE_BLOCK_DIST, 0.0, 1.0))
-        return -TURN_SIDE_DIR_PENALTY_WEIGHT * closeness * (0.5 + turn_ratio)
-
-    if w > 0.0 and right_free + TURN_SIDE_CLEAR_MARGIN < left_free:
-        closeness = float(np.clip((TURN_SIDE_BLOCK_DIST - right_free) / TURN_SIDE_BLOCK_DIST, 0.0, 1.0))
-        return TURN_SIDE_AWAY_BONUS_WEIGHT * closeness * turn_ratio
-
-    if w < 0.0 and left_free + TURN_SIDE_CLEAR_MARGIN < right_free:
-        closeness = float(np.clip((TURN_SIDE_BLOCK_DIST - left_free) / TURN_SIDE_BLOCK_DIST, 0.0, 1.0))
-        return TURN_SIDE_AWAY_BONUS_WEIGHT * closeness * turn_ratio
-
-    return 0.0
+    idx = int(round((float(angle_deg) - float(centers[0])) / GAP_BIN_DEG))
+    idx = int(np.clip(idx, 0, len(centers) - 1))
+    return bool(gap_info["blocked"][idx])
 
 
 # 경로를 따라가면 미래 스텝 동안 장애물에 얼마나 가까이 지나가는지 계산
@@ -474,7 +422,7 @@ def trajectory_clearances(traj, points):
 
 # (v,w)에 대해 cost항으로 점수 계산
 # (v,w)에 대해 cost항으로 점수 계산
-def evaluate_candidate(v, w, points, prev_w, front_dist):
+def evaluate_candidate(v, w, points, prev_w, front_dist, gap_info=None):
     traj = predict_trajectory(v, w) # 후보 경로
     front_clearance, side_clearance, body_clearance = trajectory_clearances(traj, points) # 정면/측면/전체 최단 거리
 
@@ -521,7 +469,12 @@ def evaluate_candidate(v, w, points, prev_w, front_dist):
     if theta_abs > TURN_HARD_LIMIT_RAD:
         score -= collision_weight * (theta_abs - TURN_HARD_LIMIT_RAD + 1.0)
 
-    score -= pointed_pocket_penalty(points, w)
+    if gap_info is not None:
+        gap_angle_rad = math.radians(gap_info["angle"])
+        gap_err = abs(normalize_angle_rad(local_theta - gap_angle_rad))
+        score -= GAP_HEADING_WEIGHT * gap_err
+        if gap_info["count"] > 0 and gap_direction_blocked(gap_info, math.degrees(local_theta)):
+            score -= GAP_BLOCKED_PENALTY * (1.0 + abs(w) / max_abs_w)
 
     return score, front_clearance, side_clearance, body_clearance, candidate_theta
 
@@ -547,9 +500,14 @@ def choose_best_cmd(scan, prev_w, cmd_v):
             "cth": robot_theta,
             "left": 1.0,
             "right": 1.0,
+            "gap_angle": 0.0,
+            "gap_width": 0.0,
+            "gap_depth": MAX_LIDAR_DIST_M,
+            "gap_count": 0,
         }
 
     fdist = front_distance(points)
+    gap_info = analyze_drivable_gaps(points)
 
     info_left = 1.0
     info_right = 1.0
@@ -577,17 +535,16 @@ def choose_best_cmd(scan, prev_w, cmd_v):
 
     for w in W_CANDIDATES:
         score, clearance, side_clearance, body_clearance, candidate_theta = (
-            evaluate_candidate(cmd_v, w, points, prev_w, fdist)
+            evaluate_candidate(cmd_v, w, points, prev_w, fdist, gap_info)
         )
-        danger_adjust = danger_turn_adjustment(w, clearance, body_clearance, info_left, info_right)
-        side_adjust = turn_side_adjustment(points, w)
-        score += danger_adjust + side_adjust
         collision = min(clearance, body_clearance) < COLLISION_DIST
         if not collision:
             all_collision = False
         theta_abs = abs(candidate_theta)
         theta_excess = max(0.0, theta_abs - TURN_SOFT_LIMIT_RAD)
         theta_growth = max(0.0, theta_abs - abs(robot_theta))
+        local_candidate_theta = normalize_angle_rad(candidate_theta - robot_theta)
+        gap_err = abs(normalize_angle_rad(local_candidate_theta - math.radians(gap_info["angle"])))
         clear_score = clearance + 0.18 * side_clearance + 0.03 * abs(w) - 0.02 * abs(w - prev_w)
         clear_score -= 0.20 * theta_excess
         if abs(robot_theta) > TURN_SOFT_LIMIT_RAD:
@@ -603,8 +560,9 @@ def choose_best_cmd(scan, prev_w, cmd_v):
             if nearest < near_thresh:
                 closeness = (near_thresh - nearest) / near_thresh
                 clear_score -= 0.7 * closeness
-        clear_score -= 0.02 * pointed_pocket_penalty(points, w)
-        clear_score += 0.03 * danger_adjust + 0.02 * side_adjust
+        clear_score -= 0.15 * gap_err
+        if gap_info["count"] > 0 and gap_direction_blocked(gap_info, math.degrees(local_candidate_theta)):
+            clear_score -= 1.5
         if clear_score > best_clear_score:
             best_clear_score = clear_score
             best_clear_w = w
@@ -619,7 +577,7 @@ def choose_best_cmd(scan, prev_w, cmd_v):
     if all_collision:
         best_w = best_clear_w
         best_score, best_clearance, best_side_clearance, best_body_clearance, best_theta = (
-            evaluate_candidate(cmd_v, best_w, points, prev_w, fdist)
+            evaluate_candidate(cmd_v, best_w, points, prev_w, fdist, gap_info)
         )
 
     raw_best_w = best_w
@@ -637,6 +595,10 @@ def choose_best_cmd(scan, prev_w, cmd_v):
         "cth": best_theta,
         "left": info_left,
         "right": info_right,
+        "gap_angle": gap_info["angle"],
+        "gap_width": gap_info["width"],
+        "gap_depth": gap_info["depth"],
+        "gap_count": gap_info["count"],
     }
 
 
@@ -715,6 +677,10 @@ def main():
                     f"score={info['score']:.2f} pts={info['points']} "
                     f"coll={int(info['collision'])} cth={info['cth']:.2f} "
                     f"L={info.get('left',-1):.2f} R={info.get('right',-1):.2f}")
+                print(f"[GAP] angle={info['gap_angle']:.1f} "
+                    f"width={info['gap_width']:.1f} depth={info['gap_depth']:.2f} "
+                    f"gaps={info['gap_count']} raw_w={info['raw_w']:.2f} "
+                    f"w={w:.2f} front={info['front']:.2f} clear={info['clear']:.2f}")
                 last_log = time.time()
 
             time.sleep(LOOP_DT_S)
