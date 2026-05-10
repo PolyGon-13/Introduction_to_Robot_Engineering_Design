@@ -33,7 +33,8 @@ BASE_V = 0.18
 W_CANDIDATES = [-0.90, -0.70, -0.50, -0.35, -0.20, -0.10, 0.0,
                 0.10, 0.20, 0.35, 0.50, 0.70, 0.90]
 
-PREDICT_TIME = 0.80
+PREDICT_TIME_NORMAL = 1.50
+PREDICT_TIME_SQUEEZE = 0.50
 PREDICT_DT = 0.10
 ROBOT_RADIUS = 0.16 # 로봇 반경
 SAFETY_MARGIN = 0.16 # 안전 여유
@@ -42,7 +43,7 @@ CLEARANCE_CAP = 1.0
 FRONT_CORRIDOR_HALF = COLLISION_DIST + 0.30 # 정면 통로 반폭
 ACTIVE_FRONT_DIST = 0.30 # 정면 위험 판정 거리
 SIDE_NEAR_DIST = COLLISION_DIST + 0.20 # 측면 근접 경고 거리
-W_CMD_RATE_LIMIT = 0.30
+W_CMD_RATE_LIMIT = 0.20
 W_CMD_RATE_LIMIT_URGENT = 0.40
 URGENT_FRONT_DIST = 0.30 # 위급 모드 진입 거리
 
@@ -54,16 +55,17 @@ TURN_GROWTH_WEIGHT = 12.0
 X_PROGRESS_WEIGHT = 0.8
 CENTERING_WEIGHT = 0.8
 
-BOTH_BLOCKED_THRESH = 0.20
-HEADING_OFF_THRESH = math.radians(5.0)
-SQUEEZE_BOOST_WEIGHT = 10.0
+SQUEEZE_ENTER_THRESH = 0.20
+SQUEEZE_EXIT_THRESH = 0.25
+HEADING_OFF_THRESH = math.radians(15.0)
+SQUEEZE_BOOST_WEIGHT = 8.0
 SQUEEZE_W_MIN = 0.20
 
 clearance_weight = 3.0
 collision_weight = 80.0
 side_clearance_weight = 0.6
 side_near_weight = 8.0
-side_collision_weight = 30.0
+side_collision_weight = 18.0
 forward_weight = 1.0
 far_forward_weight = 2.2
 turn_weight = 0.25
@@ -73,6 +75,8 @@ smooth_weight = 0.5
 robot_x = 0.0
 robot_y = 0.0
 robot_theta = 0.0
+
+prev_in_squeeze = False
 
 
 # RPLidar C1 시리얼 통신 드라이버
@@ -211,8 +215,8 @@ def lidar_points_to_xy(scan):
 
 
 # 후보 v,w 명령으로 로봇이 PREDICT_TIME초 동안 그릴 미래 경로 계산
-def predict_trajectory(v, w):
-    n_steps = int(PREDICT_TIME / PREDICT_DT) # step 수 미리 계산
+def predict_trajectory(v, w, predict_time):
+    n_steps = int(predict_time / PREDICT_DT) # step 수 미리 계산
     ts = (np.arange(n_steps) + 1) * PREDICT_DT # 각 step의 누적 시간을 한 줄로 제작
     thetas = w * ts # 모든 스텝의 헤딩
 
@@ -292,8 +296,8 @@ def trajectory_clearances(traj, points):
 
 # (v,w)에 대해 cost항으로 점수 계산
 # (v,w)에 대해 cost항으로 점수 계산
-def evaluate_candidate(v, w, points, prev_w, front_dist, in_squeeze, recovery_sign):
-    traj = predict_trajectory(v, w) # 후보 경로
+def evaluate_candidate(v, w, points, prev_w, front_dist, in_squeeze, recovery_sign, predict_time):
+    traj = predict_trajectory(v, w, predict_time) # 후보 경로
     front_clearance, side_clearance, body_clearance = trajectory_clearances(traj, points) # 정면/측면/전체 최단 거리
 
     max_abs_w = max(abs(wc) for wc in W_CANDIDATES)
@@ -347,8 +351,10 @@ def rate_limit_w(prev_w, target_w, urgent=False):
 
 
 def choose_best_cmd(scan, prev_w, cmd_v):
+    global prev_in_squeeze
     points = lidar_points_to_xy(scan)
     if len(points) == 0:
+        prev_in_squeeze = False
         return cmd_v, rate_limit_w(prev_w, 0.0), {
             "score": 0.0,
             "clear": MAX_LIDAR_DIST_M,
@@ -380,13 +386,19 @@ def choose_best_cmd(scan, prev_w, cmd_v):
 
     near_thresh = 0.14
 
-    both_sides_blocked = (info_left < BOTH_BLOCKED_THRESH and info_right < BOTH_BLOCKED_THRESH)
     heading_off = abs(robot_theta) > HEADING_OFF_THRESH
+    if prev_in_squeeze:
+        both_sides_blocked = (info_left < SQUEEZE_EXIT_THRESH and info_right < SQUEEZE_EXIT_THRESH)
+    else:
+        both_sides_blocked = (info_left < SQUEEZE_ENTER_THRESH and info_right < SQUEEZE_ENTER_THRESH)
     in_squeeze = both_sides_blocked and heading_off
+    prev_in_squeeze = in_squeeze
     if in_squeeze:
         recovery_sign = -math.copysign(1.0, robot_theta)
+        predict_time = PREDICT_TIME_SQUEEZE
     else:
         recovery_sign = 0.0
+        predict_time = PREDICT_TIME_NORMAL
 
     best_w = 0.0
     best_score = -float("inf")
@@ -400,7 +412,7 @@ def choose_best_cmd(scan, prev_w, cmd_v):
 
     for w in W_CANDIDATES:
         score, clearance, side_clearance, body_clearance, candidate_theta = (
-            evaluate_candidate(cmd_v, w, points, prev_w, fdist, in_squeeze, recovery_sign)
+            evaluate_candidate(cmd_v, w, points, prev_w, fdist, in_squeeze, recovery_sign, predict_time)
         )
         collision = clearance < COLLISION_DIST
         if not collision:
@@ -437,7 +449,7 @@ def choose_best_cmd(scan, prev_w, cmd_v):
     if all_collision:
         best_w = best_clear_w
         best_score, best_clearance, best_side_clearance, best_body_clearance, best_theta = (
-            evaluate_candidate(cmd_v, best_w, points, prev_w, fdist, in_squeeze, recovery_sign)
+            evaluate_candidate(cmd_v, best_w, points, prev_w, fdist, in_squeeze, recovery_sign, predict_time)
         )
 
     raw_best_w = best_w
@@ -459,7 +471,7 @@ def choose_best_cmd(scan, prev_w, cmd_v):
 
 
 def main():
-    global robot_x, robot_y, robot_theta
+    global robot_x, robot_y, robot_theta, prev_in_squeeze
     lidar = RPLidarC1(LIDAR_PORT, LIDAR_BAUD)
     ardu  = serial.Serial(ARDU_PORT, ARDU_BAUD, timeout=0.1)
     print("[INFO] Warming up for 2 seconds..."); time.sleep(2.0)
@@ -481,6 +493,7 @@ def main():
     robot_x = 0.0
     robot_y = 0.0
     robot_theta = 0.0
+    prev_in_squeeze = False
     last_scan_ok = 0.0
     last_v, last_w = BASE_V, 0.0
     last_log = 0.0
