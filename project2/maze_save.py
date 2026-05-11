@@ -411,7 +411,8 @@ def evaluate_candidate(v, w, points, prev_w, front_dist, left_avg, right_avg, le
 
     # 전방이 막혔을 때, 좌우 중 더 열린 방향으로 회전하도록 보상/페널티
     asym = (left_avg - right_avg) / (left_avg + right_avg + 1e-6)
-    if front_factor >= ASYMMETRY_GATE:
+    side_avg_valid = (left_avg < SIDE_CAP_M) and (right_avg < SIDE_CAP_M)
+    if side_avg_valid and front_factor >= ASYMMETRY_GATE:
         # 왼쪽이 더 멀리 비어 있으면 양수, 오른쪽이 더 멀리 비어있으면 음수
         if w > 1e-6: # 왼쪽이 더 열려있는 경우
             score += front_factor * asymmetry_weight * asym * min(abs(w) / max_abs_w, 1.0) # -3 ~ 3
@@ -586,9 +587,10 @@ def choose_best_cmd(scan, prev_w, cmd_v):
                 clear_score -= 0.7 * closeness
         # fallback의 clear_score에도 비대칭 정보 반영
         # all_collision 상황에서 좌/우 평균 거리 차이로 회전 방향 유도
-        if w > 1e-6:
+        side_avg_valid = (left_avg < SIDE_CAP_M) and (right_avg < SIDE_CAP_M)
+        if side_avg_valid and w > 1e-6:
             clear_score += 0.5 * asymmetry_weight * asym * min(abs(w) / max_abs_w_local, 1.0)
-        elif w < -1e-6:
+        elif side_avg_valid and w < -1e-6:
             clear_score += 0.5 * asymmetry_weight * (-asym) * min(abs(w) / max_abs_w_local, 1.0)
         # fallback에서도 평균 거리가 비슷할 때 점 개수 페널티 적용
         if abs(asym) < ASYM_DEADZONE and total_count >= COUNT_PENALTY_MIN_POINTS:
