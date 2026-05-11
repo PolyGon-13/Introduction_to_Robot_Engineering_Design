@@ -19,7 +19,7 @@ LIDAR_ANGLE_SIGN = -1.0
 # 좌표계: +각도/+y = 좌측, -각도/-y = 우측
 
 # 라이다 전처리 파라미터
-MIN_LIDAR_DIST_M = 0.15
+MIN_LIDAR_DIST_M = 0.05
 MAX_LIDAR_DIST_M = 2.5
 MIN_QUALITY = 1
 MIN_X_FOR_PLANNING = -0.10
@@ -39,17 +39,11 @@ SAFETY_MARGIN = 0.16 # 안전 여유
 COLLISION_DIST = ROBOT_RADIUS + SAFETY_MARGIN # 충돌 판정 거리
 CLEARANCE_CAP = 1.0
 FRONT_CORRIDOR_HALF = COLLISION_DIST + 0.30 # 정면 통로 반폭
-ACTIVE_FRONT_DIST = 0.60 # 정면 위험 판정 거리
+ACTIVE_FRONT_DIST = 0.30 # 정면 위험 판정 거리
 SIDE_NEAR_DIST = COLLISION_DIST + 0.20 # 측면 근접 경고 거리
 W_CMD_RATE_LIMIT = 0.30
 W_CMD_RATE_LIMIT_URGENT = 0.40
 URGENT_FRONT_DIST = 0.30 # 위급 모드 진입 거리
-
-# 좌/우 비대칭 보상 파라미터 (정면 30°~60° 섹터의 평균 거리 차이로 회전 방향 유도)
-SIDE_SECTOR_MIN_DEG = 30.0 # 섹터 시작 각도 (정면 30° 제외)
-SIDE_SECTOR_MAX_DEG = 60.0 # 섹터 끝 각도
-SIDE_CAP_M = 1.5 # 먼 점이 평균을 왜곡하는 것 방지 (캡)
-ASYMMETRY_GATE = 0.3 # front_factor가 이 값 이상일 때만 비대칭 보상 활성화
 
 GOAL_X_M = 3.0
 GOAL_Y_M = 0.0
@@ -68,11 +62,10 @@ side_clearance_weight = 0.6
 side_near_weight = 8.0
 side_collision_weight = 18.0
 forward_weight = 1.0
-far_forward_weight = 1.5
+far_forward_weight = 2.2
 turn_weight = 0.25
-far_turn_weight = 0.3
+far_turn_weight = 0.55
 smooth_weight = 0.5
-asymmetry_weight = 1.5 # 좌/우 비대칭 보상의 강도
 
 robot_x = 0.0
 robot_y = 0.0
@@ -262,30 +255,6 @@ def front_distance(points):
     return float(np.min(points[mask, 0])) 
 
 
-# 좌/우 섹터의 평균 거리 계산 (정면 30°~60° 영역)
-# 좌측이 더 열려있으면 left_avg > right_avg, 비대칭(asym)이 양수 → 좌회전(w>0) 보상
-def compute_side_averages(points):
-    if len(points) == 0:
-        return SIDE_CAP_M, SIDE_CAP_M # 점이 없으면 양쪽 모두 캡값으로 간주
-
-    # 각 점의 극좌표 표현 (거리와 각도)
-    dist = np.sqrt(points[:, 0] ** 2 + points[:, 1] ** 2)
-    angle_deg = np.degrees(np.arctan2(points[:, 1], points[:, 0])) # +y(좌측) → +각도
-
-    # 각 점에 대해 거리를 캡으로 클리핑 (먼 점 하나가 평균 왜곡 방지)
-    dist_capped = np.minimum(dist, SIDE_CAP_M)
-
-    # 좌측 섹터: +30° ~ +60°
-    left_mask = (angle_deg >= SIDE_SECTOR_MIN_DEG) & (angle_deg <= SIDE_SECTOR_MAX_DEG)
-    # 우측 섹터: -60° ~ -30°
-    right_mask = (angle_deg <= -SIDE_SECTOR_MIN_DEG) & (angle_deg >= -SIDE_SECTOR_MAX_DEG)
-
-    left_avg = float(np.mean(dist_capped[left_mask])) if left_mask.any() else SIDE_CAP_M
-    right_avg = float(np.mean(dist_capped[right_mask])) if right_mask.any() else SIDE_CAP_M
-
-    return left_avg, right_avg
-
-
 # 경로를 따라가면 미래 스텝 동안 장애물에 얼마나 가까이 지나가는지 계산
 # points : (N,2) -> 라이다가 측정한 장애물 위치
 # traj : (steps,3) -> 미래 경로의 가상 위치들
@@ -333,7 +302,7 @@ def trajectory_clearances(traj, points):
 
 
 # (v,w)에 대해 cost항으로 점수 계산
-def evaluate_candidate(v, w, points, prev_w, front_dist, left_avg, right_avg):
+def evaluate_candidate(v, w, points, prev_w, front_dist):
     traj = predict_trajectory(v, w) # 후보 경로
     front_clearance, side_clearance, body_clearance = trajectory_clearances(traj, points) # 정면/측면/전체 최단 거리
 
@@ -351,20 +320,9 @@ def evaluate_candidate(v, w, points, prev_w, front_dist, left_avg, right_avg):
         score -= side_collision_weight * (COLLISION_DIST - side_clearance + 1.0)
     elif side_clearance < SIDE_NEAR_DIST:
         score -= side_near_weight * (SIDE_NEAR_DIST - side_clearance)
-    score += forward_w * (1.0 - (abs(w) / max_abs_w) ** 2)
+    score += forward_w * (1.0 - abs(w) / max_abs_w)
     score -= turn_w * abs(w)
     score -= smooth_weight * abs(w - prev_w)
-
-    # 좌/우 비대칭 보상 (전방이 어느 정도 막혔을 때만 활성화)
-    # asym ∈ [-1, +1] : +1이면 좌측이 완전히 열림, -1이면 우측이 완전히 열림
-    # np.sign(w)와 부호가 일치할 때만 보상 (열린 쪽으로 회전 시 +, 막힌 쪽으로 회전 시 -)
-    if front_factor >= ASYMMETRY_GATE:
-        asym = (left_avg - right_avg) / (left_avg + right_avg + 1e-6)
-        if w > 1e-6:
-            score += front_factor * asymmetry_weight * asym * min(abs(w) / max_abs_w, 1.0)
-        elif w < -1e-6:
-            score += front_factor * asymmetry_weight * (-asym) * min(abs(w) / max_abs_w, 1.0)
-        # w == 0인 경우 비대칭 보상 없음 (직진은 좌우 정보와 무관)
 
     local_x = float(traj[-1, 0])
     local_y = float(traj[-1, 1])
@@ -414,14 +372,9 @@ def choose_best_cmd(scan, prev_w, cmd_v):
             "cth": robot_theta,
             "left": 1.0,
             "right": 1.0,
-            "l_avg": SIDE_CAP_M,
-            "r_avg": SIDE_CAP_M,
         }
 
     fdist = front_distance(points)
-
-    # 좌/우 섹터 평균 거리 (모든 후보 평가에 공통으로 사용되므로 한 번만 계산)
-    left_avg, right_avg = compute_side_averages(points)
 
     info_left = 1.0
     info_right = 1.0
@@ -449,7 +402,7 @@ def choose_best_cmd(scan, prev_w, cmd_v):
 
     for w in W_CANDIDATES:
         score, clearance, side_clearance, body_clearance, candidate_theta = (
-            evaluate_candidate(cmd_v, w, points, prev_w, fdist, left_avg, right_avg)
+            evaluate_candidate(cmd_v, w, points, prev_w, fdist)
         )
         collision = clearance < COLLISION_DIST
         if not collision:
@@ -486,7 +439,7 @@ def choose_best_cmd(scan, prev_w, cmd_v):
     if all_collision:
         best_w = best_clear_w
         best_score, best_clearance, best_side_clearance, best_body_clearance, best_theta = (
-            evaluate_candidate(cmd_v, best_w, points, prev_w, fdist, left_avg, right_avg)
+            evaluate_candidate(cmd_v, best_w, points, prev_w, fdist)
         )
 
     raw_best_w = best_w
@@ -503,8 +456,6 @@ def choose_best_cmd(scan, prev_w, cmd_v):
         "cth": best_theta,
         "left": info_left,
         "right": info_right,
-        "l_avg": left_avg,
-        "r_avg": right_avg,
     }
 
 
@@ -582,8 +533,7 @@ def main():
                     f"side={info['side']:.2f} body={info['body']:.2f} "
                     f"score={info['score']:.2f} pts={info['points']} "
                     f"coll={int(info['collision'])} cth={info['cth']:.2f} "
-                    f"L={info.get('left',-1):.2f} R={info.get('right',-1):.2f} "
-                    f"lAvg={info.get('l_avg',-1):.2f} rAvg={info.get('r_avg',-1):.2f}")
+                    f"L={info.get('left',-1):.2f} R={info.get('right',-1):.2f}")
                 last_log = time.time()
 
             time.sleep(LOOP_DT_S)
