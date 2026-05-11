@@ -406,16 +406,23 @@ def evaluate_candidate(v, w, points, prev_w, front_dist, left_avg, right_avg, le
 
     turn_side_limit = COLLISION_DIST + 0.1
     turn_side_scale = min(abs(w) / max_abs_w, 1.0)
+    turn_side_active = False
     if w > 1e-6:
         if left_side_clearance < turn_side_limit:
+            turn_side_active = True
             score -= side_near_weight * (turn_side_limit - left_side_clearance) * turn_side_scale
         if right_side_clearance < turn_side_limit:
+            turn_side_active = True
             score += side_near_weight * (turn_side_limit - right_side_clearance) * turn_side_scale
     elif w < -1e-6:
         if right_side_clearance < turn_side_limit:
+            turn_side_active = True
             score -= side_near_weight * (turn_side_limit - right_side_clearance) * turn_side_scale
         if left_side_clearance < turn_side_limit:
+            turn_side_active = True
             score += side_near_weight * (turn_side_limit - left_side_clearance) * turn_side_scale
+    if turn_side_active and abs(w) >= max_abs_w - 1e-6:
+        score -= side_collision_weight
     
     # 직진에 가까운 후보일수록 보상
     # max_abs_w는 W_CANDIDATES 리스트의 최댓값
