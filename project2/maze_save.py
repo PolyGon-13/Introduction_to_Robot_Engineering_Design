@@ -394,17 +394,6 @@ def evaluate_candidate(v, w, points, prev_w, front_dist, left_avg, right_avg):
     # 회전 명령에서 너무 갑자기 회전하는 후보 페널티
     score -= smooth_weight * abs(w - prev_w) # -0.9 ~ 0
 
-    # 전방이 막혔을 때, 좌우 중 더 열린 방향으로 회전하도록 보상/페널티
-    if front_factor >= ASYMMETRY_GATE:
-        # 왼쪽이 더 멀리 비어 있으면 양수, 오른쪽이 더 멀리 비어있으면 음수
-        asym = (left_avg - right_avg) / (left_avg + right_avg + 1e-6)
-
-        if w > 1e-6: # 왼쪽이 더 열려있는 경우
-            score += front_factor * asymmetry_weight * asym * min(abs(w) / max_abs_w, 1.0) # -3 ~ 3
-        elif w < -1e-6:
-            score += front_factor * asymmetry_weight * (-asym) * min(abs(w) / max_abs_w, 1.0) # -3 ~ 3
-
-
     # w로 움직였을 때 최종 위치/방향이 목표점 기준으로 얼마나 좋은지 평가하기 위한 값 계산
     # predict_trajectory로 만든 예측 경로 (PREDICT_TIME초 움직인 뒤의 예상 위치/각도)
     local_x = float(traj[-1, 0])
@@ -500,8 +489,6 @@ def choose_best_cmd(scan, prev_w, cmd_v):
 
     # 좌/우 섹터 평균 거리 (모든 후보 평가에 공통으로 사용되므로 한 번만 계산)
     left_avg, right_avg = compute_side_averages(points)
-    # fallback에서 사용할 비대칭 값 (전방이 막혔을 때 좌/우 선택에 사용)
-    asym = (left_avg - right_avg) / (left_avg + right_avg + 1e-6)
 
     info_left = 1.0
     info_right = 1.0
@@ -553,12 +540,6 @@ def choose_best_cmd(scan, prev_w, cmd_v):
             if nearest < near_thresh:
                 closeness = (near_thresh - nearest) / near_thresh
                 clear_score -= 0.7 * closeness
-        # fallback의 clear_score에도 비대칭 정보 반영
-        # all_collision 상황에서 좌/우 평균 거리 차이로 회전 방향 유도
-        if w > 1e-6:
-            clear_score += 0.5 * asymmetry_weight * asym * min(abs(w) / max_abs_w_local, 1.0)
-        elif w < -1e-6:
-            clear_score += 0.5 * asymmetry_weight * (-asym) * min(abs(w) / max_abs_w_local, 1.0)
         if clear_score > best_clear_score:
             best_clear_score = clear_score
             best_clear_w = w
