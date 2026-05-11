@@ -32,12 +32,12 @@ BASE_V = 0.18
 W_CANDIDATES = [-0.90, -0.70, -0.50, -0.35, -0.20, -0.10, 0.0,
                 0.10, 0.20, 0.35, 0.50, 0.70, 0.90]
 
-PREDICT_TIME = 1.80
+PREDICT_TIME = 1.70
 PREDICT_DT = 0.10
 ROBOT_RADIUS = 0.16 # 로봇 반경
 COLLISION_DIST = ROBOT_RADIUS + 0.05 # 충돌 판정 거리 (이 이상 장애물과 가까워지는 것 막음)
 CLEARANCE_CAP = 0.6
-FRONT_CORRIDOR_HALF = COLLISION_DIST - 0.06 # 정면으로 간주할 y축 거리
+FRONT_CORRIDOR_HALF = COLLISION_DIST - 0.09 # 정면으로 간주할 y축 거리
 ACTIVE_FRONT_DIST = 0.30 # 정면 위험 판정 거리
 FRONT_DANGER_DIST = 0.19
 
