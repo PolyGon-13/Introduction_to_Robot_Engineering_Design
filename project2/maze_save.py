@@ -66,6 +66,7 @@ far_forward_weight = 2.2
 turn_weight = 0.25
 far_turn_weight = 0.55
 smooth_weight = 0.5
+front_approach_weight = 5.0
 
 robot_x = 0.0
 robot_y = 0.0
@@ -323,6 +324,8 @@ def evaluate_candidate(v, w, points, prev_w, front_dist):
     score += forward_w * (1.0 - abs(w) / max_abs_w)
     score -= turn_w * abs(w)
     score -= smooth_weight * abs(w - prev_w)
+    if front_clearance < ACTIVE_FRONT_DIST:
+        score -= front_approach_weight * (ACTIVE_FRONT_DIST - front_clearance)
 
     local_x = float(traj[-1, 0])
     local_y = float(traj[-1, 1])
