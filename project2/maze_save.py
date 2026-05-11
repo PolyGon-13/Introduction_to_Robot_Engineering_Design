@@ -395,35 +395,75 @@ def evaluate_candidate(v, w, points, prev_w, front_dist, left_avg, right_avg):
 
     # 전방이 막혔을 때, 좌우 중 더 열린 방향으로 회전하도록 보상/페널티
     if front_factor >= ASYMMETRY_GATE:
+        # 왼쪽이 더 멀리 비어 있으면 양수, 오른쪽이 더 멀리 비어있으면 음수
         asym = (left_avg - right_avg) / (left_avg + right_avg + 1e-6)
-        if w > 1e-6:
-            score += front_factor * asymmetry_weight * asym * min(abs(w) / max_abs_w, 1.0)
-        elif w < -1e-6:
-            score += front_factor * asymmetry_weight * (-asym) * min(abs(w) / max_abs_w, 1.0)
 
+        if w > 1e-6: # 왼쪽이 더 열려있는 경우
+            score += front_factor * asymmetry_weight * asym * min(abs(w) / max_abs_w, 1.0) # -3 ~ 3
+        elif w < -1e-6:
+            score += front_factor * asymmetry_weight * (-asym) * min(abs(w) / max_abs_w, 1.0) # -3 ~ 3
+
+
+    # w로 움직였을 때 최종 위치/방향이 목표점 기준으로 얼마나 좋은지 평가하기 위한 값 계산
+    # predict_trajectory로 만든 예측 경로 (PREDICT_TIME초 움직인 뒤의 예상 위치/각도)
     local_x = float(traj[-1, 0])
     local_y = float(traj[-1, 1])
     local_theta = float(traj[-1, 2])
+
+    # 로봇 기준 좌표를 전역 좌표계 위치로 변환
     candidate_x, candidate_y = transform_local_to_global(local_x, local_y)
+
+    # 후보 경로의 최종 방향을 전역 방향으로 변환
     candidate_theta = normalize_angle_rad(robot_theta + local_theta)
+
+    # 후보 실행 후 위치/방향에서 봤을 때, 목표점을 향하려면 얼마나 방향 오차가 있는지 계산
     heading_err = goal_heading_error_from_pose(candidate_x, candidate_y, candidate_theta)
+
+    # 후보 실행 후 y위치가 목표 경로 y에서 얼마나 벗어났는지 계산
     lateral_err = candidate_y - GOAL_Y_M
+
+    # 현재 로봇 위치에서 목표점까지의 거리
     current_goal_dist = goal_distance()
+
+    # 후보 실행 후 예상 위치에서 목표점까지의 거리
     candidate_goal_dist = math.hypot(GOAL_X_M - candidate_x, GOAL_Y_M - candidate_y)
+
+    # 목표점에 얼마나 가까워지는지 계산
     goal_progress = current_goal_dist - candidate_goal_dist
+
+    # 목표점 추종을 얼마나 강하게 반영할지 결정
+    # 전방이 안전하면 강하게 추종, 위험하면 거의 무시
     goal_factor = 1.0 - front_factor
+
+    # 후보 실행 후 로봇 방향이 기준 방향에서 얼마나 틀어졌는지 절댓값으로 확인
     theta_abs = abs(candidate_theta)
+
+    # 부드러운 회전 제한을 얼마나 초과했는지 계산 (TURN_SOFT_LIMIT_RAD만큼은 OK)
     theta_excess = max(0.0, theta_abs - TURN_SOFT_LIMIT_RAD)
+
+    # 현재 방향보다 후보 실행 후 방향이 얼마나 더 켜졌는지 계산
+    # 현재 A도, 후보 실행 후 B도면 A-B, 만약 0보다 작다면(기준선에서 멀어지는 방향의 회전이 아니라면), 0으로 설정
     theta_growth = max(0.0, theta_abs - abs(robot_theta))
 
-    score += goal_factor * GOAL_DISTANCE_WEIGHT * goal_progress
-    score -= goal_factor * GOAL_HEADING_WEIGHT * abs(heading_err)
-    score -= goal_factor * GOAL_LATERAL_WEIGHT * abs(lateral_err)
-    score -= TURN_LIMIT_WEIGHT * theta_excess * theta_excess
+    # 후보 경로가 목표점에 가까워지면 보상, 멀어지면 페널티
+    score += goal_factor * GOAL_DISTANCE_WEIGHT * goal_progress # -0.086 ~ 0.086
+
+    # 후보 경로의 최종방향이 목표점을 잘 바라보지 못하면 페널티
+    score -= goal_factor * GOAL_HEADING_WEIGHT * abs(heading_err) # -3.14 ~ 0
+
+    # 후보 경로의 최종 위치가 목표 중심선에서 벗어나면 페널티
+    score -= goal_factor * GOAL_LATERAL_WEIGHT * abs(lateral_err) # -1.2 ~ 0
+
+    # 후보 실행 후 로봇의 방향이 너무 많이 틀어졌을 때 페널티
+    score -= TURN_LIMIT_WEIGHT * theta_excess * theta_excess # -103.2 ~ 0
+
+    # 로봇 방향이 너무 틀어지는 것 방지 페널티
+    # TURN_SOFT_LIMIT_RAD 초과 틀어지면 페널티
     if abs(robot_theta) > TURN_SOFT_LIMIT_RAD:
-        score -= TURN_GROWTH_WEIGHT * theta_growth
+        score -= TURN_GROWTH_WEIGHT * theta_growth # -23 ~ 0
+    # TURN_HARD_LIMIT_RAD 초과 틀어지면 "강한" 페널티
     if theta_abs > TURN_HARD_LIMIT_RAD:
-        score -= collision_weight * (theta_abs - TURN_HARD_LIMIT_RAD + 1.0)
+        score -= collision_weight * (theta_abs - TURN_HARD_LIMIT_RAD + 1.0) # -260.6 ~ -100
 
     return score, front_clearance, side_clearance, body_clearance, candidate_theta
 
