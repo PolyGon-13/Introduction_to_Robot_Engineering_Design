@@ -37,29 +37,30 @@ W_CANDIDATES = [-0.90, -0.70, -0.50, -0.35, -0.20, -0.10, 0.0,
 PREDICT_TIME = 1.50
 PREDICT_DT = 0.10
 
-ROBOT_RADIUS = 0.16        # 로봇 반경
-SAFETY_MARGIN = 0.14       # 안전 여유
-COLLISION_DIST = ROBOT_RADIUS + SAFETY_MARGIN  # 충돌 판정 거리
+ROBOT_RADIUS = 0.16
+SAFETY_MARGIN = 0.14
+COLLISION_DIST = ROBOT_RADIUS + SAFETY_MARGIN
 
 CLEARANCE_CAP = 1.0
 
-# 기존: COLLISION_DIST + 0.30
-# 너무 넓으면 좌우 장애물도 정면 위험으로 과대판단함
+# 기존보다 정면 판정 폭을 줄여서 좌우 장애물을 정면 장애물로 과대판단하지 않게 함
 FRONT_CORRIDOR_HALF = COLLISION_DIST + 0.12
 
-# 기존 0.30은 COLLISION_DIST와 거의 같아서 반응이 늦을 수 있음
+# 기존 0.30은 COLLISION_DIST와 거의 같아서 반응이 늦을 수 있어 확장
 ACTIVE_FRONT_DIST = 0.45
 
 SIDE_NEAR_DIST = COLLISION_DIST + 0.20
 
-# 일반 상황에서는 부드럽게, 위급 상황에서는 반대 방향으로 빠르게 전환
+# 일반 회전 변화 제한
 W_CMD_RATE_LIMIT = 0.30
-W_CMD_RATE_LIMIT_URGENT = 1.0
+
+# 긴급 회전 변화 제한
+# 1.50은 너무 커서 좌우 요동 발생 가능 → 0.65로 완화
+W_CMD_RATE_LIMIT_URGENT = 0.65
 
 URGENT_FRONT_DIST = 0.35
 
 # 좌우 장애물 조기 감지용 파라미터
-# 기존에는 |x| < 0.15만 봐서 앞쪽 좌우 장애물을 늦게 잡았음
 SIDE_LOOK_X_BACK = -0.05
 SIDE_LOOK_X_FRONT = 0.45
 SIDE_LOOK_Y = 0.40
@@ -67,7 +68,7 @@ SIDE_LOOK_Y = 0.40
 # 좌우 장애물이 이 거리 안에 있으면 회피 방향 판단에 강하게 반영
 SIDE_AVOID_DIST = 0.22
 
-# 이 거리보다 가까우면 해당 장애물 반대 방향 회전을 강제적으로 선호
+# 이 거리보다 가까우면 해당 장애물 반대 방향 회전을 강하게 선호
 SIDE_HARD_DIST = 0.16
 
 # 좌우 장애물 쪽으로 도는 후보 감점 강도
@@ -131,6 +132,7 @@ class RPLidarC1:
         while self.running:
             try:
                 data = self.ser.read(5)
+
                 if len(data) != 5:
                     continue
 
@@ -154,6 +156,7 @@ class RPLidarC1:
                             np.array(buf_d, dtype=np.float32),
                             np.array(buf_q, dtype=np.float32)
                         )
+
                     buf_a, buf_d, buf_q = [], [], []
 
                 if dist > 0 and quality > 0:
@@ -164,6 +167,7 @@ class RPLidarC1:
             except (serial.SerialException, OSError) as e:
                 print(f"[LIDAR] Serial Error: {e}, retrying in 1 second...")
                 time.sleep(1.0)
+
                 try:
                     self.ser.reset_input_buffer()
                 except:
@@ -175,10 +179,12 @@ class RPLidarC1:
 
     def close(self):
         self.running = False
+
         try:
             self.ser.write(bytes([0xA5, 0x25]))
         except:
             pass
+
         time.sleep(0.1)
         self.ser.close()
 
@@ -210,6 +216,7 @@ def goal_distance():
 def goal_heading_error_from_pose(x, y, theta):
     dx = GOAL_X_M - x
     dy = GOAL_Y_M - y
+
     target_heading = math.atan2(dy, dx)
     return normalize_angle_rad(target_heading - theta)
 
@@ -217,6 +224,7 @@ def goal_heading_error_from_pose(x, y, theta):
 def transform_local_to_global(local_x, local_y):
     gx = robot_x + (local_x * math.cos(robot_theta) - local_y * math.sin(robot_theta))
     gy = robot_y + (local_x * math.sin(robot_theta) + local_y * math.cos(robot_theta))
+
     return gx, gy
 
 
@@ -293,8 +301,7 @@ def front_distance(points):
 def side_distances(points):
     """
     좌우 가까운 장애물 거리 계산.
-    기존 코드는 |x| < 0.15만 봐서 로봇 바로 옆 장애물만 감지했음.
-    수정 후에는 로봇 앞쪽 좌우 장애물까지 미리 감지함.
+    기존보다 앞쪽 좌우 장애물까지 미리 감지하도록 수정.
     """
 
     info_left = 1.0
@@ -375,7 +382,6 @@ def evaluate_candidate(v, w, points, prev_w, front_dist):
 
     max_abs_w = max(abs(wc) for wc in W_CANDIDATES)
 
-    # 전방 위험도 계산
     denom = max(1e-6, ACTIVE_FRONT_DIST - COLLISION_DIST)
     front_factor = float(np.clip((ACTIVE_FRONT_DIST - front_dist) / denom, 0.0, 1.0))
 
@@ -437,9 +443,9 @@ def evaluate_candidate(v, w, points, prev_w, front_dist):
 def apply_side_avoidance_score(score, clear_score, w, info_left, info_right):
     """
     좌우 장애물이 가까울 때 점수 보정.
-    - 왼쪽 장애물이 가까운데 왼쪽으로 돌면 강한 감점
-    - 오른쪽 장애물이 가까운데 오른쪽으로 돌면 강한 감점
-    - 가까운 장애물의 반대 방향으로 돌면 약간 가점
+    - 왼쪽 장애물이 가까운데 왼쪽으로 돌면 감점
+    - 오른쪽 장애물이 가까운데 오른쪽으로 돌면 감점
+    - 가까운 장애물 반대 방향으로 돌면 가점
     """
 
     if info_left < SIDE_AVOID_DIST:
@@ -447,15 +453,12 @@ def apply_side_avoidance_score(score, clear_score, w, info_left, info_right):
         closeness = float(np.clip(closeness, 0.0, 1.0))
 
         if w > 0:
-            # 왼쪽에 장애물이 있는데 왼쪽 회전하면 위험
             score -= SIDE_TURN_INTO_PENALTY * closeness * (1.0 + abs(w))
             clear_score -= 1.2 * closeness * (1.0 + abs(w))
         elif w < 0:
-            # 왼쪽 장애물을 피하려면 오른쪽 회전이 유리
             score += SIDE_TURN_AWAY_BONUS * closeness * abs(w)
             clear_score += 0.4 * closeness * abs(w)
         else:
-            # 가까운데 직진도 약간 위험
             score -= SIDE_STRAIGHT_NEAR_PENALTY * closeness
             clear_score -= 0.5 * closeness
 
@@ -464,15 +467,12 @@ def apply_side_avoidance_score(score, clear_score, w, info_left, info_right):
         closeness = float(np.clip(closeness, 0.0, 1.0))
 
         if w < 0:
-            # 오른쪽에 장애물이 있는데 오른쪽 회전하면 위험
             score -= SIDE_TURN_INTO_PENALTY * closeness * (1.0 + abs(w))
             clear_score -= 1.2 * closeness * (1.0 + abs(w))
         elif w > 0:
-            # 오른쪽 장애물을 피하려면 왼쪽 회전이 유리
             score += SIDE_TURN_AWAY_BONUS * closeness * abs(w)
             clear_score += 0.4 * closeness * abs(w)
         else:
-            # 가까운데 직진도 약간 위험
             score -= SIDE_STRAIGHT_NEAR_PENALTY * closeness
             clear_score -= 0.5 * closeness
 
@@ -545,7 +545,6 @@ def choose_best_cmd(scan, prev_w, cmd_v):
         if abs(robot_theta) > TURN_SOFT_LIMIT_RAD:
             clear_score -= 0.12 * theta_growth
 
-        # 좌우 장애물 회피 점수 보정
         score, clear_score = apply_side_avoidance_score(
             score, clear_score, w, info_left, info_right
         )
@@ -562,7 +561,6 @@ def choose_best_cmd(scan, prev_w, cmd_v):
             best_body_clearance = body_clearance
             best_theta = candidate_theta
 
-    # 모든 후보가 충돌 위험이면 그나마 가장 여유 있는 방향 선택
     if all_collision:
         best_w = best_clear_w
         best_score, best_clearance, best_side_clearance, best_body_clearance, best_theta = (
@@ -570,20 +568,21 @@ def choose_best_cmd(scan, prev_w, cmd_v):
         )
 
     # 좌우 장애물이 매우 가까우면 가까운 쪽 반대 방향을 강하게 선택
-    # 전진 속도는 건드리지 않고 w만 수정
+    # 전진 속도는 그대로 두고 w만 수정
+    # 기존 ±0.70은 너무 강해서 요동 가능 → ±0.55로 완화
     if min(info_left, info_right) < SIDE_HARD_DIST:
         if info_left < info_right:
             # 왼쪽이 더 가까우면 오른쪽 회전
-            best_w = -0.70
+            best_w = -0.55
         elif info_right < info_left:
             # 오른쪽이 더 가까우면 왼쪽 회전
-            best_w = 0.70
+            best_w = 0.55
         else:
             # 양쪽이 비슷하면 현재 회전 방향의 반대쪽으로 틀기
             if prev_w >= 0:
-                best_w = -0.70
+                best_w = -0.55
             else:
-                best_w = 0.70
+                best_w = 0.55
 
         best_score, best_clearance, best_side_clearance, best_body_clearance, best_theta = (
             evaluate_candidate(cmd_v, best_w, points, prev_w, fdist)
@@ -594,7 +593,6 @@ def choose_best_cmd(scan, prev_w, cmd_v):
     side_urgent = (info_left < SIDE_AVOID_DIST) or (info_right < SIDE_AVOID_DIST)
     urgent = (fdist < URGENT_FRONT_DIST) or all_collision or side_urgent
 
-    # 우측 피한 직후 좌측 장애물처럼 반대 방향 급전환이 필요한 경우 빠르게 w 변경
     best_w = rate_limit_w(prev_w, best_w, urgent)
 
     return cmd_v, best_w, {
@@ -707,6 +705,7 @@ def main():
                     f"L={info.get('left', -1):.2f} R={info.get('right', -1):.2f} "
                     f"urgent={int(info.get('urgent', False))}"
                 )
+
                 last_log = time.time()
 
             time.sleep(LOOP_DT_S)
