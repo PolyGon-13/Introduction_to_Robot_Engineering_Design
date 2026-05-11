@@ -49,7 +49,7 @@ URGENT_FRONT_DIST = 0.30  # 위급 모드 진입 거리
 SIDE_SECTOR_MIN_DEG = 20.0  # 섹터 시작 각도 (정면 30° 제외)
 SIDE_SECTOR_MAX_DEG = 90.0  # 섹터 끝 각도
 SIDE_CAP_M = 2.0  # 먼 점이 평균을 왜곡하는 것 방지 (캡)
-ASYMMETRY_GATE = 0.3  # front_factor가 이 값 이상일 때만 비대칭 보상 활성화
+ASYMMETRY_GATE = 0.1  # front_factor가 이 값 이상일 때만 비대칭 보상 활성화
 
 GOAL_X_M = 3.0
 GOAL_Y_M = 0.0
