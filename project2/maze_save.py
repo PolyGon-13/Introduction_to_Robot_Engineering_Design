@@ -49,7 +49,7 @@ URGENT_FRONT_DIST = 0.30 # 위급 모드 진입 거리
 SIDE_SECTOR_MIN_DEG = 45.0 # 섹터 시작 각도 (정면 30° 제외)
 SIDE_SECTOR_MAX_DEG = 90.0 # 섹터 끝 각도
 SIDE_CAP_M = 1.0 # 먼 점이 평균을 왜곡하는 것 방지 (캡)
-ASYMMETRY_GATE = 0.0 # front_factor가 이 값 이상일 때만 비대칭 보상 활성화
+ASYMMETRY_GATE = 0.3 # front_factor가 이 값 이상일 때만 비대칭 보상 활성화
 
 ASYM_DEADZONE = 0.10
 COUNT_PENALTY_MIN_POINTS = 5 # 점 개수 페널티 활성화 최소 총 점 개수
@@ -437,7 +437,7 @@ def evaluate_candidate(v, w, points, prev_w, front_dist, left_avg, right_avg, le
     # 전방이 막혔을 때, 좌우 중 더 열린 방향으로 회전하도록 보상/페널티
     asym = (left_avg - right_avg) / (left_avg + right_avg + 1e-6)
     side_avg_valid = (left_avg < SIDE_CAP_M) and (right_avg < SIDE_CAP_M)
-    if side_avg_valid and front_factor >= ASYMMETRY_GATE:
+    if side_avg_valid and front_factor <= ASYMMETRY_GATE:
         # 왼쪽이 더 멀리 비어 있으면 양수, 오른쪽이 더 멀리 비어있으면 음수
         if w > 1e-6: # 왼쪽이 더 열려있는 경우
             score += front_factor * asymmetry_weight * asym * min(abs(w) / max_abs_w, 1.0) # -3 ~ 3
