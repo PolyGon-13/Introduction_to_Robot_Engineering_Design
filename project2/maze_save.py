@@ -32,7 +32,7 @@ BASE_V = 0.18
 W_CANDIDATES = [-0.90, -0.70, -0.50, -0.35, -0.20, -0.10, 0.0,
                 0.10, 0.20, 0.35, 0.50, 0.70, 0.90]
 
-PREDICT_TIME = 1.20
+PREDICT_TIME = 1.50
 PREDICT_DT = 0.10
 ROBOT_RADIUS = 0.16 # 로봇 반경
 COLLISION_DIST = ROBOT_RADIUS + 0.05 # 충돌 판정 거리 (이 이상 장애물과 가까워지는 것 막음)
@@ -51,10 +51,9 @@ SIDE_SECTOR_MAX_DEG = 90.0 # 섹터 끝 각도
 SIDE_CAP_M = 2.0 # 먼 점이 평균을 왜곡하는 것 방지 (캡)
 ASYMMETRY_GATE = 0.0 # front_factor가 이 값 이상일 때만 비대칭 보상 활성화
 
-# 좌/우 점 개수 기반 페널티 파라미터 (평균 거리가 비슷할 때 활성화)
-ASYM_DEADZONE = 0.10 # 평균거리 비대칭(|asym|)이 이 값 이하일 때 점 개수 페널티 활성화
+ASYM_DEADZONE = 0.10
 COUNT_PENALTY_MIN_POINTS = 5 # 점 개수 페널티 활성화 최소 총 점 개수
-count_penalty_weight = 20.0 # 좌/우 점 개수 기반 페널티 강도
+count_penalty_weight = 5.0 # 좌/우 점 개수 기반 페널티 강도
 
 GOAL_X_M = 3.0
 GOAL_Y_M = 0.0
@@ -420,13 +419,13 @@ def evaluate_candidate(v, w, points, prev_w, front_dist, left_avg, right_avg, le
             score += front_factor * asymmetry_weight * (-asym) * min(abs(w) / max_abs_w, 1.0) # -3 ~ 3
 
     # 좌/우 평균 거리가 비슷할 때 (애매한 상황)
-    total_count = left_count + right_count
+    total_count = left_count + right_count # 좌우 점 개수 총합
+    # 좌우 평균 거리 차이가 작고, 좌우 점이 최소 5개 이상 있을 때만
     if abs(asym) < ASYM_DEADZONE and total_count >= COUNT_PENALTY_MIN_POINTS:
-        count_asym = (left_count - right_count) / total_count
-
-        if w > 1e-6 and count_asym > 0: # 좌측이 막혔는데 좌회전 시도
+        count_asym = (left_count - right_count) / total_count # 좌우 점 개수 비대칭(왼쪽 점이 더 많으면 양수, 오른쪽 점이 더 많으면 음수) : -1.0 ~ 1.0
+        if w > 1e-6 and count_asym > 0: # 왼쪽 점이 더 많은데 좌회전하려는 후보
             score -= count_penalty_weight * count_asym * min(abs(w) / max_abs_w, 1.0) # -5 ~ 0
-        elif w < -1e-6 and count_asym < 0: # 우측이 막혔는데 우회전 시도
+        elif w < -1e-6 and count_asym < 0: # 오른쪽 점이 더 많은데 우회전하려는 후보
             score -= count_penalty_weight * (-count_asym) * min(abs(w) / max_abs_w, 1.0) # -5 ~ 0
 
 
