@@ -38,7 +38,8 @@ ROBOT_RADIUS = 0.16 # 로봇 반경
 COLLISION_DIST = ROBOT_RADIUS + 0.05 # 충돌 판정 거리 (이 이상 장애물과 가까워지는 것 막음)
 CLEARANCE_CAP = 0.6
 FRONT_CORRIDOR_HALF = COLLISION_DIST + 0.08 # 정면으로 간주할 y축 거리
-ACTIVE_FRONT_DIST = 0.60 # 정면 위험 판정 거리
+ACTIVE_FRONT_DIST = 0.30 # 정면 위험 판정 거리
+FRONT_DANGER_DIST = 0.19
 
 W_CMD_RATE_LIMIT = 0.30
 W_CMD_RATE_LIMIT_URGENT = 0.40
@@ -342,8 +343,8 @@ def evaluate_candidate(v, w, points, prev_w, front_dist, left_avg, right_avg):
 
     max_abs_w = max(abs(wc) for wc in W_CANDIDATES)
     # 전방이 얼마나 위험한지를 0~1로 표현 (안전할수록 1에 가까움)
-    # ACTIVE_FRONT_DIST보다 크거나 같으면 0.0, ACTIVE_FRONT_DIST - COLLISION_DIST보다 작으면 1.0
-    front_factor = float(np.clip((ACTIVE_FRONT_DIST - front_dist) / max(1e-6, ACTIVE_FRONT_DIST - COLLISION_DIST), 0.0, 1.0))
+    # ACTIVE_FRONT_DIST보다 크거나 같으면 0.0, FRONT_DANGER_DIST보다 작으면 1.0
+    front_factor = float(np.clip((ACTIVE_FRONT_DIST - front_dist) / max(1e-6, ACTIVE_FRONT_DIST - FRONT_DANGER_DIST), 0.0, 1.0))
 
     # 직진 보상 가중치
     # 전방이 안전할수록(front_factor이 0에 가까워짐) 커짐
@@ -495,7 +496,7 @@ def choose_best_cmd(scan, prev_w, cmd_v):
         }
 
     fdist = front_distance(points)
-    front_factor = float(np.clip((ACTIVE_FRONT_DIST - fdist) / max(1e-6, ACTIVE_FRONT_DIST - COLLISION_DIST), 0.0, 1.0))
+    front_factor = float(np.clip((ACTIVE_FRONT_DIST - fdist) / max(1e-6, ACTIVE_FRONT_DIST - FRONT_DANGER_DIST), 0.0, 1.0))
 
     # 좌/우 섹터 평균 거리 (모든 후보 평가에 공통으로 사용되므로 한 번만 계산)
     left_avg, right_avg = compute_side_averages(points)
