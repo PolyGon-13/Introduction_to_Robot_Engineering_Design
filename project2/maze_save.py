@@ -54,7 +54,7 @@ ASYMMETRY_GATE = 0.0 # front_factor가 이 값 이상일 때만 비대칭 보상
 # 좌/우 점 개수 기반 페널티 파라미터 (평균 거리가 비슷할 때 활성화)
 ASYM_DEADZONE = 0.10 # 평균거리 비대칭(|asym|)이 이 값 이하일 때 점 개수 페널티 활성화
 COUNT_PENALTY_MIN_POINTS = 5 # 점 개수 페널티 활성화 최소 총 점 개수
-count_penalty_weight = 5.0 # 좌/우 점 개수 기반 강한 페널티 강도
+count_penalty_weight = 20.0 # 좌/우 점 개수 기반 페널티 강도
 
 GOAL_X_M = 3.0
 GOAL_Y_M = 0.0
@@ -420,13 +420,8 @@ def evaluate_candidate(v, w, points, prev_w, front_dist, left_avg, right_avg, le
             score += front_factor * asymmetry_weight * (-asym) * min(abs(w) / max_abs_w, 1.0) # -3 ~ 3
 
     # 좌/우 평균 거리가 비슷할 때 (애매한 상황)
-    # 점 개수가 더 많은 쪽으로 회전하는 후보에 강한 페널티
-    # 평균 거리 비교가 정보 부족할 때, 점 분포 밀도로 대체
     total_count = left_count + right_count
     if abs(asym) < ASYM_DEADZONE and total_count >= COUNT_PENALTY_MIN_POINTS:
-        # 좌/우 점 개수의 정규화된 비대칭도 (-1 ~ +1)
-        # count_asym > 0 : 좌측 점이 더 많음 (좌측이 더 막힘)
-        # count_asym < 0 : 우측 점이 더 많음 (우측이 더 막힘)
         count_asym = (left_count - right_count) / total_count
 
         if w > 1e-6 and count_asym > 0: # 좌측이 막혔는데 좌회전 시도
