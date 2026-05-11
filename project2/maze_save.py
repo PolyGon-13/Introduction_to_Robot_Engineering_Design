@@ -310,7 +310,7 @@ def compute_side_counts(points):
 # traj : (steps,3) -> 미래 경로의 가상 위치들
 def trajectory_clearances(traj, points):
     if len(points) == 0:
-        return MAX_LIDAR_DIST_M, MAX_LIDAR_DIST_M, MAX_LIDAR_DIST_M
+        return MAX_LIDAR_DIST_M, MAX_LIDAR_DIST_M, MAX_LIDAR_DIST_M, MAX_LIDAR_DIST_M, MAX_LIDAR_DIST_M
 
     traj_xy = traj[:, :2] # 각 step의 (x,y) : (steps,2)
     theta = traj[:, 2] # 각 step의 헤딩 : (steps, 1)
@@ -345,16 +345,21 @@ def trajectory_clearances(traj, points):
     else:
         side_clear = MAX_LIDAR_DIST_M
 
+    left_side_mask = side_mask & (rel_y > 0.0)
+    right_side_mask = side_mask & (rel_y < 0.0)
+    left_side_clear = float(np.min(dist[left_side_mask])) if left_side_mask.any() else MAX_LIDAR_DIST_M
+    right_side_clear = float(np.min(dist[right_side_mask])) if right_side_mask.any() else MAX_LIDAR_DIST_M
+
     # 전체 위험도 검사
     body_clear = float(np.min(dist))
 
-    return front_clear, side_clear, body_clear
+    return front_clear, side_clear, body_clear, left_side_clear, right_side_clear
 
 
 # (v,w)에 대해 cost항으로 점수 계산
 def evaluate_candidate(v, w, points, prev_w, front_dist, left_avg, right_avg, left_count, right_count):
     traj = predict_trajectory(v, w) # 후보 경로
-    front_clearance, side_clearance, body_clearance = trajectory_clearances(traj, points) # 정면/측면/전체 최단 거리
+    front_clearance, side_clearance, body_clearance, left_side_clearance, right_side_clearance = trajectory_clearances(traj, points) # 정면/측면/전체 최단 거리
 
     max_abs_w = max(abs(wc) for wc in W_CANDIDATES)
     # 전방이 얼마나 위험한지를 0~1로 표현 (안전할수록 1에 가까움)
@@ -398,6 +403,19 @@ def evaluate_candidate(v, w, points, prev_w, front_dist, left_avg, right_avg, le
     # 측면 장애물이 COLLISION_DIST는 아니지만, 너무 가까울 때 주는 "약한" 페널티
     elif side_clearance < (COLLISION_DIST + 0.1):
         score -= side_near_weight * ((COLLISION_DIST + 0.1) - side_clearance) # -0.8 ~ 0
+
+    turn_side_limit = COLLISION_DIST + 0.1
+    turn_side_scale = min(abs(w) / max_abs_w, 1.0)
+    if w > 1e-6:
+        if left_side_clearance < turn_side_limit:
+            score -= side_near_weight * (turn_side_limit - left_side_clearance) * turn_side_scale
+        if right_side_clearance < turn_side_limit:
+            score += side_near_weight * (turn_side_limit - right_side_clearance) * turn_side_scale
+    elif w < -1e-6:
+        if right_side_clearance < turn_side_limit:
+            score -= side_near_weight * (turn_side_limit - right_side_clearance) * turn_side_scale
+        if left_side_clearance < turn_side_limit:
+            score += side_near_weight * (turn_side_limit - left_side_clearance) * turn_side_scale
     
     # 직진에 가까운 후보일수록 보상
     # max_abs_w는 W_CANDIDATES 리스트의 최댓값
