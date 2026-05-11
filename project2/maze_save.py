@@ -35,12 +35,11 @@ W_CANDIDATES = [-0.90, -0.70, -0.50, -0.35, -0.20, -0.10, 0.0,
 PREDICT_TIME = 1.20
 PREDICT_DT = 0.10
 ROBOT_RADIUS = 0.16 # 로봇 반경
-SAFETY_MARGIN = 0.00 # 안전 여유
-COLLISION_DIST = ROBOT_RADIUS + SAFETY_MARGIN # 충돌 판정 거리
-CLEARANCE_CAP = 1.0
-FRONT_CORRIDOR_HALF = COLLISION_DIST + 0.30 # 정면 통로 반폭
+COLLISION_DIST = ROBOT_RADIUS + 0.05 # 충돌 판정 거리 (이 이상 장애물과 가까워지는 것 막음)
+CLEARANCE_CAP = 0.6
+FRONT_CORRIDOR_HALF = COLLISION_DIST + 0.08 # 정면으로 간주할 y축 거리
 ACTIVE_FRONT_DIST = 0.60 # 정면 위험 판정 거리
-SIDE_NEAR_DIST = COLLISION_DIST + 0.20 # 측면 근접 경고 거리
+
 W_CMD_RATE_LIMIT = 0.30
 W_CMD_RATE_LIMIT_URGENT = 0.40
 URGENT_FRONT_DIST = 0.30 # 위급 모드 진입 거리
@@ -63,16 +62,19 @@ TURN_LIMIT_WEIGHT = 28.0
 TURN_GROWTH_WEIGHT = 12.0
 
 clearance_weight = 3.0
-collision_weight = 100.0
 side_clearance_weight = 0.6
-side_near_weight = 8.0
-side_collision_weight = 18.0
+
+collision_weight = 100.0 # 정면 충돌 페널티1 (충돌 직전)
+front_approach_weight = 5.0 # 정면 충돌 페널티2
+
+side_collision_weight = 18.0 # 측면 충돌 페널티1 (충돌 직전)
+side_near_weight = 8.0 # 측면 충돌 페널티2
+
 forward_weight = 1.0
 far_forward_weight = 2.2
 turn_weight = 0.25
 far_turn_weight = 0.55
 smooth_weight = 0.5
-front_approach_weight = 5.0
 asymmetry_weight = 3.0 # 좌/우 비대칭 보상의 강도
 
 robot_x = 0.0
@@ -339,35 +341,65 @@ def evaluate_candidate(v, w, points, prev_w, front_dist, left_avg, right_avg):
     front_clearance, side_clearance, body_clearance = trajectory_clearances(traj, points) # 정면/측면/전체 최단 거리
 
     max_abs_w = max(abs(wc) for wc in W_CANDIDATES)
-    front_factor = float(np.clip((ACTIVE_FRONT_DIST - front_dist) / max(1e-6, ACTIVE_FRONT_DIST - COLLISION_DIST), 0.0, 1.0)) # 전방이 얼마나 위험한지를 0~1로 표현 (안전할수록 1에 가까움)
-    forward_w = forward_weight + (1.0 - front_factor) * far_forward_weight
-    turn_w = turn_weight + (1.0 - front_factor) * far_turn_weight
+    # 전방이 얼마나 위험한지를 0~1로 표현 (안전할수록 1에 가까움)
+    # ACTIVE_FRONT_DIST보다 크거나 같으면 0.0, ACTIVE_FRONT_DIST - COLLISION_DIST보다 작으면 1.0
+    front_factor = float(np.clip((ACTIVE_FRONT_DIST - front_dist) / max(1e-6, ACTIVE_FRONT_DIST - COLLISION_DIST), 0.0, 1.0))
 
+    # 직진 보상 가중치
+    # 전방이 안전할수록(front_factor이 0에 가까워짐) 커짐
+    forward_w = forward_weight + (1.0 - front_factor) * far_forward_weight # 1.0 ~ 3.2
+
+    # 회전 보상 가중치
+    # 전방이 안전할수록(front_factor이 0에 가까워짐) 작아짐
+    turn_w = turn_weight + (1.0 - front_factor) * far_turn_weight # 0.25 ~ 0.80
+
+
+    # 보상 함수 부분
     score = 0.0
-    score += clearance_weight * min(front_clearance, CLEARANCE_CAP)
-    score += side_clearance_weight * min(side_clearance, CLEARANCE_CAP)
-    if front_clearance < COLLISION_DIST:
-        score -= collision_weight * (COLLISION_DIST - front_clearance + 1.0)
-    if side_clearance < COLLISION_DIST:
-        score -= side_collision_weight * (COLLISION_DIST - side_clearance + 1.0)
-    elif side_clearance < SIDE_NEAR_DIST:
-        score -= side_near_weight * (SIDE_NEAR_DIST - side_clearance)
-    score += forward_w * (1.0 - abs(w) / max_abs_w)
-    score -= turn_w * abs(w)
-    score -= smooth_weight * abs(w - prev_w)
-    if front_clearance < ACTIVE_FRONT_DIST:
-        score -= front_approach_weight * (ACTIVE_FRONT_DIST - front_clearance)
 
-    # 좌/우 비대칭 보상 (전방이 어느 정도 막혔을 때만 활성화)
-    # asym ∈ [-1, +1] : +1이면 좌측이 완전히 열림, -1이면 우측이 완전히 열림
-    # w의 부호와 일치할 때만 보상 (열린 쪽으로 회전 시 +, 막힌 쪽으로 회전 시 -)
+    # 예측 경로가 정면 장애물과 얼마나 멀리 떨어져 지나가는지에 대한 보상
+    # 정면 장애물 거리가 CLEARANCE_CAP에 가까워질수록 보상 증가, 넘으면 최댓값 유지
+    # front_clearance : 후보 v,w로 앞으로 PREDICT_TIME 동안 움직인다고 예측했을 때 경로상 정면 장애물과의 최소 거리
+    score += clearance_weight * min(front_clearance, CLEARANCE_CAP) # 0 ~ 1.8
+
+    # 예측 경로가 측면 장애물과의 여유거리가 클수록 보상
+    # 측면 장애물 거리가 CLEARANCE_CAP에 가까워질수록 보상 증가, 넘으면 최댓값 유지
+    # side_clearance : 정면 통로에 들어오지 않은 나머지
+    score += side_clearance_weight * min(side_clearance, CLEARANCE_CAP) # 0 ~ 0.36
+
+    # 정면 충돌 페널티
+    # 정면 장애물이 COLLISION_DIST 안으로 들어오면 "강한" 페널티
+    if front_clearance < COLLISION_DIST:
+        score -= collision_weight * (COLLISION_DIST - front_clearance + 1.0) # -121 ~ 1.8
+    # 정면 장애물이 ACTIVE_FRONT_DIST 안으로 들어오면 페널티
+    elif front_clearance < ACTIVE_FRONT_DIST:
+        score -= front_approach_weight * (ACTIVE_FRONT_DIST - front_clearance) # -3 ~ 0
+
+    # 측면 충돌 페널티
+    # 측면 장애물이 COLLISION_DIST 안으로 들어오면 페널티
+    if side_clearance < COLLISION_DIST:
+        score -= side_collision_weight * (COLLISION_DIST - side_clearance + 1.0) # -21.78 ~ -18.0
+    # 측면 장애물이 COLLISION_DIST는 아니지만, 너무 가까울 때 주는 "약한" 페널티
+    elif side_clearance < (COLLISION_DIST + 0.1):
+        score -= side_near_weight * ((COLLISION_DIST + 0.1) - side_clearance) # -0.8 ~ 0
+    
+    # 직진에 가까운 후보일수록 보상
+    # max_abs_w는 W_CANDIDATES 리스트의 최댓값
+    score += forward_w * (1.0 - abs(w) / max_abs_w) # 0.0 ~ 3.2
+
+    # 회전량이 클수록 페널티
+    score -= turn_w * abs(w) # -0.72 ~ 0
+
+    # 회전 명령에서 너무 갑자기 회전하는 후보 페널티
+    score -= smooth_weight * abs(w - prev_w) # -0.9 ~ 0
+
+    # 전방이 막혔을 때, 좌우 중 더 열린 방향으로 회전하도록 보상/페널티
     if front_factor >= ASYMMETRY_GATE:
         asym = (left_avg - right_avg) / (left_avg + right_avg + 1e-6)
         if w > 1e-6:
             score += front_factor * asymmetry_weight * asym * min(abs(w) / max_abs_w, 1.0)
         elif w < -1e-6:
             score += front_factor * asymmetry_weight * (-asym) * min(abs(w) / max_abs_w, 1.0)
-        # w == 0인 경우 비대칭 보상 없음 (직진은 좌우 정보와 무관)
 
     local_x = float(traj[-1, 0])
     local_y = float(traj[-1, 1])
