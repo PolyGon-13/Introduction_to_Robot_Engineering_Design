@@ -12,7 +12,7 @@ ARDU_PORT  = "/dev/ttyS0"
 ARDU_BAUD  = 9600
 
 # 라이다 캘리브레이션 (확정값)
-ANGLE_OFFSET_DEG = +1.54
+ANGLE_OFFSET_DEG = 0.0#+1.54
 DIST_OFFSET_MM   = 0.0
 LIDAR_ANGLE_SIGN = -1.0
 
