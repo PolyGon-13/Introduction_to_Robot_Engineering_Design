@@ -19,7 +19,7 @@ LIDAR_ANGLE_SIGN = -1.0
 # 좌표계: +각도/+y = 좌측, -각도/-y = 우측
 
 # 라이다 전처리 파라미터
-MIN_LIDAR_DIST_M = 0.05
+MIN_LIDAR_DIST_M = 0.15
 MAX_LIDAR_DIST_M = 2.5
 MIN_QUALITY = 1
 MIN_X_FOR_PLANNING = -0.10
