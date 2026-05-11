@@ -437,7 +437,7 @@ def evaluate_candidate(v, w, points, prev_w, front_dist, left_avg, right_avg, le
     # 전방이 막혔을 때, 좌우 중 더 열린 방향으로 회전하도록 보상/페널티
     asym = (left_avg - right_avg) / (left_avg + right_avg + 1e-6)
     side_avg_valid = (left_avg < SIDE_CAP_M) and (right_avg < SIDE_CAP_M)
-    if side_avg_valid and front_factor <= ASYMMETRY_GATE:
+    if side_avg_valid and front_factor >= ASYMMETRY_GATE:
         # 왼쪽이 더 멀리 비어 있으면 양수, 오른쪽이 더 멀리 비어있으면 음수
         if w > 1e-6: # 왼쪽이 더 열려있는 경우
             score += front_factor * asymmetry_weight * asym * min(abs(w) / max_abs_w, 1.0) # -3 ~ 3
