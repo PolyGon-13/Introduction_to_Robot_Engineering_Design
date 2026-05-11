@@ -32,21 +32,21 @@ BASE_V = 0.18
 W_CANDIDATES = [-0.90, -0.70, -0.50, -0.35, -0.20, -0.10, 0.0,
                 0.10, 0.20, 0.35, 0.50, 0.70, 0.90]
 
-PREDICT_TIME = 1.10
+PREDICT_TIME = 1.50
 PREDICT_DT = 0.10
 ROBOT_RADIUS = 0.16 # 로봇 반경
 COLLISION_DIST = ROBOT_RADIUS + 0.05 # 충돌 판정 거리 (이 이상 장애물과 가까워지는 것 막음)
 CLEARANCE_CAP = 0.6
-FRONT_CORRIDOR_HALF = COLLISION_DIST + 0.08 # 정면으로 간주할 y축 거리
+FRONT_CORRIDOR_HALF = COLLISION_DIST - 0.06 # 정면으로 간주할 y축 거리
 ACTIVE_FRONT_DIST = 0.30 # 정면 위험 판정 거리
 FRONT_DANGER_DIST = 0.19
 
 W_CMD_RATE_LIMIT = 0.30
 W_CMD_RATE_LIMIT_URGENT = 0.40
-URGENT_FRONT_DIST = 0.30 # 위급 모드 진입 거리
+URGENT_FRONT_DIST = 0.00 # 위급 모드 진입 거리
 
 # 좌/우 비대칭 보상 파라미터 (정면 30°~60° 섹터의 평균 거리 차이로 회전 방향 유도)
-SIDE_SECTOR_MIN_DEG = 45.0 # 섹터 시작 각도 (정면 30° 제외)
+SIDE_SECTOR_MIN_DEG = 10.0 # 섹터 시작 각도 (정면 30° 제외)
 SIDE_SECTOR_MAX_DEG = 90.0 # 섹터 끝 각도
 SIDE_CAP_M = 2.0 # 먼 점이 평균을 왜곡하는 것 방지 (캡)
 ASYMMETRY_GATE = 0.3 # front_factor가 이 값 이상일 때만 비대칭 보상 활성화
