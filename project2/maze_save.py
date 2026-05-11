@@ -45,8 +45,8 @@ W_CMD_RATE_LIMIT_URGENT = 0.40
 URGENT_FRONT_DIST = 0.30 # 위급 모드 진입 거리
 
 # 좌/우 비대칭 보상 파라미터 (정면 30°~60° 섹터의 평균 거리 차이로 회전 방향 유도)
-SIDE_SECTOR_MIN_DEG = 10.0 # 섹터 시작 각도 (정면 30° 제외)
-SIDE_SECTOR_MAX_DEG = 60.0 # 섹터 끝 각도
+SIDE_SECTOR_MIN_DEG = 45.0 # 섹터 시작 각도 (정면 30° 제외)
+SIDE_SECTOR_MAX_DEG = 90.0 # 섹터 끝 각도
 SIDE_CAP_M = 2.0 # 먼 점이 평균을 왜곡하는 것 방지 (캡)
 ASYMMETRY_GATE = 0.3 # front_factor가 이 값 이상일 때만 비대칭 보상 활성화
 
@@ -483,6 +483,7 @@ def choose_best_cmd(scan, prev_w, cmd_v):
             "side": MAX_LIDAR_DIST_M,
             "body": MAX_LIDAR_DIST_M,
             "front": MAX_LIDAR_DIST_M,
+            "front_factor": 0.0,
             "points": 0,
             "collision": False,
             "raw_w": 0.0,
@@ -494,6 +495,7 @@ def choose_best_cmd(scan, prev_w, cmd_v):
         }
 
     fdist = front_distance(points)
+    front_factor = float(np.clip((ACTIVE_FRONT_DIST - fdist) / max(1e-6, ACTIVE_FRONT_DIST - COLLISION_DIST), 0.0, 1.0))
 
     # 좌/우 섹터 평균 거리 (모든 후보 평가에 공통으로 사용되므로 한 번만 계산)
     left_avg, right_avg = compute_side_averages(points)
@@ -581,6 +583,7 @@ def choose_best_cmd(scan, prev_w, cmd_v):
         "side": best_side_clearance,
         "body": best_body_clearance,
         "front": fdist,
+        "front_factor": front_factor,
         "points": len(points),
         "collision": best_clearance < COLLISION_DIST,
         "raw_w": raw_best_w,
@@ -662,7 +665,7 @@ def main():
                 print(f"[RUN2] x={robot_x:.2f} y={robot_y:.2f} "
                     f"th={robot_theta:.2f} gd={gd:.2f} he={he:.2f} "
                     f"v={v:.2f} w={w:.2f} raw={info['raw_w']:.2f} "
-                    f"front={info['front']:.2f} clear={info['clear']:.2f} "
+                    f"front={info['front']:.2f} ff={info['front_factor']:.2f} clear={info['clear']:.2f} "
                     f"side={info['side']:.2f} body={info['body']:.2f} "
                     f"score={info['score']:.2f} pts={info['points']} "
                     f"coll={int(info['collision'])} cth={info['cth']:.2f} "
