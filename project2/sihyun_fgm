@@ -62,39 +62,41 @@ FGM_CLEARANCE_WEIGHT = 1.80
 FGM_EDGE_WEIGHT = 0.85
 
 
-# ============================================================
-# 벽과 장애물 사이의 좁은 틈으로 파고드는 것 방지
-# 코드 기준:
-# y > 0 : 왼쪽
-# y < 0 : 오른쪽
-# angle > 0 : 왼쪽 회전 후보
-# angle < 0 : 오른쪽 회전 후보
-# ============================================================
+# =========================
+# SIDE TRAP / POCKET BLOCK
+# 벽과 장애물 사이의 좁은 함정 구간으로 들어가는 것을 방지
+# =========================
+SIDE_TRAP_ENABLE = True
 
-SIDE_BLOCK_X_MIN = 0.05
-SIDE_BLOCK_X_MAX = 1.20
-SIDE_BLOCK_Y_MIN = 0.05
-SIDE_BLOCK_Y_MAX = 0.75
+# 함정이 감지되면 이 각도 이상 방향은 후보에서 제거
+# 좌측 함정이면 +8도 이상 제거, 우측 함정이면 -8도 이하 제거
+SIDE_TRAP_BLOCK_ANGLE_DEG = 8.0
 
-# 이 거리 안쪽에 점이 많이 잡히면 해당 방향이 막힌 것으로 판단
-SIDE_BLOCKED_DIST = 0.45
-SIDE_BLOCK_MIN_POINTS = 4
+# 함정 감지에 사용할 전방 거리 범위
+SIDE_TRAP_X_MIN = 0.10
+SIDE_TRAP_X_MAX = 1.20
 
-# 막힌 쪽 후보 감점
-SIDE_BLOCK_PENALTY = 3.50
+# 좌우 방향에서 장애물/벽을 볼 y 범위
+SIDE_TRAP_Y_MIN = 0.05
+SIDE_TRAP_Y_MAX = 1.20
 
-# 열린 쪽 후보 가점
-OPEN_SIDE_BIAS_WEIGHT = 1.50
+# 장애물로 볼 안쪽 영역
+SIDE_TRAP_INNER_Y_MAX = 0.50
 
-# 벽 옆 좁은 gap 감점
-NARROW_WALL_GAP_MIN_DEG = 22.0
-NARROW_WALL_GAP_PENALTY = 1.40
+# 벽으로 볼 바깥쪽 영역
+SIDE_TRAP_WALL_Y_MIN = 0.45
+SIDE_TRAP_WALL_Y_MAX = 1.20
 
-# 한쪽이 막혔을 때, 열린 쪽으로 최소 이 각도 이상 꺾는 후보만 우선 선택
-FORCE_OPEN_SIDE_MIN_ANGLE_DEG = 18.0
+# 장애물이 앞뒤로 2개 이상 있는지 확인하기 위한 x 분리 기준
+SIDE_TRAP_NEAR_X_MAX = 0.55
+SIDE_TRAP_FAR_X_MIN = 0.45
 
-# 한쪽이 막혔을 때, 열린 쪽으로 최소 이 정도 w는 주도록 강제
-FORCE_OPEN_SIDE_MIN_W = 0.45
+# 최소 점 개수
+SIDE_TRAP_MIN_OBS_POINTS = 4
+SIDE_TRAP_MIN_WALL_POINTS = 8
+
+# 벽은 어느 정도 길게 보여야 벽으로 인정
+SIDE_TRAP_WALL_MIN_X_SPAN = 0.45
 
 
 def normalize_angle_deg(angle):
@@ -290,47 +292,6 @@ def compute_side_info(points):
     return info_left, info_right
 
 
-def compute_forward_side_block(points):
-    """
-    로봇 기준 앞쪽 좌/우 공간이 벽처럼 막혀 있는지 판단한다.
-
-    y > 0 : 왼쪽
-    y < 0 : 오른쪽
-    """
-    left_dist = MAX_LIDAR_DIST_M
-    right_dist = MAX_LIDAR_DIST_M
-
-    if len(points) == 0:
-        return False, False, left_dist, right_dist
-
-    zone = (
-        (points[:, 0] > SIDE_BLOCK_X_MIN)
-        & (points[:, 0] < SIDE_BLOCK_X_MAX)
-        & (np.abs(points[:, 1]) < SIDE_BLOCK_Y_MAX)
-    )
-
-    left_pts = points[zone & (points[:, 1] > SIDE_BLOCK_Y_MIN)]
-    right_pts = points[zone & (points[:, 1] < -SIDE_BLOCK_Y_MIN)]
-
-    if len(left_pts) > 0:
-        left_dist = float(np.min(left_pts[:, 1]))
-
-    if len(right_pts) > 0:
-        right_dist = float(np.min(np.abs(right_pts[:, 1])))
-
-    left_blocked = (
-        len(left_pts) >= SIDE_BLOCK_MIN_POINTS
-        and left_dist < SIDE_BLOCKED_DIST
-    )
-
-    right_blocked = (
-        len(right_pts) >= SIDE_BLOCK_MIN_POINTS
-        and right_dist < SIDE_BLOCKED_DIST
-    )
-
-    return left_blocked, right_blocked, left_dist, right_dist
-
-
 def scan_to_angle_ranges(scan):
     angles_grid = np.arange(
         FGM_MIN_ANGLE_DEG,
@@ -422,16 +383,95 @@ def filter_gaps_by_width(gaps):
     return [(start, end) for start, end in gaps if end - start >= min_bins]
 
 
-def choose_target_from_gaps(
-    angles_deg,
-    ranges,
-    gaps,
-    pose,
-    prev_target_angle,
-    front_factor,
-    left_blocked=False,
-    right_blocked=False,
-):
+def detect_side_trap(points, side_sign):
+    """
+    side_sign = +1 : 좌측 검사
+    side_sign = -1 : 우측 검사
+
+    조건:
+    - 같은 방향에 벽처럼 긴 점들이 있고
+    - 안쪽 장애물이 앞쪽/뒤쪽 두 구간에 나뉘어 있으면
+    - 벽과 장애물 사이의 함정 구간으로 판단
+    """
+    if len(points) == 0:
+        return False
+
+    x = points[:, 0]
+    y = points[:, 1] * side_sign
+
+    roi = (
+        (x >= SIDE_TRAP_X_MIN)
+        & (x <= SIDE_TRAP_X_MAX)
+        & (y >= SIDE_TRAP_Y_MIN)
+        & (y <= SIDE_TRAP_Y_MAX)
+    )
+
+    if not roi.any():
+        return False
+
+    xr = x[roi]
+    yr = y[roi]
+
+    # 안쪽 장애물 영역
+    inner_obs = (
+        (yr >= SIDE_TRAP_Y_MIN)
+        & (yr <= SIDE_TRAP_INNER_Y_MAX)
+    )
+
+    # 가까운 장애물 구간
+    near_obs = inner_obs & (xr <= SIDE_TRAP_NEAR_X_MAX)
+
+    # 먼 장애물 구간
+    far_obs = inner_obs & (xr >= SIDE_TRAP_FAR_X_MIN)
+
+    # 바깥쪽 벽 영역
+    wall = (
+        (yr >= SIDE_TRAP_WALL_Y_MIN)
+        & (yr <= SIDE_TRAP_WALL_Y_MAX)
+    )
+
+    near_count = int(np.count_nonzero(near_obs))
+    far_count = int(np.count_nonzero(far_obs))
+    wall_count = int(np.count_nonzero(wall))
+
+    if wall_count < SIDE_TRAP_MIN_WALL_POINTS:
+        return False
+
+    if near_count < SIDE_TRAP_MIN_OBS_POINTS:
+        return False
+
+    if far_count < SIDE_TRAP_MIN_OBS_POINTS:
+        return False
+
+    wall_x_span = float(np.max(xr[wall]) - np.min(xr[wall]))
+    if wall_x_span < SIDE_TRAP_WALL_MIN_X_SPAN:
+        return False
+
+    return True
+
+
+def apply_side_trap_block(angles_deg, free_mask, left_trap, right_trap):
+    """
+    함정이 감지된 방향의 각도 후보를 제거한다.
+    좌측 함정: +각도 제거
+    우측 함정: -각도 제거
+    """
+    blocked_mask = free_mask.copy()
+
+    if left_trap:
+        blocked_mask[angles_deg >= SIDE_TRAP_BLOCK_ANGLE_DEG] = False
+
+    if right_trap:
+        blocked_mask[angles_deg <= -SIDE_TRAP_BLOCK_ANGLE_DEG] = False
+
+    # 모든 방향이 막혀버리면 완전 정지/멈칫을 막기 위해 기존 free_mask 유지
+    if not blocked_mask.any():
+        return free_mask
+
+    return blocked_mask
+
+
+def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, front_factor):
     if not gaps:
         return -1, (0, 0), -float("inf")
 
@@ -443,8 +483,6 @@ def choose_target_from_gaps(
     best_gap = (0, 0)
     best_score = -float("inf")
     max_target_angle = TURN_HARD_LIMIT_RAD
-    force_angle = math.radians(FORCE_OPEN_SIDE_MIN_ANGLE_DEG)
-
     goal_weight = (
         FGM_GOAL_WEIGHT_SAFE * (1.0 - front_factor)
         + FGM_GOAL_WEIGHT_DANGER * front_factor
@@ -459,95 +497,23 @@ def choose_target_from_gaps(
 
         idxs = idxs[targetable]
         angle_rad = angle_rad[targetable]
-
-        # ============================================================
-        # 중요 수정:
-        # 한쪽이 막혔으면 점수 감점이 아니라,
-        # 막힌 방향 후보를 아예 제거한다.
-        # ============================================================
-
-        if left_blocked and not right_blocked:
-            # 왼쪽이 막힘 → 오른쪽 후보만 남김
-            open_side_mask = angle_rad < -force_angle
-
-            if open_side_mask.any():
-                idxs = idxs[open_side_mask]
-                angle_rad = angle_rad[open_side_mask]
-            else:
-                open_side_mask = angle_rad < 0.0
-                if open_side_mask.any():
-                    idxs = idxs[open_side_mask]
-                    angle_rad = angle_rad[open_side_mask]
-                else:
-                    continue
-
-        elif right_blocked and not left_blocked:
-            # 오른쪽이 막힘 → 왼쪽 후보만 남김
-            open_side_mask = angle_rad > force_angle
-
-            if open_side_mask.any():
-                idxs = idxs[open_side_mask]
-                angle_rad = angle_rad[open_side_mask]
-            else:
-                open_side_mask = angle_rad > 0.0
-                if open_side_mask.any():
-                    idxs = idxs[open_side_mask]
-                    angle_rad = angle_rad[open_side_mask]
-                else:
-                    continue
-
         local_width = max(1, end - start)
 
         edge_steps = np.minimum(idxs - start + 1, end - idxs)
         edge_score = np.clip(edge_steps / max(1.0, local_width * 0.5), 0.0, 1.0)
         clearance_score = np.clip(ranges[idxs] / CLEARANCE_CAP, 0.0, 1.0)
         straight_score = 1.0 - np.clip(np.abs(angle_rad) / max_target_angle, 0.0, 1.0)
-
         goal_score = 1.0 - np.clip(
             np.abs([angle_error_rad(a, goal_angle) for a in angle_rad]) / max_target_angle,
             0.0,
             1.0,
         )
-
         prev_score = 1.0 - np.clip(
             np.abs([angle_error_rad(a, prev_angle) for a in angle_rad]) / max_target_angle,
             0.0,
             1.0,
         )
-
         width_score = min(1.0, local_width * FGM_ANGLE_STEP_DEG / 60.0)
-        gap_width_deg = local_width * FGM_ANGLE_STEP_DEG
-
-        blocked_side_penalty = np.zeros_like(angle_rad, dtype=np.float32)
-        open_side_score = np.zeros_like(angle_rad, dtype=np.float32)
-        narrow_wall_gap_penalty = np.zeros_like(angle_rad, dtype=np.float32)
-
-        if left_blocked and not right_blocked:
-            left_turn = np.clip(angle_rad / max_target_angle, 0.0, 1.0)
-            right_turn = np.clip(-angle_rad / max_target_angle, 0.0, 1.0)
-
-            blocked_side_penalty += left_turn
-            open_side_score += right_turn
-
-            if gap_width_deg < NARROW_WALL_GAP_MIN_DEG:
-                narrow_wall_gap_penalty += left_turn
-
-        elif right_blocked and not left_blocked:
-            right_turn = np.clip(-angle_rad / max_target_angle, 0.0, 1.0)
-            left_turn = np.clip(angle_rad / max_target_angle, 0.0, 1.0)
-
-            blocked_side_penalty += right_turn
-            open_side_score += left_turn
-
-            if gap_width_deg < NARROW_WALL_GAP_MIN_DEG:
-                narrow_wall_gap_penalty += right_turn
-
-        elif left_blocked and right_blocked:
-            blocked_side_penalty += 0.35 * np.clip(
-                np.abs(angle_rad) / max_target_angle,
-                0.0,
-                1.0,
-            )
 
         scores = (
             FGM_CLEARANCE_WEIGHT * clearance_score
@@ -556,9 +522,6 @@ def choose_target_from_gaps(
             + goal_weight * goal_score
             + FGM_PREV_TARGET_WEIGHT * prev_score
             + 0.25 * width_score
-            + OPEN_SIDE_BIAS_WEIGHT * open_side_score
-            - SIDE_BLOCK_PENALTY * blocked_side_penalty
-            - NARROW_WALL_GAP_PENALTY * narrow_wall_gap_penalty
         )
 
         local_best = int(np.argmax(scores))
@@ -571,31 +534,10 @@ def choose_target_from_gaps(
     return best_idx, best_gap, best_score
 
 
-def choose_fallback_target(angles_deg, ranges, left_blocked=False, right_blocked=False):
+def choose_fallback_target(angles_deg, ranges):
     usable = ranges > MIN_LIDAR_DIST_M
-
-    # fallback에서도 막힌 방향으로 가지 않게 제한
-    if left_blocked and not right_blocked:
-        right_strong = angles_deg < -FORCE_OPEN_SIDE_MIN_ANGLE_DEG
-        right_any = angles_deg < 0.0
-
-        if np.any(usable & right_strong):
-            usable = usable & right_strong
-        elif np.any(usable & right_any):
-            usable = usable & right_any
-
-    elif right_blocked and not left_blocked:
-        left_strong = angles_deg > FORCE_OPEN_SIDE_MIN_ANGLE_DEG
-        left_any = angles_deg > 0.0
-
-        if np.any(usable & left_strong):
-            usable = usable & left_strong
-        elif np.any(usable & left_any):
-            usable = usable & left_any
-
     if not usable.any():
         return len(ranges) // 2
-
     usable_ranges = np.where(usable, ranges, -np.inf)
     return int(np.argmax(usable_ranges))
 
@@ -634,8 +576,6 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
     front_factor = compute_front_factor(front_dist)
     info_left, info_right = compute_side_info(points)
 
-    side_left_blocked, side_right_blocked, side_left_front, side_right_front = compute_forward_side_block(points)
-
     angles_deg, raw_ranges, counts = scan_to_angle_ranges(scan)
     smooth_ranges = smooth_ranges_conservative(raw_ranges)
     bubble_ranges, closest_idx, closest_dist, bubble_bins = apply_safety_bubble(
@@ -643,51 +583,37 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
     )
 
     free_mask = bubble_ranges >= FGM_FREE_DIST
+
+    left_trap = False
+    right_trap = False
+
+    if SIDE_TRAP_ENABLE:
+        left_trap = detect_side_trap(points, +1)
+        right_trap = detect_side_trap(points, -1)
+
+        free_mask = apply_side_trap_block(
+            angles_deg,
+            free_mask,
+            left_trap,
+            right_trap
+        )
+
     gaps = filter_gaps_by_width(find_free_gaps(free_mask))
     has_safe_gap = len(gaps) > 0
 
     target_idx, best_gap, best_score = choose_target_from_gaps(
-        angles_deg,
-        bubble_ranges,
-        gaps,
-        pose,
-        prev_target_angle,
-        front_factor,
-        side_left_blocked,
-        side_right_blocked,
+        angles_deg, bubble_ranges, gaps, pose, prev_target_angle, front_factor
     )
 
     if target_idx < 0:
-        target_idx = choose_fallback_target(
-            angles_deg,
-            smooth_ranges,
-            side_left_blocked,
-            side_right_blocked,
-        )
+        target_idx = choose_fallback_target(angles_deg, smooth_ranges)
         best_gap = (target_idx, target_idx + 1)
         best_score = 0.0
 
     target_angle = math.radians(float(angles_deg[target_idx]))
     target_angle = float(np.clip(target_angle, -TURN_HARD_LIMIT_RAD, TURN_HARD_LIMIT_RAD))
     target_dist = float(smooth_ranges[target_idx])
-
     raw_w = float(np.clip(FGM_TURN_GAIN * target_angle, -MAX_ABS_W, MAX_ABS_W))
-
-    # ============================================================
-    # 중요 수정:
-    # 한쪽이 막혔을 때 열린 쪽으로 최소 회전 w를 강제로 준다.
-    # 왼쪽 막힘 → 오른쪽 회전이므로 w 음수
-    # 오른쪽 막힘 → 왼쪽 회전이므로 w 양수
-    # ============================================================
-
-    if side_left_blocked and not side_right_blocked:
-        raw_w = min(raw_w, -FORCE_OPEN_SIDE_MIN_W)
-
-    elif side_right_blocked and not side_left_blocked:
-        raw_w = max(raw_w, FORCE_OPEN_SIDE_MIN_W)
-
-    raw_w = float(np.clip(raw_w, -MAX_ABS_W, MAX_ABS_W))
-
     urgent = front_dist < URGENT_FRONT_DIST or not has_safe_gap
     w = rate_limit_w(prev_w, raw_w, urgent=urgent)
     v = choose_speed(target_dist, target_angle, has_safe_gap)
@@ -705,10 +631,6 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
         "front_factor": front_factor,
         "left": info_left,
         "right": info_right,
-        "left_blocked": side_left_blocked,
-        "right_blocked": side_right_blocked,
-        "left_front": side_left_front,
-        "right_front": side_right_front,
         "points": len(points),
         "gaps": len(gaps),
         "gap_width": gap_width,
@@ -720,6 +642,8 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
         "collision": target_dist < COLLISION_DIST or closest_dist < COLLISION_DIST,
         "raw_w": raw_w,
         "has_safe_gap": has_safe_gap,
+        "left_trap": left_trap,
+        "right_trap": right_trap,
     }
 
 
@@ -801,8 +725,7 @@ def main():
                     f"bb={info['bubble_bins']} score={info['score']:.2f} "
                     f"pts={info['points']} coll={int(info['collision'])} "
                     f"L={info['left']:.2f} R={info['right']:.2f} "
-                    f"LB={int(info['left_blocked'])} RB={int(info['right_blocked'])} "
-                    f"LF={info['left_front']:.2f} RF={info['right_front']:.2f}"
+                    f"LT={int(info['left_trap'])} RT={int(info['right_trap'])}"
                 )
                 last_log = time.time()
 
