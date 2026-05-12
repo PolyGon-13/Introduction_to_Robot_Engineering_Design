@@ -45,16 +45,6 @@ W_CMD_RATE_LIMIT = 0.20
 W_CMD_RATE_LIMIT_URGENT = 0.30
 URGENT_FRONT_DIST = 0.30 # 위급 모드 진입 거리
 
-# 좌/우 비대칭 보상 파라미터 (정면 30°~60° 섹터의 평균 거리 차이로 회전 방향 유도)
-SIDE_SECTOR_MIN_DEG = 45.0 # 섹터 시작 각도 (정면 30° 제외)
-SIDE_SECTOR_MAX_DEG = 90.0 # 섹터 끝 각도
-SIDE_CAP_M = 1.0 # 먼 점이 평균을 왜곡하는 것 방지 (캡)
-ASYMMETRY_GATE = 0.0 # front_factor가 이 값 이상일 때만 비대칭 보상 활성화
-
-ASYM_DEADZONE = 0.10
-COUNT_PENALTY_MIN_POINTS = 5 # 점 개수 페널티 활성화 최소 총 점 개수
-count_penalty_weight = 5.0 # 좌/우 점 개수 기반 페널티 강도
-
 GOAL_X_M = 3.0
 GOAL_Y_M = 0.0
 GOAL_TOL_M = 0.15
@@ -80,7 +70,6 @@ far_forward_weight = 2.2
 turn_weight = 0.25
 far_turn_weight = 0.55
 smooth_weight = 0.5
-asymmetry_weight = 3.0 # 좌/우 비대칭 보상의 강도
 
 robot_x = 0.0
 robot_y = 0.0
@@ -270,41 +259,6 @@ def front_distance(points):
     return float(np.min(points[mask, 0])) 
 
 
-# 좌/우 섹터의 평균 거리 계산 (정면 30°~60° 영역)
-# 좌측이 더 열려있으면 left_avg > right_avg, 비대칭(asym)이 양수 → 좌회전(w>0) 보상
-def compute_side_averages(points):
-    if len(points) == 0:
-        return SIDE_CAP_M, SIDE_CAP_M # 점이 없으면 양쪽 모두 캡값으로 간주
-
-    # 각 점의 극좌표 표현 (거리와 각도)
-    dist = np.sqrt(points[:, 0] ** 2 + points[:, 1] ** 2)
-    angle_deg = np.degrees(np.arctan2(points[:, 1], points[:, 0])) # +y(좌측) → +각도
-
-    # 각 점에 대해 거리를 캡으로 클리핑 (먼 점 하나가 평균 왜곡 방지)
-    dist_capped = np.minimum(dist, SIDE_CAP_M)
-
-    # 좌측 섹터: +30° ~ +60°
-    left_mask = (angle_deg >= SIDE_SECTOR_MIN_DEG) & (angle_deg <= SIDE_SECTOR_MAX_DEG)
-    # 우측 섹터: -60° ~ -30°
-    right_mask = (angle_deg <= -SIDE_SECTOR_MIN_DEG) & (angle_deg >= -SIDE_SECTOR_MAX_DEG)
-
-    left_avg = float(np.mean(dist_capped[left_mask])) if left_mask.any() else SIDE_CAP_M
-    right_avg = float(np.mean(dist_capped[right_mask])) if right_mask.any() else SIDE_CAP_M
-
-    return left_avg, right_avg
-
-
-# 전방 반원(x>0)의 좌/우 점 개수 계산
-# 더 많은 점이 찍힌 쪽은 장애물이 더 많다는 의미
-def compute_side_counts(points):
-    if len(points) == 0:
-        return 0, 0
-    ys = points[:, 1]
-    left_count = int(np.sum(ys > 0)) # 좌측(y>0) 점 개수
-    right_count = int(np.sum(ys < 0)) # 우측(y<0) 점 개수
-    return left_count, right_count
-
-
 # 경로를 따라가면 미래 스텝 동안 장애물에 얼마나 가까이 지나가는지 계산
 # points : (N,2) -> 라이다가 측정한 장애물 위치
 # traj : (steps,3) -> 미래 경로의 가상 위치들
@@ -352,7 +306,7 @@ def trajectory_clearances(traj, points):
 
 
 # (v,w)에 대해 cost항으로 점수 계산
-def evaluate_candidate(v, w, points, prev_w, front_dist, left_avg, right_avg, left_count, right_count):
+def evaluate_candidate(v, w, points, prev_w, front_dist):
     traj = predict_trajectory(v, w) # 후보 경로
     front_clearance, side_clearance, body_clearance = trajectory_clearances(traj, points) # 정면/측면/전체 최단 거리
 
@@ -408,27 +362,6 @@ def evaluate_candidate(v, w, points, prev_w, front_dist, left_avg, right_avg, le
 
     # 회전 명령에서 너무 갑자기 회전하는 후보 페널티
     score -= smooth_weight * abs(w - prev_w) # -0.9 ~ 0
-
-    # 전방이 막혔을 때, 좌우 중 더 열린 방향으로 회전하도록 보상/페널티
-    asym = (left_avg - right_avg) / (left_avg + right_avg + 1e-6)
-    side_avg_valid = (left_avg < SIDE_CAP_M) and (right_avg < SIDE_CAP_M)
-    if side_avg_valid and front_factor >= ASYMMETRY_GATE:
-        # 왼쪽이 더 멀리 비어 있으면 양수, 오른쪽이 더 멀리 비어있으면 음수
-        if w > 1e-6: # 왼쪽이 더 열려있는 경우
-            score += front_factor * asymmetry_weight * asym * min(abs(w) / max_abs_w, 1.0) # -3 ~ 3
-        elif w < -1e-6:
-            score += front_factor * asymmetry_weight * (-asym) * min(abs(w) / max_abs_w, 1.0) # -3 ~ 3
-
-    # 좌/우 평균 거리가 비슷할 때 (애매한 상황)
-    total_count = left_count + right_count # 좌우 점 개수 총합
-    # 좌우 평균 거리 차이가 작고, 좌우 점이 최소 5개 이상 있을 때만
-    if abs(asym) < ASYM_DEADZONE and total_count >= COUNT_PENALTY_MIN_POINTS:
-        count_asym = (left_count - right_count) / total_count # 좌우 점 개수 비대칭(왼쪽 점이 더 많으면 양수, 오른쪽 점이 더 많으면 음수) : -1.0 ~ 1.0
-        if w > 1e-6 and count_asym > 0: # 왼쪽 점이 더 많은데 좌회전하려는 후보
-            score -= count_penalty_weight * count_asym * min(abs(w) / max_abs_w, 1.0) # -5 ~ 0
-        elif w < -1e-6 and count_asym < 0: # 오른쪽 점이 더 많은데 우회전하려는 후보
-            score -= count_penalty_weight * (-count_asym) * min(abs(w) / max_abs_w, 1.0) # -5 ~ 0
-
 
     # w로 움직였을 때 최종 위치/방향이 목표점 기준으로 얼마나 좋은지 평가하기 위한 값 계산
     # predict_trajectory로 만든 예측 경로 (PREDICT_TIME초 움직인 뒤의 예상 위치/각도)
@@ -518,24 +451,10 @@ def choose_best_cmd(scan, prev_w, cmd_v):
             "cth": robot_theta,
             "left": 1.0,
             "right": 1.0,
-            "l_avg": SIDE_CAP_M,
-            "r_avg": SIDE_CAP_M,
-            "l_cnt": 0,
-            "r_cnt": 0,
         }
 
     fdist = front_distance(points)
     front_factor = float(np.clip((ACTIVE_FRONT_DIST - fdist) / max(1e-6, ACTIVE_FRONT_DIST - FRONT_DANGER_DIST), 0.0, 1.0))
-
-    # 좌/우 섹터 평균 거리 (모든 후보 평가에 공통으로 사용되므로 한 번만 계산)
-    left_avg, right_avg = compute_side_averages(points)
-    # 좌/우 전방 점 개수 (평균 거리가 비슷할 때 페널티에 사용)
-    left_count, right_count = compute_side_counts(points)
-    # fallback에서 사용할 비대칭 값 (전방이 막혔을 때 좌/우 선택에 사용)
-    asym = (left_avg - right_avg) / (left_avg + right_avg + 1e-6)
-    # fallback에서 사용할 점 개수 비대칭 값
-    total_count = left_count + right_count
-    count_asym = (left_count - right_count) / total_count if total_count > 0 else 0.0
 
     info_left = 1.0
     info_right = 1.0
@@ -550,7 +469,6 @@ def choose_best_cmd(scan, prev_w, cmd_v):
             info_right = float(-np.max(ry))
 
     near_thresh = 0.14
-    max_abs_w_local = max(abs(wc) for wc in W_CANDIDATES)
 
     best_w = 0.0
     best_score = -float("inf")
@@ -564,7 +482,7 @@ def choose_best_cmd(scan, prev_w, cmd_v):
 
     for w in W_CANDIDATES:
         score, clearance, side_clearance, body_clearance, candidate_theta = (
-            evaluate_candidate(cmd_v, w, points, prev_w, fdist, left_avg, right_avg, left_count, right_count)
+            evaluate_candidate(cmd_v, w, points, prev_w, fdist)
         )
         collision = clearance < COLLISION_DIST
         if not collision:
@@ -587,19 +505,6 @@ def choose_best_cmd(scan, prev_w, cmd_v):
             if nearest < near_thresh:
                 closeness = (near_thresh - nearest) / near_thresh
                 clear_score -= 0.7 * closeness
-        # fallback의 clear_score에도 비대칭 정보 반영
-        # all_collision 상황에서 좌/우 평균 거리 차이로 회전 방향 유도
-        side_avg_valid = (left_avg < SIDE_CAP_M) and (right_avg < SIDE_CAP_M)
-        if side_avg_valid and w > 1e-6:
-            clear_score += 0.5 * asymmetry_weight * asym * min(abs(w) / max_abs_w_local, 1.0)
-        elif side_avg_valid and w < -1e-6:
-            clear_score += 0.5 * asymmetry_weight * (-asym) * min(abs(w) / max_abs_w_local, 1.0)
-        # fallback에서도 평균 거리가 비슷할 때 점 개수 페널티 적용
-        if abs(asym) < ASYM_DEADZONE and total_count >= COUNT_PENALTY_MIN_POINTS:
-            if w > 1e-6 and count_asym > 0:
-                clear_score -= 0.5 * count_penalty_weight * count_asym * min(abs(w) / max_abs_w_local, 1.0)
-            elif w < -1e-6 and count_asym < 0:
-                clear_score -= 0.5 * count_penalty_weight * (-count_asym) * min(abs(w) / max_abs_w_local, 1.0)
         if clear_score > best_clear_score:
             best_clear_score = clear_score
             best_clear_w = w
@@ -614,7 +519,7 @@ def choose_best_cmd(scan, prev_w, cmd_v):
     if all_collision:
         best_w = best_clear_w
         best_score, best_clearance, best_side_clearance, best_body_clearance, best_theta = (
-            evaluate_candidate(cmd_v, best_w, points, prev_w, fdist, left_avg, right_avg, left_count, right_count)
+            evaluate_candidate(cmd_v, best_w, points, prev_w, fdist)
         )
 
     raw_best_w = best_w
@@ -632,10 +537,6 @@ def choose_best_cmd(scan, prev_w, cmd_v):
         "cth": best_theta,
         "left": info_left,
         "right": info_right,
-        "l_avg": left_avg,
-        "r_avg": right_avg,
-        "l_cnt": left_count,
-        "r_cnt": right_count,
     }
 
 
@@ -713,9 +614,7 @@ def main():
                     f"side={info['side']:.2f} body={info['body']:.2f} "
                     f"score={info['score']:.2f} pts={info['points']} "
                     f"coll={int(info['collision'])} cth={info['cth']:.2f} "
-                    f"L={info.get('left',-1):.2f} R={info.get('right',-1):.2f} "
-                    f"lAvg={info.get('l_avg',-1):.2f} rAvg={info.get('r_avg',-1):.2f} "
-                    f"lCnt={info.get('l_cnt',0)} rCnt={info.get('r_cnt',0)}")
+                    f"L={info.get('left',-1):.2f} R={info.get('right',-1):.2f}")
                 last_log = time.time()
 
             time.sleep(LOOP_DT_S)
