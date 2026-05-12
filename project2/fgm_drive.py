@@ -61,6 +61,18 @@ FGM_STRAIGHT_WEIGHT = 0.70
 FGM_CLEARANCE_WEIGHT = 1.80
 FGM_EDGE_WEIGHT = 0.85
 
+RECOVERY_FRONT_SECTOR_DEG = 10.0
+RECOVERY_SIDE_INNER_DEG = 18.0
+RECOVERY_SIDE_OUTER_DEG = 42.0
+RECOVERY_FRONT_TRIGGER = 0.17
+RECOVERY_SIDE_TRIGGER = 0.20
+RECOVERY_ENTRY_HEADING_MIN_RAD = math.radians(8.0)
+RECOVERY_TURN_ANGLE_RAD = math.radians(70.0)
+RECOVERY_TURN_W = 0.55
+RECOVERY_TURN_MIN_S = 0.60
+RECOVERY_TURN_MAX_S = 2.30
+RECOVERY_COOLDOWN_S = 0.80
+
 
 def normalize_angle_deg(angle):
     return (angle + 180.0) % 360.0 - 180.0
@@ -346,6 +358,16 @@ def filter_gaps_by_width(gaps):
     return [(start, end) for start, end in gaps if end - start >= min_bins]
 
 
+def sector_min_distance(angles_deg, ranges, min_deg, max_deg):
+    mask = (angles_deg >= min_deg) & (angles_deg <= max_deg)
+    if not mask.any():
+        return MAX_LIDAR_DIST_M
+    sector = ranges[mask]
+    if len(sector) == 0:
+        return MAX_LIDAR_DIST_M
+    return float(np.min(sector))
+
+
 def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, front_factor):
     if not gaps:
         return -1, (0, 0), -float("inf")
@@ -453,6 +475,29 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
 
     angles_deg, raw_ranges, counts = scan_to_angle_ranges(scan)
     smooth_ranges = smooth_ranges_conservative(raw_ranges)
+    recovery_front = sector_min_distance(
+        angles_deg,
+        smooth_ranges,
+        -RECOVERY_FRONT_SECTOR_DEG,
+        RECOVERY_FRONT_SECTOR_DEG,
+    )
+    recovery_left = sector_min_distance(
+        angles_deg,
+        smooth_ranges,
+        RECOVERY_SIDE_INNER_DEG,
+        RECOVERY_SIDE_OUTER_DEG,
+    )
+    recovery_right = sector_min_distance(
+        angles_deg,
+        smooth_ranges,
+        -RECOVERY_SIDE_OUTER_DEG,
+        -RECOVERY_SIDE_INNER_DEG,
+    )
+    boxed_in = (
+        recovery_front <= RECOVERY_FRONT_TRIGGER
+        and recovery_left <= RECOVERY_SIDE_TRIGGER
+        and recovery_right <= RECOVERY_SIDE_TRIGGER
+    )
     bubble_ranges, closest_idx, closest_dist, bubble_bins = apply_safety_bubble(
         smooth_ranges, counts
     )
@@ -499,6 +544,10 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
         "closest": closest_dist,
         "closest_angle": closest_angle,
         "bubble_bins": bubble_bins,
+        "recovery_front": recovery_front,
+        "recovery_left": recovery_left,
+        "recovery_right": recovery_right,
+        "boxed_in": boxed_in,
         "collision": target_dist < COLLISION_DIST or closest_dist < COLLISION_DIST,
         "raw_w": raw_w,
         "has_safe_gap": has_safe_gap,
@@ -532,6 +581,12 @@ def main():
     last_target_angle = 0.0
     last_log = 0.0
     last_pose_time = time.time()
+    entry_turn_side = 0
+    recovery_active = False
+    recovery_turn_side = 0
+    recovery_start_time = 0.0
+    recovery_start_theta = 0.0
+    recovery_cooldown_until = 0.0
 
     try:
         while True:
@@ -557,6 +612,54 @@ def main():
 
             last_scan_ok = time.time()
             v, w, target_angle, info = choose_fgm_cmd(scan, last_w, last_target_angle, pose)
+            recovery_mode = "none"
+
+            if (
+                not recovery_active
+                and v > 0.03
+                and abs(target_angle) >= RECOVERY_ENTRY_HEADING_MIN_RAD
+            ):
+                entry_turn_side = 1 if target_angle > 0.0 else -1
+
+            if (
+                not recovery_active
+                and now >= recovery_cooldown_until
+                and info["boxed_in"]
+            ):
+                recovery_active = True
+                recovery_start_time = now
+                recovery_start_theta = pose.theta
+                if entry_turn_side != 0:
+                    recovery_turn_side = -entry_turn_side
+                else:
+                    recovery_turn_side = (
+                        -1
+                        if info["recovery_right"] >= info["recovery_left"]
+                        else 1
+                    )
+
+            if recovery_active:
+                elapsed_recovery = now - recovery_start_time
+                turned_recovery = abs(
+                    angle_error_rad(pose.theta, recovery_start_theta)
+                )
+                if (
+                    elapsed_recovery >= RECOVERY_TURN_MIN_S
+                    and turned_recovery >= RECOVERY_TURN_ANGLE_RAD
+                ) or elapsed_recovery >= RECOVERY_TURN_MAX_S:
+                    recovery_active = False
+                    recovery_cooldown_until = now + RECOVERY_COOLDOWN_S
+                    recovery_mode = "exit"
+                    entry_turn_side = 0
+                else:
+                    v = 0.0
+                    w = recovery_turn_side * RECOVERY_TURN_W
+                    recovery_mode = "turn"
+
+            info["recovery_mode"] = recovery_mode
+            info["recovery_turn_side"] = recovery_turn_side if recovery_active else 0
+            info["entry_turn_side"] = entry_turn_side
+
             send_vw(v, w)
             pose.update(v, w, dt)
             last_v, last_w = v, w
@@ -579,6 +682,12 @@ def main():
                     f"gap={info['gap_width']:.0f} "
                     f"gr={info['gap_right']:.0f} gl={info['gap_left']:.0f} "
                     f"gaps={info['gaps']} safe={int(info['has_safe_gap'])} "
+                    f"rec={info['recovery_mode']} "
+                    f"ets={info['entry_turn_side']} rts={info['recovery_turn_side']} "
+                    f"box={int(info['boxed_in'])} "
+                    f"bd={info['recovery_front']:.2f} "
+                    f"bl={info['recovery_left']:.2f} "
+                    f"br={info['recovery_right']:.2f} "
                     f"close={info['closest']:.2f}@{info['closest_angle']:.0f} "
                     f"bb={info['bubble_bins']} score={info['score']:.2f} "
                     f"pts={info['points']} coll={int(info['collision'])} "
