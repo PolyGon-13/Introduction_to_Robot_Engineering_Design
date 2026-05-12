@@ -25,7 +25,7 @@ SCAN_HOLD_S = 0.30
 LOOP_DT_S = 0.05
 
 BASE_V = 0.18
-MIN_V = 0.07
+MIN_V = 0.1
 MAX_ABS_W = 0.70
 
 ROBOT_RADIUS = 0.16
@@ -423,23 +423,23 @@ def rate_limit_w(prev_w, target_w, urgent=False):
     return prev_w + delta
 
 
-def choose_speed(front_dist, target_angle, has_safe_gap):
+def choose_speed(target_dist, target_angle, has_safe_gap):
     if not has_safe_gap:
         return 0.0
 
     turn_ratio = min(1.0, abs(target_angle) / TURN_HARD_LIMIT_RAD)
     v = BASE_V * (1.0 - 0.45 * turn_ratio)
 
-    if front_dist < ACTIVE_FRONT_DIST:
+    if target_dist < ACTIVE_FRONT_DIST:
         slow_ratio = np.clip(
-            (front_dist - FRONT_DANGER_DIST)
+            (target_dist - FRONT_DANGER_DIST)
             / max(1e-6, ACTIVE_FRONT_DIST - FRONT_DANGER_DIST),
             0.0,
             1.0,
         )
         v = min(v, MIN_V + (BASE_V - MIN_V) * float(slow_ratio))
 
-    if front_dist < COLLISION_DIST and abs(target_angle) < math.radians(20.0):
+    if target_dist < COLLISION_DIST:
         v = 0.0
 
     return float(np.clip(v, 0.0, BASE_V))
@@ -472,10 +472,11 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
 
     target_angle = math.radians(float(angles_deg[target_idx]))
     target_angle = float(np.clip(target_angle, -TURN_HARD_LIMIT_RAD, TURN_HARD_LIMIT_RAD))
+    target_dist = float(smooth_ranges[target_idx])
     raw_w = float(np.clip(FGM_TURN_GAIN * target_angle, -MAX_ABS_W, MAX_ABS_W))
     urgent = front_dist < URGENT_FRONT_DIST or not has_safe_gap
     w = rate_limit_w(prev_w, raw_w, urgent=urgent)
-    v = choose_speed(front_dist, target_angle, has_safe_gap)
+    v = choose_speed(target_dist, target_angle, has_safe_gap)
 
     gap_width = (best_gap[1] - best_gap[0]) * FGM_ANGLE_STEP_DEG
     gap_left = float(angles_deg[best_gap[1] - 1]) if best_gap[1] > best_gap[0] else 0.0
@@ -485,7 +486,7 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
     return v, w, target_angle, {
         "score": best_score,
         "target_deg": math.degrees(target_angle),
-        "target_dist": float(smooth_ranges[target_idx]),
+        "target_dist": target_dist,
         "front": front_dist,
         "front_factor": front_factor,
         "left": info_left,
@@ -498,7 +499,7 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
         "closest": closest_dist,
         "closest_angle": closest_angle,
         "bubble_bins": bubble_bins,
-        "collision": front_dist < COLLISION_DIST or closest_dist < COLLISION_DIST,
+        "collision": target_dist < COLLISION_DIST or closest_dist < COLLISION_DIST,
         "raw_w": raw_w,
         "has_safe_gap": has_safe_gap,
     }
