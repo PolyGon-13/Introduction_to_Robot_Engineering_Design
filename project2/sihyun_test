@@ -45,11 +45,11 @@ BASE_V = 0.18              # 직진 속도 고정
 # =========================
 # 장애물 회피 파라미터
 # =========================
-FRONT_SAFE_DIST = 0.60     # 60cm보다 멀면 w = 0
-FRONT_WARN_DIST = 0.45     # 로그/모드 구분용
+FRONT_SAFE_DIST = 0.85     # 85cm 이내로 들어오면 회피 시작
+FRONT_WARN_DIST = 0.55     # 로그/urgent 구분용
 FRONT_DANGER_DIST = 0.30   # 30cm 이하이면 abs(w) = 0.90
 
-FRONT_ANGLE_DEG = 25       # 정면 판단 각도: -25도 ~ +25도
+FRONT_ANGLE_DEG = 40       # 정면 판단 각도: -40도 ~ +40도
 SIDE_MIN_DEG = 30          # 좌우 판단 시작 각도
 SIDE_MAX_DEG = 90          # 좌우 판단 끝 각도
 
@@ -57,18 +57,16 @@ SIDE_MAX_DEG = 90          # 좌우 판단 끝 각도
 # 거리 비례 회피 w 파라미터
 # =========================
 MAX_AVOID_W = 0.90         # 회피 w 최대값, 절대값 기준 0~0.90
-MIN_AVOID_W = 0.00         # 완전 비례 방식
+MIN_AVOID_W = 0.25         # 회피 시작 시 최소 회전값 확보
 
 # =========================
 # 회전 변화량 제한
 # =========================
-W_RATE_LIMIT = 0.30        # 일반 상황에서 w 변화량 제한
-W_RATE_LIMIT_URGENT = 0.40 # 급한 상황에서 w 변화량 제한
+W_RATE_LIMIT = 0.25        # 일반 상황에서 w 변화량 제한
+W_RATE_LIMIT_URGENT = 0.45 # 급한 상황에서 w 변화량 제한
 
 # =========================
 # 처음 방향 복귀 파라미터
-# 현재 코드에서는 front > 60cm일 때 w = 0으로 만들기 때문에
-# 안전 구간에서는 heading_w를 사용하지 않음
 # =========================
 INITIAL_HEADING_RAD = 0.0
 robot_heading = 0.0
@@ -80,8 +78,8 @@ HEADING_DEADBAND_RAD = math.radians(2.0)
 # =========================
 # 회피 방향 선택 파라미터
 # =========================
-SIDE_OPTION_DIST = 0.28       # 이 거리 이상이어야 회피 가능한 길로 판단
-SIDE_FORCE_MARGIN = 0.12      # 좌우 차이가 12cm 이상이면 넓은 쪽 강제 선택
+SIDE_OPTION_DIST = 0.28       # 28cm 이상이어야 회피 가능한 길로 판단
+SIDE_FORCE_MARGIN = 0.12      # 좌우 차이가 12cm 이상이면 넓은 쪽 우선
 
 AVOID_LOOKAHEAD_S = 0.70
 HEADING_CHOICE_MARGIN_RAD = math.radians(3.0)
@@ -229,27 +227,27 @@ def compute_heading_return_w():
 # =========================
 def compute_proportional_avoid_w(front):
     """
-    front 거리에 따라 회피 w 절대값을 0.0 ~ 0.90 범위로 비례 계산.
+    front 거리에 따라 회피 w 절대값을 MIN_AVOID_W ~ 0.90 범위로 비례 계산.
 
-    front > 0.60m:
+    front > FRONT_SAFE_DIST:
         abs_w = 0.0
 
-    0.30m < front <= 0.60m:
+    FRONT_DANGER_DIST < front <= FRONT_SAFE_DIST:
         front가 가까워질수록 abs_w가 선형 증가
 
-    front <= 0.30m:
-        abs_w = 0.90
+    front <= FRONT_DANGER_DIST:
+        abs_w = MAX_AVOID_W
     """
 
-    # 60cm보다 멀면 회전 없음
+    # FRONT_SAFE_DIST보다 멀면 회전 없음
     if front > FRONT_SAFE_DIST:
         return 0.0
 
-    # 30cm 이하이면 최대 회피
+    # FRONT_DANGER_DIST 이하이면 최대 회피
     if front <= FRONT_DANGER_DIST:
         return MAX_AVOID_W
 
-    # 30cm ~ 60cm 사이에서 비례 계산
+    # FRONT_DANGER_DIST ~ FRONT_SAFE_DIST 사이에서 비례 계산
     ratio = (FRONT_SAFE_DIST - front) / max(
         1e-6,
         FRONT_SAFE_DIST - FRONT_DANGER_DIST
@@ -259,6 +257,7 @@ def compute_proportional_avoid_w(front):
 
     abs_w = ratio * MAX_AVOID_W
 
+    # 회피 구간에 들어왔는데 w가 너무 작아 직진처럼 가는 것 방지
     if abs_w > 0.0:
         abs_w = max(abs_w, MIN_AVOID_W)
 
@@ -510,7 +509,7 @@ def choose_avoidance_cmd(points, prev_w):
     heading_w, heading_error = compute_heading_return_w()
 
     # -------------------------
-    # 1. 전방 장애물이 60cm보다 멀면 w = 0
+    # 1. 전방 장애물이 FRONT_SAFE_DIST보다 멀면 w = 0
     # -------------------------
     if front > FRONT_SAFE_DIST:
         target_w = 0.0
@@ -522,8 +521,8 @@ def choose_avoidance_cmd(points, prev_w):
         last_avoid_dir = 0
 
     # -------------------------
-    # 2. 전방 장애물이 30cm ~ 60cm 사이 또는 30cm 이하
-    #    → front 거리에 비례해서 회피 w 계산
+    # 2. 전방 장애물이 회피 거리 안으로 들어오면
+    #    front 거리에 비례해서 회피 w 계산
     # -------------------------
     else:
         abs_w = compute_proportional_avoid_w(front)
@@ -547,7 +546,7 @@ def choose_avoidance_cmd(points, prev_w):
     # =========================
     # 회전 변화량 제한 적용
     # 방향 전환 시에는 rate_limit_w 안에서 먼저 0.0을 찍고 넘어감
-    # 단, front > 60cm이면 실제 w도 바로 0으로 만듦
+    # 단, front > FRONT_SAFE_DIST이면 실제 w도 바로 0으로 만듦
     # =========================
     if front > FRONT_SAFE_DIST:
         w = 0.0
@@ -598,11 +597,11 @@ def main():
 
     print("[INFO] Start LiDAR obstacle avoidance")
     print("[INFO] v is fixed at 0.18")
-    print("[INFO] if front > 0.60m, w = 0")
-    print("[INFO] if 0.30m < front <= 0.60m, abs(w) is proportional")
+    print("[INFO] if front > 0.85m, w = 0")
+    print("[INFO] if 0.30m < front <= 0.85m, abs(w) is proportional")
     print("[INFO] if front <= 0.30m, abs(w) = 0.90")
-    print("[INFO] open side has priority over initial-front direction")
-    print("[INFO] previous avoid direction is kept when both sides are blocked/similar")
+    print("[INFO] front angle is expanded to +/-40 deg")
+    print("[INFO] min avoid w is 0.25")
     print("[INFO] Press Ctrl+C to stop")
 
     robot_heading = 0.0
