@@ -80,7 +80,7 @@ HEADING_DEADBAND_RAD = math.radians(2.0)
 # =========================
 # 회피 방향 선택 파라미터
 # =========================
-SIDE_OPTION_DIST = 0.28
+SIDE_OPTION_DIST = 0.15
 AVOID_LOOKAHEAD_S = 0.70
 HEADING_CHOICE_MARGIN_RAD = math.radians(3.0)
 
