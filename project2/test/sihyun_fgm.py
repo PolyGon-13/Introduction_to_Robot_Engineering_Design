@@ -50,7 +50,7 @@ TURN_HARD_LIMIT_RAD = math.radians(80.0)
 # ============================================================
 INITIAL_HEADING_RAD = 0.0
 RECOVERY_TURN_ENABLE = True
-RECOVERY_TURN_W = 0.45
+RECOVERY_TURN_W = 0.90
 RECOVERY_TURN_TOL_RAD = math.radians(8.0)
 RECOVERY_TURN_TIMEOUT_S = 8.0
 RECOVERY_INITIAL_DEADBAND_RAD = math.radians(2.0)
@@ -61,7 +61,7 @@ RECOVERY_INITIAL_DEADBAND_RAD = math.radians(2.0)
 # - 왼쪽 벽과의 거리값이 갑자기 커지면 다시 FGM 주행으로 복귀
 # ============================================================
 LEFT_WALL_FOLLOW_ENABLE = True
-LEFT_WALL_TARGET_DIST = 0.25          # 왼쪽 벽과 유지할 목표 거리(m)
+LEFT_WALL_TARGET_DIST = 0.18          # 왼쪽 벽과 유지할 목표 거리(m)
 LEFT_WALL_FOLLOW_V = 0.14             # 벽 따라갈 때 전진 속도
 LEFT_WALL_KP = 1.15                   # 왼쪽 벽 거리 오차에 대한 회전 보정 게인
 LEFT_WALL_MAX_W = 0.45                # 벽 따라가기 최대 회전 속도
@@ -917,6 +917,7 @@ def main():
         ardu.close()
         lidar.close()
         print("[INFO] Shutdown complete.")
+
 
 if __name__ == "__main__":
     main()
