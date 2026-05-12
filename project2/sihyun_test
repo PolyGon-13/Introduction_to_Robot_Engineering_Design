@@ -237,7 +237,9 @@ def compute_proportional_avoid_w(front):
 
     # 60cm보다 멀면 회전 없음
     if front > FRONT_SAFE_DIST:
-        return 0.0
+        w = 0.0
+    else:
+        w = rate_limit_w(prev_w, target_w, urgent)
 
     # 15cm 이하이면 최대 회피
     if front <= FRONT_DANGER_DIST:
@@ -334,10 +336,27 @@ def choose_initial_front_avoid_w(left, right, abs_w):
 
 # =========================
 # w 변화량 제한
+# 방향이 반대로 바뀔 때는 먼저 0.0을 찍고,
+# 다음 루프부터 새 방향으로 리미트 제한을 걸어 증가
 # =========================
 def rate_limit_w(prev_w, target_w, urgent=False):
     limit = W_RATE_LIMIT_URGENT if urgent else W_RATE_LIMIT
 
+    ZERO_EPS = 1e-3
+
+    # -------------------------
+    # 회전 방향이 반대로 바뀌는 경우
+    # 예:
+    # prev_w = -0.90, target_w = +0.90
+    # 바로 +방향으로 가지 않고 먼저 0.0 반환
+    # -------------------------
+    if abs(prev_w) > ZERO_EPS and abs(target_w) > ZERO_EPS:
+        if prev_w * target_w < 0:
+            return 0.0
+
+    # -------------------------
+    # 일반적인 변화량 제한
+    # -------------------------
     delta = target_w - prev_w
 
     if delta > limit:
@@ -346,7 +365,6 @@ def rate_limit_w(prev_w, target_w, urgent=False):
         delta = -limit
 
     return prev_w + delta
-
 
 # =========================
 # 라이다 스캔을 x, y 점으로 변환
