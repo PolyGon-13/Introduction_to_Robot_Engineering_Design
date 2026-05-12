@@ -1,0 +1,448 @@
+#!/usr/bin/env python3
+
+import serial
+import time
+import threading
+import numpy as np
+
+# =========================
+# 통신 규격 유지
+# =========================
+LIDAR_PORT = "/dev/ttyUSB0"
+LIDAR_BAUD = 460800
+
+ARDU_PORT = "/dev/ttyS0"
+ARDU_BAUD = 9600
+
+# =========================
+# 라이다 보정값 유지
+# =========================
+ANGLE_OFFSET_DEG = +1.54
+DIST_OFFSET_MM = 0.0
+LIDAR_ANGLE_SIGN = -1.0
+
+# 좌표계:
+# +각도 / +y = 좌측
+# -각도 / -y = 우측
+
+# =========================
+# 라이다 필터 설정
+# =========================
+MIN_LIDAR_DIST_M = 0.05
+MAX_LIDAR_DIST_M = 2.5
+MIN_QUALITY = 1
+
+LOOP_DT_S = 0.05
+SCAN_HOLD_S = 0.30
+
+# =========================
+# 장애물 회피 파라미터
+# =========================
+BASE_V = 0.18              # 직진 속도 고정
+
+FRONT_SAFE_DIST = 0.55     # 전방이 이 거리보다 멀면 안전
+FRONT_WARN_DIST = 0.35     # 이 거리부터 회피 시작
+FRONT_DANGER_DIST = 0.22   # 이 거리보다 가까우면 강하게 회피
+
+FRONT_ANGLE_DEG = 25       # 정면 판단 각도: -25도 ~ +25도
+SIDE_MIN_DEG = 30          # 좌우 판단 시작 각도
+SIDE_MAX_DEG = 90          # 좌우 판단 끝 각도
+
+CENTER_KP = 0.20           # 평상시 좌우 중심 보정 강도
+MAX_CENTER_W = 0.20        # 평상시 최대 보정 w
+
+AVOID_W = 0.55             # 장애물 가까울 때 회피 w
+STRONG_AVOID_W = 0.75      # 장애물 위험할 때 회피 w
+EMERGENCY_W = 0.90         # 장애물 매우 가까울 때 회피 w
+
+W_RATE_LIMIT = 0.20        # w 변화량 제한
+W_RATE_LIMIT_URGENT = 0.35 # 급한 상황 w 변화량 제한
+
+
+# =========================
+# RPLidar C1 통신 드라이버
+# =========================
+class RPLidarC1:
+    def __init__(self, port, baud):
+        self.ser = serial.Serial(port, baud, timeout=0.1)
+
+        # RESET
+        self.ser.write(bytes([0xA5, 0x40]))
+        time.sleep(2.0)
+        self.ser.reset_input_buffer()
+
+        # SCAN
+        self.ser.write(bytes([0xA5, 0x20]))
+
+        header = self.ser.read(7)
+        if len(header) != 7 or header[0] != 0xA5 or header[1] != 0x5A:
+            self.ser.close()
+            raise RuntimeError("[LIDAR] Response Header Error")
+
+        self.lock = threading.Lock()
+        self.latest_scan = None
+        self.running = True
+
+        self.thread = threading.Thread(target=self._loop, daemon=True)
+        self.thread.start()
+
+    def _loop(self):
+        buf_a, buf_d, buf_q = [], [], []
+
+        while self.running:
+            try:
+                data = self.ser.read(5)
+
+                if len(data) != 5:
+                    continue
+
+                s_flag = data[0] & 0x01
+                s_inv = (data[0] & 0x02) >> 1
+
+                # 시작 플래그 검증
+                if s_inv != (1 - s_flag):
+                    continue
+
+                # 두 번째 바이트 bit0 검증
+                if (data[1] & 0x01) != 1:
+                    continue
+
+                quality = data[0] >> 2
+                angle = ((data[1] >> 1) | (data[2] << 7)) / 64.0
+                dist = (data[3] | (data[4] << 8)) / 4.0
+
+                # 한 바퀴 스캔 종료 시 최신 스캔 저장
+                if s_flag == 1 and len(buf_a) > 50:
+                    with self.lock:
+                        self.latest_scan = (
+                            np.array(buf_a, dtype=np.float32),
+                            np.array(buf_d, dtype=np.float32),
+                            np.array(buf_q, dtype=np.float32)
+                        )
+
+                    buf_a, buf_d, buf_q = [], [], []
+
+                if dist > 0 and quality > 0:
+                    buf_a.append(angle)
+                    buf_d.append(dist)
+                    buf_q.append(quality)
+
+            except (serial.SerialException, OSError) as e:
+                print(f"[LIDAR] Serial Error: {e}")
+                time.sleep(1.0)
+
+                try:
+                    self.ser.reset_input_buffer()
+                except:
+                    pass
+
+    def get_scan(self):
+        with self.lock:
+            return self.latest_scan
+
+    def close(self):
+        self.running = False
+
+        try:
+            # STOP
+            self.ser.write(bytes([0xA5, 0x25]))
+        except:
+            pass
+
+        time.sleep(0.1)
+        self.ser.close()
+
+
+# =========================
+# 각도 정규화
+# =========================
+def normalize_angle_deg(angle):
+    return (angle + 180.0) % 360.0 - 180.0
+
+
+# =========================
+# w 변화량 제한
+# =========================
+def rate_limit_w(prev_w, target_w, urgent=False):
+    limit = W_RATE_LIMIT_URGENT if urgent else W_RATE_LIMIT
+
+    delta = target_w - prev_w
+
+    if delta > limit:
+        delta = limit
+    elif delta < -limit:
+        delta = -limit
+
+    return prev_w + delta
+
+
+# =========================
+# 라이다 스캔을 x, y 점으로 변환
+# =========================
+def lidar_scan_to_points(scan):
+    if scan is None:
+        return np.empty((0, 2), dtype=np.float32)
+
+    angles, dists, qualities = scan
+
+    # mm -> m 변환
+    dist_m = (dists.astype(np.float32) + DIST_OFFSET_MM) / 1000.0
+
+    # 각도 보정
+    angle_deg = normalize_angle_deg(
+        angles.astype(np.float32) + ANGLE_OFFSET_DEG
+    )
+
+    # 좌우 방향 보정
+    angle_deg = LIDAR_ANGLE_SIGN * angle_deg
+
+    # 유효한 라이다 값만 사용
+    mask = (
+        (dist_m >= MIN_LIDAR_DIST_M) &
+        (dist_m <= MAX_LIDAR_DIST_M) &
+        (qualities >= MIN_QUALITY)
+    )
+
+    if not mask.any():
+        return np.empty((0, 2), dtype=np.float32)
+
+    dist_m = dist_m[mask]
+    angle_rad = np.deg2rad(angle_deg[mask])
+
+    # 극좌표 -> 직교좌표
+    x = dist_m * np.cos(angle_rad)
+    y = dist_m * np.sin(angle_rad)
+
+    # 뒤쪽 점 제거, 앞쪽만 사용
+    front_mask = x > 0.0
+
+    if not front_mask.any():
+        return np.empty((0, 2), dtype=np.float32)
+
+    points = np.column_stack((x[front_mask], y[front_mask])).astype(np.float32)
+
+    return points
+
+
+# =========================
+# 특정 각도 구간의 가장 가까운 거리 계산
+# =========================
+def sector_min_distance(points, min_deg, max_deg):
+    if len(points) == 0:
+        return MAX_LIDAR_DIST_M
+
+    x = points[:, 0]
+    y = points[:, 1]
+
+    dist = np.sqrt(x ** 2 + y ** 2)
+    angle_deg = np.degrees(np.arctan2(y, x))
+
+    mask = (angle_deg >= min_deg) & (angle_deg <= max_deg)
+
+    if not mask.any():
+        return MAX_LIDAR_DIST_M
+
+    return float(np.min(dist[mask]))
+
+
+# =========================
+# 장애물 회피 알고리즘
+# v는 항상 0.18 고정
+# w만 변경해서 회피
+# =========================
+def choose_avoidance_cmd(points, prev_w):
+    front = sector_min_distance(
+        points,
+        -FRONT_ANGLE_DEG,
+        FRONT_ANGLE_DEG
+    )
+
+    left = sector_min_distance(
+        points,
+        SIDE_MIN_DEG,
+        SIDE_MAX_DEG
+    )
+
+    right = sector_min_distance(
+        points,
+        -SIDE_MAX_DEG,
+        -SIDE_MIN_DEG
+    )
+
+    # 직진 속도는 무조건 고정
+    v = BASE_V
+
+    # -------------------------
+    # 1. 전방이 충분히 안전한 경우
+    # -------------------------
+    if front > FRONT_SAFE_DIST:
+        # 좌우 거리 차이로 약하게 중심 보정
+        # left > right 이면 왼쪽이 더 넓음 -> w 양수
+        # right > left 이면 오른쪽이 더 넓음 -> w 음수
+        side_diff = left - right
+
+        target_w = CENTER_KP * side_diff
+        target_w = float(np.clip(target_w, -MAX_CENTER_W, MAX_CENTER_W))
+
+        mode = "FORWARD"
+        urgent = False
+
+    # -------------------------
+    # 2. 전방에 장애물이 가까워지는 경우
+    # -------------------------
+    elif front > FRONT_WARN_DIST:
+        # 직진은 계속하면서 더 넓은 쪽으로 회피
+        if left >= right:
+            target_w = AVOID_W
+            mode = "AVOID_LEFT"
+        else:
+            target_w = -AVOID_W
+            mode = "AVOID_RIGHT"
+
+        urgent = False
+
+    # -------------------------
+    # 3. 전방이 위험한 경우
+    # -------------------------
+    elif front > FRONT_DANGER_DIST:
+        # 직진은 계속하면서 강하게 회피
+        if left >= right:
+            target_w = STRONG_AVOID_W
+            mode = "STRONG_LEFT"
+        else:
+            target_w = -STRONG_AVOID_W
+            mode = "STRONG_RIGHT"
+
+        urgent = True
+
+    # -------------------------
+    # 4. 전방이 매우 가까운 경우
+    # -------------------------
+    else:
+        # 그래도 v는 0.18 유지
+        # w만 최대로 줘서 빠르게 방향 전환
+        if left >= right:
+            target_w = EMERGENCY_W
+            mode = "EMERGENCY_LEFT"
+        else:
+            target_w = -EMERGENCY_W
+            mode = "EMERGENCY_RIGHT"
+
+        urgent = True
+
+    # w가 갑자기 튀지 않도록 제한
+    w = rate_limit_w(prev_w, target_w, urgent)
+
+    info = {
+        "front": front,
+        "left": left,
+        "right": right,
+        "target_w": target_w,
+        "mode": mode,
+        "urgent": urgent
+    }
+
+    return v, w, info
+
+
+# =========================
+# 메인 코드
+# =========================
+def main():
+    lidar = RPLidarC1(LIDAR_PORT, LIDAR_BAUD)
+    ardu = serial.Serial(ARDU_PORT, ARDU_BAUD, timeout=0.1)
+
+    print("[INFO] Warming up...")
+    time.sleep(2.0)
+
+    def send_vw(v, w):
+        # 기존 통신 규격 유지
+        # 예: V0.180,-0.650\n
+        msg = f"V{v:.3f},{w:.3f}\n"
+        ardu.write(msg.encode())
+
+    def stop():
+        # 기존 정지 명령 유지
+        ardu.write(b"S\n")
+
+    stop()
+
+    print("[INFO] Start LiDAR obstacle avoidance")
+    print("[INFO] v is fixed at 0.18")
+    print("[INFO] Avoidance is controlled only by w")
+    print("[INFO] Press Ctrl+C to stop")
+
+    last_scan_ok_time = time.time()
+    last_v = BASE_V
+    last_w = 0.0
+    last_log_time = 0.0
+
+    try:
+        while True:
+            scan = lidar.get_scan()
+
+            # 라이다 스캔이 없는 경우
+            if scan is None:
+                # 잠깐 끊기면 마지막 명령 유지
+                if time.time() - last_scan_ok_time < SCAN_HOLD_S:
+                    send_vw(BASE_V, last_w)
+                    last_v = BASE_V
+                else:
+                    # 스캔이 오래 없으면 안전상 정지
+                    stop()
+                    last_v = 0.0
+                    last_w = 0.0
+
+                time.sleep(LOOP_DT_S)
+                continue
+
+            last_scan_ok_time = time.time()
+
+            points = lidar_scan_to_points(scan)
+
+            v, w, info = choose_avoidance_cmd(points, last_w)
+
+            # v는 항상 0.18
+            send_vw(BASE_V, w)
+
+            last_v = BASE_V
+            last_w = w
+
+            if time.time() - last_log_time > 0.25:
+                print(
+                    f"[AVOID] mode={info['mode']} "
+                    f"v={BASE_V:.2f} "
+                    f"w={w:.2f} "
+                    f"target_w={info['target_w']:.2f} "
+                    f"front={info['front']:.2f} "
+                    f"left={info['left']:.2f} "
+                    f"right={info['right']:.2f} "
+                    f"pts={len(points)}"
+                )
+
+                last_log_time = time.time()
+
+            time.sleep(LOOP_DT_S)
+
+    except KeyboardInterrupt:
+        print("\n[INFO] KeyboardInterrupt")
+
+    finally:
+        stop()
+        time.sleep(0.2)
+
+        try:
+            ardu.close()
+        except:
+            pass
+
+        try:
+            lidar.close()
+        except:
+            pass
+
+        print("[INFO] Shutdown complete")
+
+
+if __name__ == "__main__":
+    main()
