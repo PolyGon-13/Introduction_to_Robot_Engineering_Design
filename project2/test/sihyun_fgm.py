@@ -45,6 +45,17 @@ GOAL_TOL_M = 0.15
 TURN_SOFT_LIMIT_RAD = math.radians(70.0)
 TURN_HARD_LIMIT_RAD = math.radians(80.0)
 
+# ============================================================
+# 안전한 gap이 없을 때 처음 방향 기준 180도 회전 Recovery 설정
+# ============================================================
+INITIAL_HEADING_RAD = 0.0             # 시작 방향 기준. pose.reset() 후 theta=0
+RECOVERY_TURN_ENABLE = True
+RECOVERY_TURN_W = 0.45                # 180도 제자리 회전 속도. 너무 느리면 0.55 정도까지 가능
+RECOVERY_TURN_TOL_RAD = math.radians(8.0)   # 목표 180도에서 이 각도 안에 들어오면 회전 완료
+RECOVERY_TURN_TIMEOUT_S = 8.0         # 회전이 너무 오래 걸릴 때 강제 종료
+RECOVERY_INITIAL_DEADBAND_RAD = math.radians(2.0)
+# ============================================================
+
 FGM_MIN_ANGLE_DEG = -90.0
 FGM_MAX_ANGLE_DEG = 90.0
 FGM_ANGLE_STEP_DEG = 1.0
@@ -61,42 +72,6 @@ FGM_STRAIGHT_WEIGHT = 0.70
 FGM_CLEARANCE_WEIGHT = 1.80
 FGM_EDGE_WEIGHT = 0.85
 
-# ===== Hough line trap blocker =====
-# 라이다 점으로 직선을 찾고, 직선 끝을 10cm 연장했을 때 다른 직선과 연결되면
-# 그 연결 구간을 가상 벽으로 만들어 FGM 후보 gap에서 완전히 제외한다.
-HOUGH_TRAP_BLOCK_ENABLE = True
-
-HOUGH_MIN_X_M = 0.05
-HOUGH_MAX_X_M = 1.40
-HOUGH_MAX_ABS_Y_M = 1.20
-
-HOUGH_THETA_STEP_DEG = 2.0
-HOUGH_RHO_STEP_M = 0.025
-HOUGH_MIN_VOTES = 7
-HOUGH_MAX_LINES = 8
-HOUGH_INLIER_DIST_M = 0.025
-HOUGH_REMOVE_DIST_M = 0.040
-HOUGH_MIN_SEG_LEN_M = 0.12
-
-HOUGH_EXTEND_M = 0.10
-HOUGH_CONNECT_DIST_M = 0.09
-HOUGH_CONNECT_SAMPLE_STEP_M = 0.015
-
-HOUGH_BLOCK_SAMPLE_STEP_M = 0.015
-HOUGH_BLOCK_MARGIN_M = ROBOT_RADIUS + 0.08
-HOUGH_BLOCK_EXTRA_ANGLE_DEG = 1.5
-HOUGH_BLOCK_MIN_RANGE_M = 0.05
-HOUGH_BLOCK_MAX_RANGE_M = 1.40
-
-# 허프 가상 벽이 라이다 노이즈로 순간적으로 사라져도 잠깐 유지
-HOUGH_BLOCK_LATCH_S = 0.60
-
-# 가장 가까운 장애물이 이 거리 안쪽이면 후보 방향이 멀어도 전진 금지
-CLOSEST_COLLISION_STOP_DIST = COLLISION_DIST + 0.02
-
-_last_hough_blocks = []
-_last_hough_block_time = 0.0
-
 
 def normalize_angle_deg(angle):
     return (angle + 180.0) % 360.0 - 180.0
@@ -108,6 +83,34 @@ def normalize_angle_rad(angle):
 
 def angle_error_rad(a, b):
     return normalize_angle_rad(a - b)
+
+
+def choose_initial_based_recovery_dir(theta, prev_w=0.0):
+    """
+    처음 방향 INITIAL_HEADING_RAD 기준으로 현재 로봇이 어느 쪽으로 휘었는지 판단한다.
+
+    theta > 0  : 처음 방향 기준 왼쪽으로 휘어 있음 -> 왼쪽 180도 회전
+    theta < 0  : 처음 방향 기준 오른쪽으로 휘어 있음 -> 오른쪽 180도 회전
+
+    반환값:
+    +1.0 : 왼쪽 회전
+    -1.0 : 오른쪽 회전
+    """
+    heading_from_initial = normalize_angle_rad(theta - INITIAL_HEADING_RAD)
+
+    if heading_from_initial > RECOVERY_INITIAL_DEADBAND_RAD:
+        return +1.0
+    if heading_from_initial < -RECOVERY_INITIAL_DEADBAND_RAD:
+        return -1.0
+
+    # 거의 정면이면 직전 회전 방향을 따라감
+    if prev_w > 0.0:
+        return +1.0
+    if prev_w < 0.0:
+        return -1.0
+
+    # 완전히 애매하면 기본 왼쪽
+    return +1.0
 
 
 class RobotPose:
@@ -445,237 +448,6 @@ def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, f
     return best_idx, best_gap, best_score
 
 
-def closest_point_on_segment(p, a, b):
-    ab = b - a
-    denom = float(np.dot(ab, ab))
-    if denom < 1e-9:
-        q = a.copy()
-    else:
-        u = float(np.clip(np.dot(p - a, ab) / denom, 0.0, 1.0))
-        q = a + u * ab
-    return q, float(np.linalg.norm(p - q))
-
-
-def detect_hough_line_segments(points):
-    if (not HOUGH_TRAP_BLOCK_ENABLE) or len(points) < HOUGH_MIN_VOTES:
-        return []
-
-    mask = (
-        (points[:, 0] >= HOUGH_MIN_X_M)
-        & (points[:, 0] <= HOUGH_MAX_X_M)
-        & (np.abs(points[:, 1]) <= HOUGH_MAX_ABS_Y_M)
-    )
-    if not mask.any():
-        return []
-
-    pts = points[mask].astype(np.float32)
-    if len(pts) < HOUGH_MIN_VOTES:
-        return []
-
-    theta_deg = np.arange(0.0, 180.0, HOUGH_THETA_STEP_DEG, dtype=np.float32)
-    theta_rad = np.deg2rad(theta_deg)
-    cos_t = np.cos(theta_rad).astype(np.float32)
-    sin_t = np.sin(theta_rad).astype(np.float32)
-    theta_idxs = np.arange(len(theta_rad), dtype=np.int32)
-
-    rho_max = math.hypot(HOUGH_MAX_X_M, HOUGH_MAX_ABS_Y_M)
-    rho_count = int(math.ceil(2.0 * rho_max / HOUGH_RHO_STEP_M)) + 1
-
-    remaining = np.ones(len(pts), dtype=bool)
-    lines = []
-
-    for _ in range(HOUGH_MAX_LINES):
-        work_pts = pts[remaining]
-        if len(work_pts) < HOUGH_MIN_VOTES:
-            break
-
-        rhos = work_pts[:, 0:1] * cos_t[None, :] + work_pts[:, 1:2] * sin_t[None, :]
-        rho_bins = np.rint((rhos + rho_max) / HOUGH_RHO_STEP_M).astype(np.int32)
-        valid = (rho_bins >= 0) & (rho_bins < rho_count)
-
-        acc = np.zeros((rho_count, len(theta_rad)), dtype=np.int16)
-        cols = np.tile(theta_idxs, (len(work_pts), 1))
-        np.add.at(acc, (rho_bins[valid], cols[valid]), 1)
-
-        best_flat = int(np.argmax(acc))
-        votes = int(acc.flat[best_flat])
-        if votes < HOUGH_MIN_VOTES:
-            break
-
-        rho_i, theta_i = np.unravel_index(best_flat, acc.shape)
-        rho = float(rho_i * HOUGH_RHO_STEP_M - rho_max)
-
-        n = np.array([cos_t[theta_i], sin_t[theta_i]], dtype=np.float32)
-        d = np.array([-sin_t[theta_i], cos_t[theta_i]], dtype=np.float32)
-
-        signed_dist_all = np.abs(pts @ n - rho)
-        inlier_mask = remaining & (signed_dist_all <= HOUGH_INLIER_DIST_M)
-        inlier_count = int(np.count_nonzero(inlier_mask))
-
-        if inlier_count < HOUGH_MIN_VOTES:
-            remaining &= signed_dist_all > HOUGH_REMOVE_DIST_M
-            continue
-
-        inlier_pts = pts[inlier_mask]
-        t = inlier_pts @ d
-
-        t_min = float(np.min(t))
-        t_max = float(np.max(t))
-        seg_len = t_max - t_min
-
-        if seg_len >= HOUGH_MIN_SEG_LEN_M:
-            p0 = (n * rho + d * t_min).astype(np.float32)
-            p1 = (n * rho + d * t_max).astype(np.float32)
-
-            lines.append(
-                {
-                    "p0": p0,
-                    "p1": p1,
-                    "dir": d,
-                    "normal": n,
-                    "rho": rho,
-                    "theta_deg": float(theta_deg[theta_i]),
-                    "votes": inlier_count,
-                    "length": float(seg_len),
-                }
-            )
-
-        remaining &= signed_dist_all > HOUGH_REMOVE_DIST_M
-
-    return lines
-
-
-def build_hough_extension_blocks(lines):
-    if len(lines) < 2:
-        return []
-
-    blocks = []
-
-    for i, line in enumerate(lines):
-        p0 = line["p0"]
-        p1 = line["p1"]
-        d = line["dir"]
-
-        d_norm = float(np.linalg.norm(d))
-        if d_norm < 1e-6:
-            continue
-
-        d = d / d_norm
-
-        # 직선 양 끝을 각각 바깥 방향으로 10cm 연장한다.
-        endpoints = [(p0, -d), (p1, d)]
-
-        for endpoint, ext_dir in endpoints:
-            ext_end = endpoint + ext_dir * HOUGH_EXTEND_M
-            ext_len = float(np.linalg.norm(ext_end - endpoint))
-
-            steps = max(2, int(math.ceil(ext_len / HOUGH_CONNECT_SAMPLE_STEP_M)) + 1)
-            samples = np.linspace(endpoint, ext_end, steps).astype(np.float32)
-
-            connected = False
-
-            for j, other in enumerate(lines):
-                if i == j:
-                    continue
-
-                other_p0 = other["p0"]
-                other_p1 = other["p1"]
-
-                # 연장한 10cm 선분 위의 점이 다른 직선 선분에 가까워지면 연결로 판단한다.
-                for sample in samples[1:]:
-                    q, dist = closest_point_on_segment(sample, other_p0, other_p1)
-
-                    if dist <= HOUGH_CONNECT_DIST_M:
-                        if float(np.linalg.norm(q - endpoint)) >= 0.025:
-                            blocks.append((endpoint.copy(), q.astype(np.float32)))
-
-                        connected = True
-                        break
-
-                if connected:
-                    break
-
-    # 거의 같은 가상 벽 중복 제거
-    unique = []
-
-    for a, b in blocks:
-        duplicated = False
-
-        for c, d in unique:
-            same = np.linalg.norm(a - c) < 0.03 and np.linalg.norm(b - d) < 0.03
-            reverse = np.linalg.norm(a - d) < 0.03 and np.linalg.norm(b - c) < 0.03
-
-            if same or reverse:
-                duplicated = True
-                break
-
-        if not duplicated:
-            unique.append((a, b))
-
-    return unique
-
-
-def latch_hough_blocks(blocks):
-    global _last_hough_blocks, _last_hough_block_time
-
-    now = time.time()
-
-    if len(blocks) > 0:
-        _last_hough_blocks = blocks
-        _last_hough_block_time = now
-        return blocks
-
-    # 허프 검출은 라이다 노이즈 때문에 한두 프레임씩 끊길 수 있다.
-    # 그래서 직전에 막힌 구간은 0.6초 정도 유지한다.
-    if now - _last_hough_block_time <= HOUGH_BLOCK_LATCH_S:
-        return _last_hough_blocks
-
-    return []
-
-
-def apply_hough_blocks_to_ranges(angles_deg, ranges, block_segments):
-    if not block_segments:
-        return ranges, 0
-
-    working = ranges.copy()
-    blocked_bins = np.zeros(len(working), dtype=bool)
-
-    for a, b in block_segments:
-        length = float(np.linalg.norm(b - a))
-        if length < 0.02:
-            continue
-
-        steps = max(2, int(math.ceil(length / HOUGH_BLOCK_SAMPLE_STEP_M)) + 1)
-        samples = np.linspace(a, b, steps).astype(np.float32)
-
-        for p in samples:
-            x = float(p[0])
-            y = float(p[1])
-            r = math.hypot(x, y)
-
-            if r < HOUGH_BLOCK_MIN_RANGE_M or r > HOUGH_BLOCK_MAX_RANGE_M:
-                continue
-
-            angle = math.degrees(math.atan2(y, x))
-
-            if angle < FGM_MIN_ANGLE_DEG or angle > FGM_MAX_ANGLE_DEG:
-                continue
-
-            half_angle = (
-                math.degrees(math.atan2(HOUGH_BLOCK_MARGIN_M, max(r, MIN_LIDAR_DIST_M)))
-                + HOUGH_BLOCK_EXTRA_ANGLE_DEG
-            )
-
-            diff = normalize_angle_deg(angles_deg - angle)
-            block_mask = np.abs(diff) <= half_angle
-
-            # 여기서 0으로 만들어야 free_mask에서 후보 방향이 완전히 사라진다.
-            working[block_mask] = 0.0
-            blocked_bins |= block_mask
-
-    return working, int(np.count_nonzero(blocked_bins))
-
-
 def choose_fallback_target(angles_deg, ranges):
     usable = ranges > MIN_LIDAR_DIST_M
     if not usable.any():
@@ -724,15 +496,6 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
         smooth_ranges, counts
     )
 
-    # 허프변환으로 직선 검출 → 직선 끝 10cm 연장 → 다른 직선과 연결되면 가상 벽 처리
-    hough_lines = detect_hough_line_segments(points)
-    hough_blocks_raw = build_hough_extension_blocks(hough_lines)
-    hough_blocks = latch_hough_blocks(hough_blocks_raw)
-
-    bubble_ranges, hough_blocked_bins = apply_hough_blocks_to_ranges(
-        angles_deg, bubble_ranges, hough_blocks
-    )
-
     free_mask = bubble_ranges >= FGM_FREE_DIST
     gaps = filter_gaps_by_width(find_free_gaps(free_mask))
     has_safe_gap = len(gaps) > 0
@@ -742,24 +505,17 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
     )
 
     if target_idx < 0:
-        target_idx = choose_fallback_target(angles_deg, bubble_ranges)
+        target_idx = choose_fallback_target(angles_deg, smooth_ranges)
         best_gap = (target_idx, target_idx + 1)
         best_score = 0.0
 
     target_angle = math.radians(float(angles_deg[target_idx]))
     target_angle = float(np.clip(target_angle, -TURN_HARD_LIMIT_RAD, TURN_HARD_LIMIT_RAD))
-    target_dist = float(bubble_ranges[target_idx])
-
+    target_dist = float(smooth_ranges[target_idx])
     raw_w = float(np.clip(FGM_TURN_GAIN * target_angle, -MAX_ABS_W, MAX_ABS_W))
     urgent = front_dist < URGENT_FRONT_DIST or not has_safe_gap
-
     w = rate_limit_w(prev_w, raw_w, urgent=urgent)
     v = choose_speed(target_dist, target_angle, has_safe_gap)
-
-    # 가장 가까운 장애물이 로봇 충돌 거리 안쪽이면 후보 방향이 멀어도 정지
-    # 단, w는 그대로 보내서 제자리 회전으로 빠져나갈 수 있게 한다.
-    if closest_dist < CLOSEST_COLLISION_STOP_DIST:
-        v = 0.0
 
     gap_width = (best_gap[1] - best_gap[0]) * FGM_ANGLE_STEP_DEG
     gap_left = float(angles_deg[best_gap[1] - 1]) if best_gap[1] > best_gap[0] else 0.0
@@ -785,10 +541,6 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
         "collision": target_dist < COLLISION_DIST or closest_dist < COLLISION_DIST,
         "raw_w": raw_w,
         "has_safe_gap": has_safe_gap,
-        "hough_lines": len(hough_lines),
-        "hough_blocks": len(hough_blocks),
-        "hough_blocks_raw": len(hough_blocks_raw),
-        "hough_blocked_bins": hough_blocked_bins,
     }
 
 
@@ -820,6 +572,15 @@ def main():
     last_log = 0.0
     last_pose_time = time.time()
 
+    # ============================================================
+    # Recovery turn 상태 변수
+    # ============================================================
+    recovery_turn_active = False
+    recovery_turn_dir = 0.0
+    recovery_target_theta = 0.0
+    recovery_start_time = 0.0
+    # ============================================================
+
     try:
         while True:
             now = time.time()
@@ -843,11 +604,77 @@ def main():
                 continue
 
             last_scan_ok = time.time()
+
+            # 기본 FGM 명령 계산
             v, w, target_angle, info = choose_fgm_cmd(scan, last_w, last_target_angle, pose)
+
+            # ============================================================
+            # 안전한 gap이 없으면 처음 방향 기준으로 180도 제자리 회전
+            # ============================================================
+            recovery_remaining_deg = 0.0
+            recovery_mode_name = "FGM"
+
+            if RECOVERY_TURN_ENABLE:
+                # 아직 recovery 중이 아니고, 안전한 gap이 없으면 recovery 시작
+                if (not recovery_turn_active) and (not info["has_safe_gap"]):
+                    recovery_turn_dir = choose_initial_based_recovery_dir(pose.theta, last_w)
+                    recovery_target_theta = normalize_angle_rad(
+                        pose.theta + recovery_turn_dir * math.pi
+                    )
+                    recovery_start_time = time.time()
+                    recovery_turn_active = True
+
+                    if recovery_turn_dir > 0.0:
+                        print(
+                            "[RECOVERY] No safe gap. "
+                            "Initial 기준 왼쪽으로 휘어 있음 -> LEFT 180 turn start."
+                        )
+                    else:
+                        print(
+                            "[RECOVERY] No safe gap. "
+                            "Initial 기준 오른쪽으로 휘어 있음 -> RIGHT 180 turn start."
+                        )
+
+                # recovery 중이면 FGM 명령을 무시하고 제자리 회전 명령으로 덮어쓰기
+                if recovery_turn_active:
+                    err_to_target = angle_error_rad(recovery_target_theta, pose.theta)
+                    recovery_remaining_deg = abs(math.degrees(err_to_target))
+                    recovery_timeout = (time.time() - recovery_start_time) > RECOVERY_TURN_TIMEOUT_S
+
+                    if recovery_remaining_deg <= math.degrees(RECOVERY_TURN_TOL_RAD) or recovery_timeout:
+                        # 180도 회전 완료
+                        recovery_turn_active = False
+                        v = 0.0
+                        w = 0.0
+                        target_angle = 0.0
+                        recovery_mode_name = "RECOVERY_DONE"
+
+                        if recovery_timeout:
+                            print("[RECOVERY] 180 turn timeout. Stop recovery and return to FGM.")
+                        else:
+                            print("[RECOVERY] 180 turn complete. Return to FGM.")
+
+                    else:
+                        # 제자리 180도 회전
+                        v = 0.0
+                        target_w = recovery_turn_dir * RECOVERY_TURN_W
+                        target_w = float(np.clip(target_w, -MAX_ABS_W, MAX_ABS_W))
+                        w = rate_limit_w(last_w, target_w, urgent=True)
+                        target_angle = 0.0
+
+                        if recovery_turn_dir > 0.0:
+                            recovery_mode_name = "RECOVERY_LEFT_180"
+                        else:
+                            recovery_mode_name = "RECOVERY_RIGHT_180"
+            # ============================================================
+
             send_vw(v, w)
             pose.update(v, w, dt)
             last_v, last_w = v, w
-            last_target_angle = target_angle
+
+            # recovery 중에는 FGM target angle을 기억하지 않음
+            if not recovery_turn_active:
+                last_target_angle = target_angle
 
             gd = pose.goal_distance()
             he = goal_heading_error(pose.x, pose.y, pose.theta)
@@ -857,24 +684,33 @@ def main():
                 break
 
             if time.time() - last_log > 0.25:
-                print(
-                    f"[FGM] x={pose.x:.2f} y={pose.y:.2f} "
-                    f"th={pose.theta:.2f} gd={gd:.2f} he={he:.2f} "
-                    f"v={v:.2f} w={w:.2f} raw={info['raw_w']:.2f} "
-                    f"tgt={info['target_deg']:.1f} td={info['target_dist']:.2f} "
-                    f"front={info['front']:.2f} ff={info['front_factor']:.2f} "
-                    f"gap={info['gap_width']:.0f} "
-                    f"gr={info['gap_right']:.0f} gl={info['gap_left']:.0f} "
-                    f"gaps={info['gaps']} safe={int(info['has_safe_gap'])} "
-                    f"hl={info['hough_lines']} "
-                    f"hb={info['hough_blocks']} "
-                    f"rawhb={info['hough_blocks_raw']} "
-                    f"hbin={info['hough_blocked_bins']} "
-                    f"close={info['closest']:.2f}@{info['closest_angle']:.0f} "
-                    f"bb={info['bubble_bins']} score={info['score']:.2f} "
-                    f"pts={info['points']} coll={int(info['collision'])} "
-                    f"L={info['left']:.2f} R={info['right']:.2f}"
-                )
+                if recovery_turn_active:
+                    print(
+                        f"[{recovery_mode_name}] x={pose.x:.2f} y={pose.y:.2f} "
+                        f"th={math.degrees(pose.theta):.1f}deg "
+                        f"v={v:.2f} w={w:.2f} "
+                        f"remain={recovery_remaining_deg:.1f}deg "
+                        f"target_th={math.degrees(recovery_target_theta):.1f}deg "
+                        f"front={info['front']:.2f} "
+                        f"gaps={info['gaps']} safe={int(info['has_safe_gap'])} "
+                        f"close={info['closest']:.2f}@{info['closest_angle']:.0f} "
+                        f"L={info['left']:.2f} R={info['right']:.2f}"
+                    )
+                else:
+                    print(
+                        f"[FGM] x={pose.x:.2f} y={pose.y:.2f} "
+                        f"th={pose.theta:.2f} gd={gd:.2f} he={he:.2f} "
+                        f"v={v:.2f} w={w:.2f} raw={info['raw_w']:.2f} "
+                        f"tgt={info['target_deg']:.1f} td={info['target_dist']:.2f} "
+                        f"front={info['front']:.2f} ff={info['front_factor']:.2f} "
+                        f"gap={info['gap_width']:.0f} "
+                        f"gr={info['gap_right']:.0f} gl={info['gap_left']:.0f} "
+                        f"gaps={info['gaps']} safe={int(info['has_safe_gap'])} "
+                        f"close={info['closest']:.2f}@{info['closest_angle']:.0f} "
+                        f"bb={info['bubble_bins']} score={info['score']:.2f} "
+                        f"pts={info['points']} coll={int(info['collision'])} "
+                        f"L={info['left']:.2f} R={info['right']:.2f}"
+                    )
                 last_log = time.time()
 
             time.sleep(LOOP_DT_S)
