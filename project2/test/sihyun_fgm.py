@@ -72,14 +72,14 @@ RECOVERY_INITIAL_DEADBAND_RAD = math.radians(2.0)
 WALL_FOLLOW_ENABLE = True
 
 # 벽과 유지할 목표 거리
-WALL_TARGET_DIST = 0.20
+WALL_TARGET_DIST = 0.15
 
 # 벽 따라갈 때 전진 속도
 WALL_FOLLOW_V = 0.10
 WALL_SLOW_V = 0.06
 
 # 벽 거리 오차 보정 게인
-WALL_KP = 4.20
+WALL_KP = 8.8
 
 # 벽 따라가기 최대 회전속도
 WALL_MAX_W = 0.65
