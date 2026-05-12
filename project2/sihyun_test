@@ -60,27 +60,30 @@ AVOID_W = 0.55             # 장애물 가까울 때 회피 w
 STRONG_AVOID_W = 0.75      # 장애물 위험할 때 회피 w
 EMERGENCY_W = 0.90         # 장애물 매우 가까울 때 회피 w
 
-# 회전 리미트 제거
-# 기존 W_RATE_LIMIT, W_RATE_LIMIT_URGENT 사용하지 않음
+# =========================
+# 회전 변화량 제한 다시 추가
+# =========================
+W_RATE_LIMIT = 0.30        # 일반 상황에서 w 변화량 제한
+W_RATE_LIMIT_URGENT = 0.50 # 급한 상황에서 w 변화량 제한
 
 # =========================
 # 처음 방향 복귀 파라미터
 # =========================
-INITIAL_HEADING_RAD = 0.0          # 처음 출발 방향을 0도로 둠
-robot_heading = 0.0                # 현재 로봇 방향 추정값
+INITIAL_HEADING_RAD = 0.0
+robot_heading = 0.0
 
-HEADING_KP = 0.95                  # 처음 방향으로 복귀하려는 강도
-HEADING_MAX_W = 0.35               # 처음 방향 복귀용 최대 w
-HEADING_DEADBAND_RAD = math.radians(2.0)  # 2도 이내 오차는 무시
+HEADING_KP = 0.95
+HEADING_MAX_W = 0.35
+HEADING_DEADBAND_RAD = math.radians(2.0)
 
-SAFE_TOTAL_W_LIMIT = 0.45          # 전방 안전할 때 전체 w 제한
+SAFE_TOTAL_W_LIMIT = 0.45
 
 # =========================
 # 회피 방향 선택 파라미터
 # =========================
-SIDE_OPTION_DIST = 0.28            # 이 거리 이상이면 해당 방향으로 회피 가능
-AVOID_LOOKAHEAD_S = 0.70           # 회피 방향 선택 시 0.7초 뒤 방향 예측
-HEADING_CHOICE_MARGIN_RAD = math.radians(3.0)  # 3도 이내 차이는 비슷하다고 판단
+SIDE_OPTION_DIST = 0.28
+AVOID_LOOKAHEAD_S = 0.70
+HEADING_CHOICE_MARGIN_RAD = math.radians(3.0)
 
 
 # =========================
@@ -238,22 +241,15 @@ def choose_initial_front_avoid_w(left, right, abs_w):
     left_available = left >= SIDE_OPTION_DIST
     right_available = right >= SIDE_OPTION_DIST
 
-    # -------------------------
     # 1. 왼쪽만 회피 가능한 경우
-    # -------------------------
     if left_available and not right_available:
         return left_w, "LEFT_ONLY"
 
-    # -------------------------
     # 2. 오른쪽만 회피 가능한 경우
-    # -------------------------
     if right_available and not left_available:
         return right_w, "RIGHT_ONLY"
 
-    # -------------------------
-    # 3. 좌우 둘 다 가능하면
-    #    처음 로봇 앞 방향에 더 가까워지는 쪽 선택
-    # -------------------------
+    # 3. 좌우 둘 다 가능하면 처음 방향에 더 가까워지는 쪽 선택
     if left_available and right_available:
         pred_heading_left = normalize_angle_rad(
             robot_heading + left_w * AVOID_LOOKAHEAD_S
@@ -284,14 +280,27 @@ def choose_initial_front_avoid_w(left, right, abs_w):
             else:
                 return right_w, "RIGHT_MORE_OPEN"
 
-    # -------------------------
-    # 4. 좌우 둘 다 기준상 애매한 경우
-    #    그래도 더 넓은 쪽으로 회피
-    # -------------------------
+    # 4. 좌우 둘 다 기준상 애매하면 더 넓은 쪽으로 회피
     if left >= right:
         return left_w, "LEFT_WIDER"
     else:
         return right_w, "RIGHT_WIDER"
+
+
+# =========================
+# w 변화량 제한
+# =========================
+def rate_limit_w(prev_w, target_w, urgent=False):
+    limit = W_RATE_LIMIT_URGENT if urgent else W_RATE_LIMIT
+
+    delta = target_w - prev_w
+
+    if delta > limit:
+        delta = limit
+    elif delta < -limit:
+        delta = -limit
+
+    return prev_w + delta
 
 
 # =========================
@@ -367,11 +376,6 @@ def sector_min_distance(points, min_deg, max_deg):
 # 장애물 회피 알고리즘
 # v는 항상 0.18 고정
 # w만 변경해서 회피
-#
-# 수정 내용:
-# - 회피 시작 거리 증가
-# - 회전 리미트 제거
-# - target_w를 w에 바로 적용
 # =========================
 def choose_avoidance_cmd(points, prev_w):
     front = sector_min_distance(
@@ -462,10 +466,9 @@ def choose_avoidance_cmd(points, prev_w):
         urgent = True
 
     # =========================
-    # 회전 리미트 제거
-    # target_w를 그대로 w로 사용
+    # 회전 변화량 제한 적용
     # =========================
-    w = target_w
+    w = rate_limit_w(prev_w, target_w, urgent)
 
     info = {
         "front": front,
@@ -510,7 +513,7 @@ def main():
     print("[INFO] v is fixed at 0.18")
     print("[INFO] Avoidance is controlled only by w")
     print("[INFO] Front distances: SAFE=0.85, WARN=0.60, DANGER=0.40")
-    print("[INFO] W rate limit removed")
+    print("[INFO] W rate limit enabled")
     print("[INFO] Press Ctrl+C to stop")
 
     robot_heading = 0.0
