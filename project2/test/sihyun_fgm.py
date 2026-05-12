@@ -72,7 +72,7 @@ RECOVERY_INITIAL_DEADBAND_RAD = math.radians(2.0)
 WALL_FOLLOW_ENABLE = True
 
 # 벽과 유지할 목표 거리
-WALL_TARGET_DIST = 0.22
+WALL_TARGET_DIST = 0.15
 
 # 벽 따라갈 때 전진 속도
 WALL_FOLLOW_V = 0.10
