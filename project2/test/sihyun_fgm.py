@@ -61,7 +61,7 @@ RECOVERY_TURN_W = 0.90
 RECOVERY_TURN_ANGLE_RAD = math.radians(200.0)
 
 RECOVERY_TURN_TOL_RAD = math.radians(8.0)
-RECOVERY_TURN_TIMEOUT_S = 8.0
+RECOVERY_TURN_TIMEOUT_S = 15.0
 RECOVERY_INITIAL_DEADBAND_RAD = math.radians(2.0)
 # ============================================================
 
@@ -865,7 +865,7 @@ def main():
                 if (not recovery_turn_active) and (not info["has_safe_gap"]):
                     recovery_turn_dir = choose_initial_based_recovery_dir(pose.theta, last_w)
                     recovery_target_theta = normalize_angle_rad(
-                        pose.theta + recovery_turn_dir * math.pi
+                        pose.theta + recovery_turn_dir * RECOVERY_TURN_ANGLE_RAD
                     )
                     recovery_start_time = time.time()
                     recovery_turn_active = True
