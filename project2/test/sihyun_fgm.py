@@ -72,7 +72,7 @@ RECOVERY_INITIAL_DEADBAND_RAD = math.radians(2.0)
 WALL_FOLLOW_ENABLE = True
 
 # 벽과 유지할 목표 거리
-WALL_TARGET_DIST = 0.15
+WALL_TARGET_DIST = 0.20
 
 # 벽 따라갈 때 전진 속도
 WALL_FOLLOW_V = 0.10
@@ -94,7 +94,7 @@ WALL_MIN_TURN_W = 0.16
 # 라이다 기준 왼쪽/오른쪽 90도만 보고 벽 거리 계산
 LEFT_WALL_ANGLE_CENTER_DEG = 90.0
 RIGHT_WALL_ANGLE_CENTER_DEG = -90.0
-WALL_ANGLE_HALF_WIDTH_DEG = 5.0
+WALL_ANGLE_HALF_WIDTH_DEG = 1.0
 WALL_MIN_POINTS = 2
 
 # 벽 따라가기 중 정면 판단은 기존 FGM front보다 좁게 본다
