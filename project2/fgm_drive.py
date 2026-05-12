@@ -25,7 +25,7 @@ SCAN_HOLD_S = 0.30
 LOOP_DT_S = 0.05
 
 BASE_V = 0.18
-MIN_V = 0.1
+MIN_V = 0.15
 MAX_ABS_W = 0.70
 
 ROBOT_RADIUS = 0.16
@@ -54,16 +54,12 @@ FGM_BUBBLE_RADIUS = ROBOT_RADIUS + FGM_SAFETY_MARGIN
 FGM_FREE_DIST = COLLISION_DIST + 0.04
 FGM_MIN_GAP_WIDTH_DEG = 8.0
 FGM_TURN_GAIN = 1.05
-FGM_PREV_TARGET_WEIGHT = 0.90
+FGM_PREV_TARGET_WEIGHT = 0.45
 FGM_GOAL_WEIGHT_SAFE = 1.00
 FGM_GOAL_WEIGHT_DANGER = 0.30
 FGM_STRAIGHT_WEIGHT = 0.70
 FGM_CLEARANCE_WEIGHT = 1.80
 FGM_EDGE_WEIGHT = 0.85
-FGM_TARGET_RATE_LIMIT_DEG = 18.0
-FGM_TARGET_RATE_LIMIT_URGENT_DEG = 30.0
-FGM_CLOSE_SLOW_DIST = COLLISION_DIST + 0.15
-FGM_CLOSE_MIN_V = 0.08
 
 
 def normalize_angle_deg(angle):
@@ -421,27 +417,13 @@ def choose_fallback_target(angles_deg, ranges):
     return int(np.argmax(usable_ranges))
 
 
-def angle_to_grid_index(angle_rad, n_angles):
-    angle_deg = math.degrees(angle_rad)
-    idx = int(round((angle_deg - FGM_MIN_ANGLE_DEG) / FGM_ANGLE_STEP_DEG))
-    return int(np.clip(idx, 0, n_angles - 1))
-
-
-def rate_limit_target_angle(prev_angle, target_angle, urgent=False):
-    limit_deg = FGM_TARGET_RATE_LIMIT_URGENT_DEG if urgent else FGM_TARGET_RATE_LIMIT_DEG
-    limit_rad = math.radians(limit_deg)
-    delta = angle_error_rad(target_angle, prev_angle)
-    delta = float(np.clip(delta, -limit_rad, limit_rad))
-    return normalize_angle_rad(prev_angle + delta)
-
-
 def rate_limit_w(prev_w, target_w, urgent=False):
     limit = W_CMD_RATE_LIMIT_URGENT if urgent else W_CMD_RATE_LIMIT
     delta = float(np.clip(target_w - prev_w, -limit, limit))
     return prev_w + delta
 
 
-def choose_speed(target_dist, closest_dist, target_angle, has_safe_gap):
+def choose_speed(target_dist, target_angle, has_safe_gap):
     if not has_safe_gap:
         return 0.0
 
@@ -459,16 +441,6 @@ def choose_speed(target_dist, closest_dist, target_angle, has_safe_gap):
 
     if target_dist < COLLISION_DIST:
         v = 0.0
-
-    if closest_dist < FGM_CLOSE_SLOW_DIST:
-        near_ratio = np.clip(
-            (closest_dist - COLLISION_DIST)
-            / max(1e-6, FGM_CLOSE_SLOW_DIST - COLLISION_DIST),
-            0.0,
-            1.0,
-        )
-        close_cap = FGM_CLOSE_MIN_V + (BASE_V - FGM_CLOSE_MIN_V) * float(near_ratio)
-        v = min(v, close_cap)
 
     return float(np.clip(v, 0.0, BASE_V))
 
@@ -498,27 +470,13 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
         best_gap = (target_idx, target_idx + 1)
         best_score = 0.0
 
-    raw_target_angle = math.radians(float(angles_deg[target_idx]))
-    raw_target_angle = float(
-        np.clip(raw_target_angle, -TURN_HARD_LIMIT_RAD, TURN_HARD_LIMIT_RAD)
-    )
-    urgent = (
-        front_dist < URGENT_FRONT_DIST
-        or closest_dist < COLLISION_DIST
-        or not has_safe_gap
-    )
-    target_angle = rate_limit_target_angle(
-        prev_target_angle, raw_target_angle, urgent=urgent
-    )
-    limited_target_idx = angle_to_grid_index(target_angle, len(angles_deg))
-    if bubble_ranges[limited_target_idx] >= FGM_FREE_DIST:
-        target_idx = limited_target_idx
-    else:
-        target_angle = raw_target_angle
+    target_angle = math.radians(float(angles_deg[target_idx]))
+    target_angle = float(np.clip(target_angle, -TURN_HARD_LIMIT_RAD, TURN_HARD_LIMIT_RAD))
     target_dist = float(smooth_ranges[target_idx])
     raw_w = float(np.clip(FGM_TURN_GAIN * target_angle, -MAX_ABS_W, MAX_ABS_W))
+    urgent = front_dist < URGENT_FRONT_DIST or not has_safe_gap
     w = rate_limit_w(prev_w, raw_w, urgent=urgent)
-    v = choose_speed(target_dist, closest_dist, target_angle, has_safe_gap)
+    v = choose_speed(target_dist, target_angle, has_safe_gap)
 
     gap_width = (best_gap[1] - best_gap[0]) * FGM_ANGLE_STEP_DEG
     gap_left = float(angles_deg[best_gap[1] - 1]) if best_gap[1] > best_gap[0] else 0.0
