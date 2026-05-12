@@ -7,7 +7,6 @@ import math
 import numpy as np
 
 
-
 # =========================
 # 통신 규격 유지
 # =========================
@@ -47,8 +46,8 @@ BASE_V = 0.18              # 직진 속도 고정
 # 장애물 회피 파라미터
 # =========================
 FRONT_SAFE_DIST = 0.60     # 60cm보다 멀면 w = 0
-FRONT_WARN_DIST = 0.40     # 로그/모드 구분용
-FRONT_DANGER_DIST = 0.30   # 15cm 이하이면 abs(w) = 0.90
+FRONT_WARN_DIST = 0.45     # 로그/모드 구분용
+FRONT_DANGER_DIST = 0.30   # 30cm 이하이면 abs(w) = 0.90
 
 FRONT_ANGLE_DEG = 25       # 정면 판단 각도: -25도 ~ +25도
 SIDE_MIN_DEG = 30          # 좌우 판단 시작 각도
@@ -64,7 +63,7 @@ MIN_AVOID_W = 0.00         # 완전 비례 방식
 # 회전 변화량 제한
 # =========================
 W_RATE_LIMIT = 0.30        # 일반 상황에서 w 변화량 제한
-W_RATE_LIMIT_URGENT = 0.50 # 급한 상황에서 w 변화량 제한
+W_RATE_LIMIT_URGENT = 0.40 # 급한 상황에서 w 변화량 제한
 
 # =========================
 # 처음 방향 복귀 파라미터
@@ -81,7 +80,7 @@ HEADING_DEADBAND_RAD = math.radians(2.0)
 # =========================
 # 회피 방향 선택 파라미터
 # =========================
-SIDE_OPTION_DIST = 0.28
+SIDE_OPTION_DIST = 0.15
 AVOID_LOOKAHEAD_S = 0.70
 HEADING_CHOICE_MARGIN_RAD = math.radians(3.0)
 
@@ -228,10 +227,10 @@ def compute_proportional_avoid_w(front):
     front > 0.60m:
         abs_w = 0.0
 
-    0.15m < front <= 0.60m:
+    0.30m < front <= 0.60m:
         front가 가까워질수록 abs_w가 선형 증가
 
-    front <= 0.15m:
+    front <= 0.30m:
         abs_w = 0.90
     """
 
@@ -239,11 +238,11 @@ def compute_proportional_avoid_w(front):
     if front > FRONT_SAFE_DIST:
         return 0.0
 
-    # 15cm 이하이면 최대 회피
+    # 30cm 이하이면 최대 회피
     if front <= FRONT_DANGER_DIST:
         return MAX_AVOID_W
 
-    # 15cm ~ 60cm 사이에서 비례 계산
+    # 30cm ~ 60cm 사이에서 비례 계산
     ratio = (FRONT_SAFE_DIST - front) / max(
         1e-6,
         FRONT_SAFE_DIST - FRONT_DANGER_DIST
@@ -334,10 +333,27 @@ def choose_initial_front_avoid_w(left, right, abs_w):
 
 # =========================
 # w 변화량 제한
+# 방향이 반대로 바뀔 때는 먼저 0.0을 찍고,
+# 다음 루프부터 새 방향으로 리미트 제한을 걸어 증가
 # =========================
 def rate_limit_w(prev_w, target_w, urgent=False):
     limit = W_RATE_LIMIT_URGENT if urgent else W_RATE_LIMIT
 
+    ZERO_EPS = 1e-3
+
+    # -------------------------
+    # 회전 방향이 반대로 바뀌는 경우
+    # 예:
+    # prev_w = -0.90, target_w = +0.90
+    # 바로 +0.90으로 가지 않고 먼저 0.0 반환
+    # -------------------------
+    if abs(prev_w) > ZERO_EPS and abs(target_w) > ZERO_EPS:
+        if prev_w * target_w < 0:
+            return 0.0
+
+    # -------------------------
+    # 일반적인 변화량 제한
+    # -------------------------
     delta = target_w - prev_w
 
     if delta > limit:
@@ -456,7 +472,7 @@ def choose_avoidance_cmd(points, prev_w):
         abs_w = 0.0
 
     # -------------------------
-    # 2. 전방 장애물이 15cm ~ 60cm 사이 또는 15cm 이하
+    # 2. 전방 장애물이 30cm ~ 60cm 사이 또는 30cm 이하
     #    → front 거리에 비례해서 회피 w 계산
     # -------------------------
     else:
@@ -480,7 +496,8 @@ def choose_avoidance_cmd(points, prev_w):
 
     # =========================
     # 회전 변화량 제한 적용
-    # 단, front > 60cm이면 사용자가 요청한 대로 실제 w도 바로 0으로 만듦
+    # 방향 전환 시에는 rate_limit_w 안에서 먼저 0.0을 찍고 넘어감
+    # 단, front > 60cm이면 실제 w도 바로 0으로 만듦
     # =========================
     if front > FRONT_SAFE_DIST:
         w = 0.0
@@ -530,8 +547,9 @@ def main():
     print("[INFO] Start LiDAR obstacle avoidance")
     print("[INFO] v is fixed at 0.18")
     print("[INFO] if front > 0.60m, w = 0")
-    print("[INFO] if 0.15m < front <= 0.60m, abs(w) is proportional")
-    print("[INFO] if front <= 0.15m, abs(w) = 0.90")
+    print("[INFO] if 0.30m < front <= 0.60m, abs(w) is proportional")
+    print("[INFO] if front <= 0.30m, abs(w) = 0.90")
+    print("[INFO] reverse turn direction passes through w = 0.0")
     print("[INFO] Press Ctrl+C to stop")
 
     robot_heading = 0.0
