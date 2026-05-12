@@ -45,6 +45,17 @@ GOAL_TOL_M = 0.15
 TURN_SOFT_LIMIT_RAD = math.radians(70.0)
 TURN_HARD_LIMIT_RAD = math.radians(80.0)
 
+# ============================================================
+# 안전한 gap이 없을 때 처음 방향 기준 180도 회전 Recovery 설정
+# ============================================================
+INITIAL_HEADING_RAD = 0.0             # 시작 방향 기준. pose.reset() 후 theta=0
+RECOVERY_TURN_ENABLE = True
+RECOVERY_TURN_W = 0.45                # 180도 제자리 회전 속도. 너무 느리면 0.55 정도까지 가능
+RECOVERY_TURN_TOL_RAD = math.radians(8.0)   # 목표 180도에서 이 각도 안에 들어오면 회전 완료
+RECOVERY_TURN_TIMEOUT_S = 8.0         # 회전이 너무 오래 걸릴 때 강제 종료
+RECOVERY_INITIAL_DEADBAND_RAD = math.radians(2.0)
+# ============================================================
+
 FGM_MIN_ANGLE_DEG = -90.0
 FGM_MAX_ANGLE_DEG = 90.0
 FGM_ANGLE_STEP_DEG = 1.0
@@ -62,43 +73,6 @@ FGM_CLEARANCE_WEIGHT = 1.80
 FGM_EDGE_WEIGHT = 0.85
 
 
-# =========================
-# SIDE TRAP / POCKET BLOCK
-# 벽과 장애물 사이의 좁은 함정 구간으로 들어가는 것을 방지
-# =========================
-SIDE_TRAP_ENABLE = True
-
-# 함정이 감지되면 이 각도 이상 방향은 후보에서 제거
-# 좌측 함정이면 +8도 이상 제거, 우측 함정이면 -8도 이하 제거
-SIDE_TRAP_BLOCK_ANGLE_DEG = 8.0
-
-# 함정 감지에 사용할 전방 거리 범위
-SIDE_TRAP_X_MIN = 0.10
-SIDE_TRAP_X_MAX = 1.20
-
-# 좌우 방향에서 장애물/벽을 볼 y 범위
-SIDE_TRAP_Y_MIN = 0.05
-SIDE_TRAP_Y_MAX = 1.20
-
-# 장애물로 볼 안쪽 영역
-SIDE_TRAP_INNER_Y_MAX = 0.50
-
-# 벽으로 볼 바깥쪽 영역
-SIDE_TRAP_WALL_Y_MIN = 0.45
-SIDE_TRAP_WALL_Y_MAX = 1.20
-
-# 장애물이 앞뒤로 2개 이상 있는지 확인하기 위한 x 분리 기준
-SIDE_TRAP_NEAR_X_MAX = 0.55
-SIDE_TRAP_FAR_X_MIN = 0.45
-
-# 최소 점 개수
-SIDE_TRAP_MIN_OBS_POINTS = 4
-SIDE_TRAP_MIN_WALL_POINTS = 8
-
-# 벽은 어느 정도 길게 보여야 벽으로 인정
-SIDE_TRAP_WALL_MIN_X_SPAN = 0.45
-
-
 def normalize_angle_deg(angle):
     return (angle + 180.0) % 360.0 - 180.0
 
@@ -109,6 +83,34 @@ def normalize_angle_rad(angle):
 
 def angle_error_rad(a, b):
     return normalize_angle_rad(a - b)
+
+
+def choose_initial_based_recovery_dir(theta, prev_w=0.0):
+    """
+    처음 방향 INITIAL_HEADING_RAD 기준으로 현재 로봇이 어느 쪽으로 휘었는지 판단한다.
+
+    theta > 0  : 처음 방향 기준 왼쪽으로 휘어 있음 -> 왼쪽 180도 회전
+    theta < 0  : 처음 방향 기준 오른쪽으로 휘어 있음 -> 오른쪽 180도 회전
+
+    반환값:
+    +1.0 : 왼쪽 회전
+    -1.0 : 오른쪽 회전
+    """
+    heading_from_initial = normalize_angle_rad(theta - INITIAL_HEADING_RAD)
+
+    if heading_from_initial > RECOVERY_INITIAL_DEADBAND_RAD:
+        return +1.0
+    if heading_from_initial < -RECOVERY_INITIAL_DEADBAND_RAD:
+        return -1.0
+
+    # 거의 정면이면 직전 회전 방향을 따라감
+    if prev_w > 0.0:
+        return +1.0
+    if prev_w < 0.0:
+        return -1.0
+
+    # 완전히 애매하면 기본 왼쪽
+    return +1.0
 
 
 class RobotPose:
@@ -383,94 +385,6 @@ def filter_gaps_by_width(gaps):
     return [(start, end) for start, end in gaps if end - start >= min_bins]
 
 
-def detect_side_trap(points, side_sign):
-    """
-    side_sign = +1 : 좌측 검사
-    side_sign = -1 : 우측 검사
-
-    조건:
-    - 같은 방향에 벽처럼 긴 점들이 있고
-    - 안쪽 장애물이 앞쪽/뒤쪽 두 구간에 나뉘어 있으면
-    - 벽과 장애물 사이의 함정 구간으로 판단
-    """
-    if len(points) == 0:
-        return False
-
-    x = points[:, 0]
-    y = points[:, 1] * side_sign
-
-    roi = (
-        (x >= SIDE_TRAP_X_MIN)
-        & (x <= SIDE_TRAP_X_MAX)
-        & (y >= SIDE_TRAP_Y_MIN)
-        & (y <= SIDE_TRAP_Y_MAX)
-    )
-
-    if not roi.any():
-        return False
-
-    xr = x[roi]
-    yr = y[roi]
-
-    # 안쪽 장애물 영역
-    inner_obs = (
-        (yr >= SIDE_TRAP_Y_MIN)
-        & (yr <= SIDE_TRAP_INNER_Y_MAX)
-    )
-
-    # 가까운 장애물 구간
-    near_obs = inner_obs & (xr <= SIDE_TRAP_NEAR_X_MAX)
-
-    # 먼 장애물 구간
-    far_obs = inner_obs & (xr >= SIDE_TRAP_FAR_X_MIN)
-
-    # 바깥쪽 벽 영역
-    wall = (
-        (yr >= SIDE_TRAP_WALL_Y_MIN)
-        & (yr <= SIDE_TRAP_WALL_Y_MAX)
-    )
-
-    near_count = int(np.count_nonzero(near_obs))
-    far_count = int(np.count_nonzero(far_obs))
-    wall_count = int(np.count_nonzero(wall))
-
-    if wall_count < SIDE_TRAP_MIN_WALL_POINTS:
-        return False
-
-    if near_count < SIDE_TRAP_MIN_OBS_POINTS:
-        return False
-
-    if far_count < SIDE_TRAP_MIN_OBS_POINTS:
-        return False
-
-    wall_x_span = float(np.max(xr[wall]) - np.min(xr[wall]))
-    if wall_x_span < SIDE_TRAP_WALL_MIN_X_SPAN:
-        return False
-
-    return True
-
-
-def apply_side_trap_block(angles_deg, free_mask, left_trap, right_trap):
-    """
-    함정이 감지된 방향의 각도 후보를 제거한다.
-    좌측 함정: +각도 제거
-    우측 함정: -각도 제거
-    """
-    blocked_mask = free_mask.copy()
-
-    if left_trap:
-        blocked_mask[angles_deg >= SIDE_TRAP_BLOCK_ANGLE_DEG] = False
-
-    if right_trap:
-        blocked_mask[angles_deg <= -SIDE_TRAP_BLOCK_ANGLE_DEG] = False
-
-    # 모든 방향이 막혀버리면 완전 정지/멈칫을 막기 위해 기존 free_mask 유지
-    if not blocked_mask.any():
-        return free_mask
-
-    return blocked_mask
-
-
 def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, front_factor):
     if not gaps:
         return -1, (0, 0), -float("inf")
@@ -583,21 +497,6 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
     )
 
     free_mask = bubble_ranges >= FGM_FREE_DIST
-
-    left_trap = False
-    right_trap = False
-
-    if SIDE_TRAP_ENABLE:
-        left_trap = detect_side_trap(points, +1)
-        right_trap = detect_side_trap(points, -1)
-
-        free_mask = apply_side_trap_block(
-            angles_deg,
-            free_mask,
-            left_trap,
-            right_trap
-        )
-
     gaps = filter_gaps_by_width(find_free_gaps(free_mask))
     has_safe_gap = len(gaps) > 0
 
@@ -642,8 +541,6 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
         "collision": target_dist < COLLISION_DIST or closest_dist < COLLISION_DIST,
         "raw_w": raw_w,
         "has_safe_gap": has_safe_gap,
-        "left_trap": left_trap,
-        "right_trap": right_trap,
     }
 
 
@@ -675,6 +572,15 @@ def main():
     last_log = 0.0
     last_pose_time = time.time()
 
+    # ============================================================
+    # Recovery turn 상태 변수
+    # ============================================================
+    recovery_turn_active = False
+    recovery_turn_dir = 0.0
+    recovery_target_theta = 0.0
+    recovery_start_time = 0.0
+    # ============================================================
+
     try:
         while True:
             now = time.time()
@@ -698,11 +604,77 @@ def main():
                 continue
 
             last_scan_ok = time.time()
+
+            # 기본 FGM 명령 계산
             v, w, target_angle, info = choose_fgm_cmd(scan, last_w, last_target_angle, pose)
+
+            # ============================================================
+            # 안전한 gap이 없으면 처음 방향 기준으로 180도 제자리 회전
+            # ============================================================
+            recovery_remaining_deg = 0.0
+            recovery_mode_name = "FGM"
+
+            if RECOVERY_TURN_ENABLE:
+                # 아직 recovery 중이 아니고, 안전한 gap이 없으면 recovery 시작
+                if (not recovery_turn_active) and (not info["has_safe_gap"]):
+                    recovery_turn_dir = choose_initial_based_recovery_dir(pose.theta, last_w)
+                    recovery_target_theta = normalize_angle_rad(
+                        pose.theta + recovery_turn_dir * math.pi
+                    )
+                    recovery_start_time = time.time()
+                    recovery_turn_active = True
+
+                    if recovery_turn_dir > 0.0:
+                        print(
+                            "[RECOVERY] No safe gap. "
+                            "Initial 기준 왼쪽으로 휘어 있음 -> LEFT 180 turn start."
+                        )
+                    else:
+                        print(
+                            "[RECOVERY] No safe gap. "
+                            "Initial 기준 오른쪽으로 휘어 있음 -> RIGHT 180 turn start."
+                        )
+
+                # recovery 중이면 FGM 명령을 무시하고 제자리 회전 명령으로 덮어쓰기
+                if recovery_turn_active:
+                    err_to_target = angle_error_rad(recovery_target_theta, pose.theta)
+                    recovery_remaining_deg = abs(math.degrees(err_to_target))
+                    recovery_timeout = (time.time() - recovery_start_time) > RECOVERY_TURN_TIMEOUT_S
+
+                    if recovery_remaining_deg <= math.degrees(RECOVERY_TURN_TOL_RAD) or recovery_timeout:
+                        # 180도 회전 완료
+                        recovery_turn_active = False
+                        v = 0.0
+                        w = 0.0
+                        target_angle = 0.0
+                        recovery_mode_name = "RECOVERY_DONE"
+
+                        if recovery_timeout:
+                            print("[RECOVERY] 180 turn timeout. Stop recovery and return to FGM.")
+                        else:
+                            print("[RECOVERY] 180 turn complete. Return to FGM.")
+
+                    else:
+                        # 제자리 180도 회전
+                        v = 0.0
+                        target_w = recovery_turn_dir * RECOVERY_TURN_W
+                        target_w = float(np.clip(target_w, -MAX_ABS_W, MAX_ABS_W))
+                        w = rate_limit_w(last_w, target_w, urgent=True)
+                        target_angle = 0.0
+
+                        if recovery_turn_dir > 0.0:
+                            recovery_mode_name = "RECOVERY_LEFT_180"
+                        else:
+                            recovery_mode_name = "RECOVERY_RIGHT_180"
+            # ============================================================
+
             send_vw(v, w)
             pose.update(v, w, dt)
             last_v, last_w = v, w
-            last_target_angle = target_angle
+
+            # recovery 중에는 FGM target angle을 기억하지 않음
+            if not recovery_turn_active:
+                last_target_angle = target_angle
 
             gd = pose.goal_distance()
             he = goal_heading_error(pose.x, pose.y, pose.theta)
@@ -712,21 +684,33 @@ def main():
                 break
 
             if time.time() - last_log > 0.25:
-                print(
-                    f"[FGM] x={pose.x:.2f} y={pose.y:.2f} "
-                    f"th={pose.theta:.2f} gd={gd:.2f} he={he:.2f} "
-                    f"v={v:.2f} w={w:.2f} raw={info['raw_w']:.2f} "
-                    f"tgt={info['target_deg']:.1f} td={info['target_dist']:.2f} "
-                    f"front={info['front']:.2f} ff={info['front_factor']:.2f} "
-                    f"gap={info['gap_width']:.0f} "
-                    f"gr={info['gap_right']:.0f} gl={info['gap_left']:.0f} "
-                    f"gaps={info['gaps']} safe={int(info['has_safe_gap'])} "
-                    f"close={info['closest']:.2f}@{info['closest_angle']:.0f} "
-                    f"bb={info['bubble_bins']} score={info['score']:.2f} "
-                    f"pts={info['points']} coll={int(info['collision'])} "
-                    f"L={info['left']:.2f} R={info['right']:.2f} "
-                    f"LT={int(info['left_trap'])} RT={int(info['right_trap'])}"
-                )
+                if recovery_turn_active:
+                    print(
+                        f"[{recovery_mode_name}] x={pose.x:.2f} y={pose.y:.2f} "
+                        f"th={math.degrees(pose.theta):.1f}deg "
+                        f"v={v:.2f} w={w:.2f} "
+                        f"remain={recovery_remaining_deg:.1f}deg "
+                        f"target_th={math.degrees(recovery_target_theta):.1f}deg "
+                        f"front={info['front']:.2f} "
+                        f"gaps={info['gaps']} safe={int(info['has_safe_gap'])} "
+                        f"close={info['closest']:.2f}@{info['closest_angle']:.0f} "
+                        f"L={info['left']:.2f} R={info['right']:.2f}"
+                    )
+                else:
+                    print(
+                        f"[FGM] x={pose.x:.2f} y={pose.y:.2f} "
+                        f"th={pose.theta:.2f} gd={gd:.2f} he={he:.2f} "
+                        f"v={v:.2f} w={w:.2f} raw={info['raw_w']:.2f} "
+                        f"tgt={info['target_deg']:.1f} td={info['target_dist']:.2f} "
+                        f"front={info['front']:.2f} ff={info['front_factor']:.2f} "
+                        f"gap={info['gap_width']:.0f} "
+                        f"gr={info['gap_right']:.0f} gl={info['gap_left']:.0f} "
+                        f"gaps={info['gaps']} safe={int(info['has_safe_gap'])} "
+                        f"close={info['closest']:.2f}@{info['closest_angle']:.0f} "
+                        f"bb={info['bubble_bins']} score={info['score']:.2f} "
+                        f"pts={info['points']} coll={int(info['collision'])} "
+                        f"L={info['left']:.2f} R={info['right']:.2f}"
+                    )
                 last_log = time.time()
 
             time.sleep(LOOP_DT_S)
