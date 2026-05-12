@@ -2,6 +2,7 @@
 
 import serial
 import time
+import math
 import threading
 import numpy as np
 import matplotlib.pyplot as plt
@@ -10,7 +11,6 @@ import matplotlib.pyplot as plt
 # =========================
 # 라이다 설정
 # =========================
-
 LIDAR_PORT = "/dev/ttyUSB0"
 LIDAR_BAUD = 460800
 
@@ -19,12 +19,10 @@ DIST_OFFSET_MM = 0.0
 LIDAR_ANGLE_SIGN = -1.0
 
 MIN_LIDAR_DIST_M = 0.05
-MAX_LIDAR_DIST_M = 2.0
+MAX_LIDAR_DIST_M = 2.0     # 최대 표시 거리 2m
 MIN_QUALITY = 1
 
-# 화면 업데이트 속도
-DISPLAY_SLEEP_S = 0.005       # 작을수록 화면 갱신 빠름
-PUBLISH_INTERVAL_S = 0.02     # 라이다 데이터 갱신 주기, 0.02 = 약 50Hz
+PLOT_INTERVAL = 0.02       # 화면 업데이트 간격. 작을수록 빠름
 
 
 def normalize_angle_deg(angle):
@@ -33,12 +31,14 @@ def normalize_angle_deg(angle):
 
 class RPLidarC1:
     def __init__(self, port, baud):
-        self.ser = serial.Serial(port, baud, timeout=0.01)
+        self.ser = serial.Serial(port, baud, timeout=0.1)
 
+        # Reset
         self.ser.write(bytes([0xA5, 0x40]))
         time.sleep(2.0)
         self.ser.reset_input_buffer()
 
+        # Start scan
         self.ser.write(bytes([0xA5, 0x20]))
         header = self.ser.read(7)
 
@@ -53,20 +53,8 @@ class RPLidarC1:
         self.thread = threading.Thread(target=self._loop, daemon=True)
         self.thread.start()
 
-    def _publish_scan(self, buf_a, buf_d, buf_q):
-        if len(buf_a) < 10:
-            return
-
-        with self.lock:
-            self.latest_scan = (
-                np.array(buf_a, dtype=np.float32),
-                np.array(buf_d, dtype=np.float32),
-                np.array(buf_q, dtype=np.float32),
-            )
-
     def _loop(self):
         buf_a, buf_d, buf_q = [], [], []
-        last_publish = time.time()
 
         while self.running:
             try:
@@ -88,25 +76,26 @@ class RPLidarC1:
                 angle = ((data[1] >> 1) | (data[2] << 7)) / 64.0
                 dist = (data[3] | (data[4] << 8)) / 4.0
 
-                # 한 바퀴가 새로 시작되면 기존 버퍼 초기화
+                # 새 회전 시작
                 if s_flag == 1 and len(buf_a) > 50:
-                    self._publish_scan(buf_a, buf_d, buf_q)
+                    with self.lock:
+                        self.latest_scan = (
+                            np.array(buf_a, dtype=np.float32),
+                            np.array(buf_d, dtype=np.float32),
+                            np.array(buf_q, dtype=np.float32),
+                        )
+
                     buf_a, buf_d, buf_q = [], [], []
 
-                if dist > 0 and quality >= MIN_QUALITY:
+                if dist > 0 and quality > 0:
                     buf_a.append(angle)
                     buf_d.append(dist)
                     buf_q.append(quality)
 
-                # 한 바퀴를 다 기다리지 않고 중간 데이터도 계속 publish
-                now = time.time()
-                if now - last_publish >= PUBLISH_INTERVAL_S:
-                    self._publish_scan(buf_a, buf_d, buf_q)
-                    last_publish = now
-
             except (serial.SerialException, OSError) as e:
                 print(f"[LIDAR] Serial Error: {e}")
-                time.sleep(0.5)
+                time.sleep(1.0)
+
                 try:
                     self.ser.reset_input_buffer()
                 except Exception:
@@ -120,6 +109,7 @@ class RPLidarC1:
         self.running = False
 
         try:
+            # Stop scan
             self.ser.write(bytes([0xA5, 0x25]))
         except Exception:
             pass
@@ -129,6 +119,13 @@ class RPLidarC1:
 
 
 def scan_to_xy(scan):
+    """
+    라이다 scan 값을 x, y 좌표로 변환
+    x > 0 : 로봇 앞쪽
+    y > 0 : 로봇 왼쪽
+    y < 0 : 로봇 오른쪽
+    """
+
     if scan is None:
         return np.empty((0, 2), dtype=np.float32)
 
@@ -158,23 +155,20 @@ def scan_to_xy(scan):
 
 
 def main():
-    print("[INFO] Fast Lidar Visualizer Start")
-    print("[INFO] Max distance = 2.0 m")
-    print("[INFO] Press Ctrl+C or close window to stop.")
-
     lidar = RPLidarC1(LIDAR_PORT, LIDAR_BAUD)
 
-    plt.ion()
+    print("[INFO] Lidar visualization started.")
+    print("[INFO] Press Ctrl+C to stop.")
 
+    plt.ion()
     fig, ax = plt.subplots(figsize=(7, 7))
 
-    # scatter보다 plot marker가 훨씬 빠름
-    line, = ax.plot([], [], linestyle="", marker=".", markersize=2)
+    scatter = ax.scatter([], [], s=8)
 
-    # 로봇 위치
-    ax.plot([0], [0], marker="o", markersize=8)
+    # 로봇 위치 표시
+    robot_dot = ax.scatter([0], [0], s=80, marker="o")
 
-    # 전방 화살표
+    # 전방 방향 표시
     ax.arrow(
         0,
         0,
@@ -185,57 +179,49 @@ def main():
         length_includes_head=True,
     )
 
-    ax.set_title("Fast RPLidar Visualizer - Max 2m")
-    ax.set_xlabel("X forward [m]")
-    ax.set_ylabel("Y left/right [m]")
-
-    ax.set_xlim(-2.1, 2.1)
-    ax.set_ylim(-2.1, 2.1)
+    ax.set_xlim(-MAX_LIDAR_DIST_M, MAX_LIDAR_DIST_M)
+    ax.set_ylim(-MAX_LIDAR_DIST_M, MAX_LIDAR_DIST_M)
     ax.set_aspect("equal", adjustable="box")
     ax.grid(True)
 
-    fig.canvas.draw()
+    ax.set_title("RPLidar Live XY Visualization")
+    ax.set_xlabel("X meter : front +")
+    ax.set_ylabel("Y meter : left + / right -")
 
-    # blit용 배경 저장
-    use_blit = fig.canvas.supports_blit
-    background = None
-
-    if use_blit:
-        background = fig.canvas.copy_from_bbox(ax.bbox)
-
-    last_print = time.time()
+    # 거리 원 표시
+    for r in np.arange(0.5, MAX_LIDAR_DIST_M + 0.01, 0.5):
+        circle = plt.Circle((0, 0), r, fill=False, linestyle="--", alpha=0.3)
+        ax.add_patch(circle)
 
     try:
-        while plt.fignum_exists(fig.number):
+        while True:
             scan = lidar.get_scan()
             points = scan_to_xy(scan)
 
             if len(points) > 0:
-                line.set_data(points[:, 0], points[:, 1])
+                scatter.set_offsets(points)
+
+                print(
+                    f"[LIDAR] points={len(points)} "
+                    f"min_dist={np.min(np.hypot(points[:, 0], points[:, 1])):.2f}m "
+                    f"max_dist={np.max(np.hypot(points[:, 0], points[:, 1])):.2f}m"
+                )
+
             else:
-                line.set_data([], [])
+                scatter.set_offsets(np.empty((0, 2)))
 
-            if use_blit:
-                fig.canvas.restore_region(background)
-                ax.draw_artist(line)
-                fig.canvas.blit(ax.bbox)
-                fig.canvas.flush_events()
-            else:
-                fig.canvas.draw_idle()
-                fig.canvas.flush_events()
+            fig.canvas.draw()
+            fig.canvas.flush_events()
 
-            if time.time() - last_print > 0.5:
-                print(f"[SCAN] points={len(points)}")
-                last_print = time.time()
-
-            time.sleep(DISPLAY_SLEEP_S)
+            time.sleep(PLOT_INTERVAL)
 
     except KeyboardInterrupt:
-        print("\n[INFO] KeyboardInterrupt")
+        print("\n[INFO] Stopping...")
 
     finally:
         lidar.close()
-        plt.close(fig)
+        plt.ioff()
+        plt.close()
         print("[INFO] Shutdown complete.")
 
 
