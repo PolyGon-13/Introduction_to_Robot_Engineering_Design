@@ -41,8 +41,8 @@ FRONT_CORRIDOR_HALF = COLLISION_DIST - 0.09 # 정면으로 간주할 y축 거리
 ACTIVE_FRONT_DIST = 0.30 # 정면 위험 판정 거리
 FRONT_DANGER_DIST = 0.19
 
-W_CMD_RATE_LIMIT = 0.30
-W_CMD_RATE_LIMIT_URGENT = 0.40
+W_CMD_RATE_LIMIT = 0.20
+W_CMD_RATE_LIMIT_URGENT = 0.30
 URGENT_FRONT_DIST = 0.30 # 위급 모드 진입 거리
 
 # 좌/우 비대칭 보상 파라미터 (정면 30°~60° 섹터의 평균 거리 차이로 회전 방향 유도)
@@ -494,6 +494,8 @@ def evaluate_candidate(v, w, points, prev_w, front_dist, left_avg, right_avg, le
     return score, front_clearance, side_clearance, body_clearance, candidate_theta
 
 
+# 전방 장애물 거리 fdist가 URGENT_FRONT_DIST보다 작으면 urgent=True
+# 모든 w 후보가 충돌 위험이라고 판단되어 all_collision=True가 되면 urgent=True
 def rate_limit_w(prev_w, target_w, urgent=False):
     limit = W_CMD_RATE_LIMIT_URGENT if urgent else W_CMD_RATE_LIMIT
     delta = float(np.clip(target_w - prev_w, -limit, limit))
