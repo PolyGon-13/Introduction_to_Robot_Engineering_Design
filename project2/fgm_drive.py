@@ -61,11 +61,14 @@ FGM_STRAIGHT_WEIGHT = 0.70
 FGM_CLEARANCE_WEIGHT = 1.80
 FGM_EDGE_WEIGHT = 0.85
 
-DEAD_END_FORWARD_DIST = 0.75
-DEAD_END_SIDE_DIST = COLLISION_DIST + 0.12
-DEAD_END_SIDE_ANGLE_DEG = 35.0
-DEAD_END_SIDE_WINDOW_DEG = 8.0
-DEAD_END_EXPAND_DEG = 8.0
+GAP_SHAPE_BOUNDARY_DIST = COLLISION_DIST + 0.20
+GAP_SHAPE_EDGE_DIST = COLLISION_DIST + 0.18
+GAP_SHAPE_MIN_PEAK_DIST = 0.65
+GAP_SHAPE_PEAK_DELTA = 0.35
+GAP_SHAPE_PEAK_RATIO = 1.45
+GAP_SHAPE_SUPPORT_FRAC = 0.45
+GAP_SHAPE_BOUNDARY_WINDOW_DEG = 8.0
+GAP_SHAPE_EDGE_FRAC = 0.20
 
 
 def normalize_angle_deg(angle):
@@ -354,41 +357,72 @@ def filter_gaps_by_width(gaps):
 
 def min_range_near_index(ranges, center_idx, half_bins):
     if center_idx < 0 or center_idx >= len(ranges):
-        return 0.0
+        return MAX_LIDAR_DIST_M
 
     start = max(0, center_idx - half_bins)
     end = min(len(ranges), center_idx + half_bins + 1)
     if start >= end:
-        return 0.0
+        return MAX_LIDAR_DIST_M
     return float(np.min(ranges[start:end]))
 
 
-def compute_dead_end_mask(ranges):
-    n = len(ranges)
-    dead = np.zeros(n, dtype=bool)
-    side_bins = int(round(DEAD_END_SIDE_ANGLE_DEG / FGM_ANGLE_STEP_DEG))
-    half_window = max(1, int(round(DEAD_END_SIDE_WINDOW_DEG / FGM_ANGLE_STEP_DEG)))
+def is_pointed_obstacle_gap(ranges, gap):
+    start, end = gap
+    width = end - start
+    if width < 3:
+        return False
 
-    for idx in range(n):
-        forward = float(ranges[idx])
-        if forward > DEAD_END_FORWARD_DIST:
-            continue
+    gap_ranges = ranges[start:end]
+    peak = float(np.max(gap_ranges))
+    if peak < GAP_SHAPE_MIN_PEAK_DIST:
+        return False
 
-        left_side = min_range_near_index(ranges, idx + side_bins, half_window)
-        right_side = min_range_near_index(ranges, idx - side_bins, half_window)
-        if left_side <= DEAD_END_SIDE_DIST and right_side <= DEAD_END_SIDE_DIST:
-            dead[idx] = True
+    edge_bins = max(1, int(round(width * GAP_SHAPE_EDGE_FRAC)))
+    right_edge = float(np.median(gap_ranges[:edge_bins]))
+    left_edge = float(np.median(gap_ranges[-edge_bins:]))
+    edge_mean = 0.5 * (left_edge + right_edge)
+    if edge_mean <= 1e-6:
+        return False
 
-    expand_bins = int(round(DEAD_END_EXPAND_DEG / FGM_ANGLE_STEP_DEG))
-    if expand_bins <= 0 or not dead.any():
-        return dead
+    peak_idx = int(np.argmax(gap_ranges))
+    centered_peak = edge_bins <= peak_idx < width - edge_bins
+    peak_delta = peak - edge_mean
+    peak_ratio = peak / edge_mean
 
-    expanded = dead.copy()
-    for idx in np.flatnonzero(dead):
-        start = max(0, idx - expand_bins)
-        end = min(n, idx + expand_bins + 1)
-        expanded[start:end] = True
-    return expanded
+    high_threshold = max(edge_mean + 0.5 * GAP_SHAPE_PEAK_DELTA, peak * 0.75)
+    support_frac = float(np.mean(gap_ranges >= high_threshold))
+
+    half_window = max(1, int(round(GAP_SHAPE_BOUNDARY_WINDOW_DEG / FGM_ANGLE_STEP_DEG)))
+    right_boundary = min_range_near_index(ranges, start - 1, half_window)
+    left_boundary = min_range_near_index(ranges, end, half_window)
+
+    boundaries_close = (
+        right_boundary <= GAP_SHAPE_BOUNDARY_DIST
+        and left_boundary <= GAP_SHAPE_BOUNDARY_DIST
+    )
+    edges_close = (
+        right_edge <= GAP_SHAPE_EDGE_DIST
+        and left_edge <= GAP_SHAPE_EDGE_DIST
+    )
+    pointed_profile = (
+        centered_peak
+        and peak_delta >= GAP_SHAPE_PEAK_DELTA
+        and peak_ratio >= GAP_SHAPE_PEAK_RATIO
+        and support_frac <= GAP_SHAPE_SUPPORT_FRAC
+    )
+
+    return pointed_profile and (boundaries_close or edges_close)
+
+
+def filter_pointed_obstacle_gaps(ranges, gaps):
+    good_gaps = []
+    blocked_gaps = []
+    for gap in gaps:
+        if is_pointed_obstacle_gap(ranges, gap):
+            blocked_gaps.append(gap)
+        else:
+            good_gaps.append(gap)
+    return good_gaps, blocked_gaps
 
 
 def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, front_factor):
@@ -501,20 +535,18 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
     bubble_ranges, closest_idx, closest_dist, bubble_bins = apply_safety_bubble(
         smooth_ranges, counts
     )
-    dead_end_mask = compute_dead_end_mask(smooth_ranges)
-    planning_ranges = bubble_ranges.copy()
-    planning_ranges[dead_end_mask] = 0.0
 
-    free_mask = planning_ranges >= FGM_FREE_DIST
-    gaps = filter_gaps_by_width(find_free_gaps(free_mask))
+    free_mask = bubble_ranges >= FGM_FREE_DIST
+    raw_gaps = filter_gaps_by_width(find_free_gaps(free_mask))
+    gaps, blocked_gaps = filter_pointed_obstacle_gaps(smooth_ranges, raw_gaps)
     has_safe_gap = len(gaps) > 0
 
     target_idx, best_gap, best_score = choose_target_from_gaps(
-        angles_deg, planning_ranges, gaps, pose, prev_target_angle, front_factor
+        angles_deg, bubble_ranges, gaps, pose, prev_target_angle, front_factor
     )
 
     if target_idx < 0:
-        target_idx = choose_fallback_target(angles_deg, planning_ranges)
+        target_idx = choose_fallback_target(angles_deg, bubble_ranges)
         best_gap = (target_idx, target_idx + 1)
         best_score = 0.0
 
@@ -541,13 +573,14 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
         "right": info_right,
         "points": len(points),
         "gaps": len(gaps),
+        "raw_gaps": len(raw_gaps),
+        "blocked_gaps": len(blocked_gaps),
         "gap_width": gap_width,
         "gap_right": gap_right,
         "gap_left": gap_left,
         "closest": closest_dist,
         "closest_angle": closest_angle,
         "bubble_bins": bubble_bins,
-        "dead": int(np.count_nonzero(dead_end_mask)),
         "collision": target_dist < COLLISION_DIST or closest_dist < COLLISION_DIST,
         "raw_w": raw_w,
         "has_safe_gap": has_safe_gap,
@@ -627,9 +660,10 @@ def main():
                     f"front={info['front']:.2f} ff={info['front_factor']:.2f} "
                     f"gap={info['gap_width']:.0f} "
                     f"gr={info['gap_right']:.0f} gl={info['gap_left']:.0f} "
-                    f"gaps={info['gaps']} safe={int(info['has_safe_gap'])} "
+                    f"gaps={info['gaps']}/{info['raw_gaps']} "
+                    f"badg={info['blocked_gaps']} safe={int(info['has_safe_gap'])} "
                     f"close={info['closest']:.2f}@{info['closest_angle']:.0f} "
-                    f"bb={info['bubble_bins']} dead={info['dead']} score={info['score']:.2f} "
+                    f"bb={info['bubble_bins']} score={info['score']:.2f} "
                     f"pts={info['points']} coll={int(info['collision'])} "
                     f"L={info['left']:.2f} R={info['right']:.2f}"
                 )
