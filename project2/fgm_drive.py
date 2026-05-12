@@ -346,6 +346,58 @@ def filter_gaps_by_width(gaps):
     return [(start, end) for start, end in gaps if end - start >= min_bins]
 
 
+def gap_shape_metrics(angles_deg, ranges, gap):
+    start, end = gap
+    width = max(1, end - start)
+    gap_ranges = ranges[start:end]
+    peak_idx_local = int(np.argmax(gap_ranges))
+    peak_idx = start + peak_idx_local
+    peak = float(gap_ranges[peak_idx_local])
+
+    edge_bins = max(1, int(round(width * 0.20)))
+    right_edge = float(np.median(gap_ranges[:edge_bins]))
+    left_edge = float(np.median(gap_ranges[-edge_bins:]))
+    edge_mean = 0.5 * (right_edge + left_edge)
+    peak_ratio = peak / max(edge_mean, 1e-6)
+
+    high_threshold = max(edge_mean + 0.15, peak * 0.75)
+    support_frac = float(np.mean(gap_ranges >= high_threshold))
+
+    return {
+        "right_deg": float(angles_deg[start]),
+        "left_deg": float(angles_deg[end - 1]),
+        "width_deg": width * FGM_ANGLE_STEP_DEG,
+        "peak": peak,
+        "peak_deg": float(angles_deg[peak_idx]),
+        "edge_mean": edge_mean,
+        "peak_ratio": peak_ratio,
+        "support_frac": support_frac,
+    }
+
+
+def format_gap_shapes(angles_deg, ranges, gaps, selected_gap, max_gaps=4):
+    if not gaps:
+        return "-"
+
+    parts = []
+    for gap in gaps[:max_gaps]:
+        m = gap_shape_metrics(angles_deg, ranges, gap)
+        selected = "*" if gap == selected_gap else ""
+        parts.append(
+            f"{selected}{m['right_deg']:.0f}:{m['left_deg']:.0f}"
+            f"/w{m['width_deg']:.0f}"
+            f"/pk{m['peak']:.2f}@{m['peak_deg']:.0f}"
+            f"/ed{m['edge_mean']:.2f}"
+            f"/pr{m['peak_ratio']:.1f}"
+            f"/sp{m['support_frac']:.2f}"
+        )
+
+    if len(gaps) > max_gaps:
+        parts.append(f"+{len(gaps) - max_gaps}")
+
+    return "|".join(parts)
+
+
 def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, front_factor):
     if not gaps:
         return -1, (0, 0), -float("inf")
@@ -482,6 +534,7 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
     gap_left = float(angles_deg[best_gap[1] - 1]) if best_gap[1] > best_gap[0] else 0.0
     gap_right = float(angles_deg[best_gap[0]]) if best_gap[1] > best_gap[0] else 0.0
     closest_angle = float(angles_deg[closest_idx]) if closest_idx >= 0 else 0.0
+    gap_shapes = format_gap_shapes(angles_deg, smooth_ranges, gaps, best_gap)
 
     return v, w, target_angle, {
         "score": best_score,
@@ -496,6 +549,7 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
         "gap_width": gap_width,
         "gap_right": gap_right,
         "gap_left": gap_left,
+        "gap_shapes": gap_shapes,
         "closest": closest_dist,
         "closest_angle": closest_angle,
         "bubble_bins": bubble_bins,
@@ -579,6 +633,7 @@ def main():
                     f"gap={info['gap_width']:.0f} "
                     f"gr={info['gap_right']:.0f} gl={info['gap_left']:.0f} "
                     f"gaps={info['gaps']} safe={int(info['has_safe_gap'])} "
+                    f"sh={info['gap_shapes']} "
                     f"close={info['closest']:.2f}@{info['closest_angle']:.0f} "
                     f"bb={info['bubble_bins']} score={info['score']:.2f} "
                     f"pts={info['points']} coll={int(info['collision'])} "
