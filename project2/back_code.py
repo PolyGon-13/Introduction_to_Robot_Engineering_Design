@@ -60,11 +60,12 @@ FGM_STRAIGHT_WEIGHT = 0.70
 FGM_CLEARANCE_WEIGHT = 1.80
 FGM_EDGE_WEIGHT = 0.85
 
-# --- [수정된 부분] 막다른 길 탈출용 상수 (타이머 삭제됨) ---
-DEAD_END_FRONT_DIST = 0.30
-DEAD_END_SIDE_DIST = 0.25
+# --- [수정된 부분] 막다른 길 탈출용 상수 ---
+DEAD_END_FRONT_DIST = 0.30       # 후진을 시작할 전방 거리
+DEAD_END_SIDE_DIST = 0.25        # 후진을 시작할 측면 거리
+EXIT_GAP_WIDTH_DEG = 40.0        # 후진을 종료할(빠져나왔다고 판단할) 목표 Gap의 최소 각도 폭 (40도로 수정됨)
 REVERSE_V = -0.15
-# --------------------------------------------------------
+# ----------------------------------------
 
 def normalize_angle_deg(angle):
     return (angle + 180.0) % 360.0 - 180.0
@@ -517,9 +518,7 @@ def main():
     last_log = 0.0
     last_pose_time = time.time()
 
-    # --- [수정된 부분] 상태 관리 변수 (타이머 없음) ---
     is_reversing = False
-    # ----------------------------------------------
 
     try:
         while True:
@@ -546,24 +545,22 @@ def main():
             last_scan_ok = time.time()
             v, w, target_angle, info = choose_fgm_cmd(scan, last_w, last_target_angle, pose)
 
-            # --- [수정된 부분] 갭 기반 후진 로직 ---
+            # --- [핵심 수정] Gap 크기 기반 후진 종료 ---
             if not is_reversing:
-                # 앞, 왼쪽, 오른쪽이 모두 좁아 막다른 길이라고 판단될 때
+                # 앞, 왼쪽, 오른쪽이 모두 좁을 때만 막다른 길로 판정
                 if info['front'] < DEAD_END_FRONT_DIST and info['left'] < DEAD_END_SIDE_DIST and info['right'] < DEAD_END_SIDE_DIST:
                     is_reversing = True
-                    print(f"[WARN] 막다른 길 감지 (전방:{info['front']:.2f}m)! 빈 공간(Gap)이 발견될 때까지 후진합니다.")
+                    print(f"[WARN] 막다른 길 감지 (전방:{info['front']:.2f}m)! 후진을 시작합니다.")
             
             if is_reversing:
-                # info['has_safe_gap'] 은 FGM 알고리즘이 "통과 가능한 폭의 열린 공간"을 찾았는지를 의미함
-                if not info['has_safe_gap']:
-                    # 아직 갭을 못 찾았으므로 계속 일자로 후진
-                    v = REVERSE_V
-                    w = 0.0
-                else:
-                    # 라이다가 넓은 공간(Gap)을 발견했다면 후진 상태 종료
+                # 안전한 Gap이 하나라도 있고, '그 Gap의 폭(gap_width)'이 우리가 정한 30도 이상 넉넉할 때
+                if info['has_safe_gap'] and info['gap_width'] >= EXIT_GAP_WIDTH_DEG:
                     is_reversing = False
-                    print("[INFO] 안전한 경로(Gap) 발견! 정상 자율 주행으로 복귀합니다.")
-            # -----------------------------------------------
+                    print(f"[INFO] 충분한 크기의 Gap 발견 (폭: {info['gap_width']:.0f}도). Gap을 향해 주행합니다.")
+                else:
+                    v = REVERSE_V
+                    w = 0.0 # 뒤로 똑바로 후진
+            # -------------------------------------------
 
             send_vw(v, w)
             pose.update(v, w, dt)
