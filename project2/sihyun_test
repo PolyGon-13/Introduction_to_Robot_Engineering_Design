@@ -7,6 +7,7 @@ import math
 import numpy as np
 
 
+
 # =========================
 # 통신 규격 유지
 # =========================
@@ -45,11 +46,11 @@ BASE_V = 0.18              # 직진 속도 고정
 # =========================
 # 장애물 회피 파라미터
 # =========================
-FRONT_SAFE_DIST = 0.85     # 85cm 이내로 들어오면 회피 시작
-FRONT_WARN_DIST = 0.55     # 로그/urgent 구분용
-FRONT_DANGER_DIST = 0.30   # 30cm 이하이면 abs(w) = 0.90
+FRONT_SAFE_DIST = 0.40     # 60cm보다 멀면 w = 0
+FRONT_WARN_DIST = 0.25     # 로그/모드 구분용
+FRONT_DANGER_DIST = 0.15   # 15cm 이하이면 abs(w) = 0.90
 
-FRONT_ANGLE_DEG = 40       # 정면 판단 각도: -40도 ~ +40도
+FRONT_ANGLE_DEG = 25       # 정면 판단 각도: -25도 ~ +25도
 SIDE_MIN_DEG = 30          # 좌우 판단 시작 각도
 SIDE_MAX_DEG = 90          # 좌우 판단 끝 각도
 
@@ -57,16 +58,18 @@ SIDE_MAX_DEG = 90          # 좌우 판단 끝 각도
 # 거리 비례 회피 w 파라미터
 # =========================
 MAX_AVOID_W = 0.90         # 회피 w 최대값, 절대값 기준 0~0.90
-MIN_AVOID_W = 0.25         # 회피 시작 시 최소 회전값 확보
+MIN_AVOID_W = 0.00         # 완전 비례 방식
 
 # =========================
 # 회전 변화량 제한
 # =========================
-W_RATE_LIMIT = 0.25        # 일반 상황에서 w 변화량 제한
-W_RATE_LIMIT_URGENT = 0.45 # 급한 상황에서 w 변화량 제한
+W_RATE_LIMIT = 0.30        # 일반 상황에서 w 변화량 제한
+W_RATE_LIMIT_URGENT = 0.50 # 급한 상황에서 w 변화량 제한
 
 # =========================
 # 처음 방향 복귀 파라미터
+# 현재 코드에서는 front > 60cm일 때 w = 0으로 만들기 때문에
+# 안전 구간에서는 heading_w를 사용하지 않음
 # =========================
 INITIAL_HEADING_RAD = 0.0
 robot_heading = 0.0
@@ -78,16 +81,9 @@ HEADING_DEADBAND_RAD = math.radians(2.0)
 # =========================
 # 회피 방향 선택 파라미터
 # =========================
-SIDE_OPTION_DIST = 0.28       # 28cm 이상이어야 회피 가능한 길로 판단
-SIDE_FORCE_MARGIN = 0.12      # 좌우 차이가 12cm 이상이면 넓은 쪽 우선
-
+SIDE_OPTION_DIST = 0.28
 AVOID_LOOKAHEAD_S = 0.70
 HEADING_CHOICE_MARGIN_RAD = math.radians(3.0)
-
-# =========================
-# 회피 방향 유지 변수
-# =========================
-last_avoid_dir = 0            # +1 = 좌회피 유지, -1 = 우회피 유지, 0 = 없음
 
 
 # =========================
@@ -227,27 +223,27 @@ def compute_heading_return_w():
 # =========================
 def compute_proportional_avoid_w(front):
     """
-    front 거리에 따라 회피 w 절대값을 MIN_AVOID_W ~ 0.90 범위로 비례 계산.
+    front 거리에 따라 회피 w 절대값을 0.0 ~ 0.90 범위로 비례 계산.
 
-    front > FRONT_SAFE_DIST:
+    front > 0.60m:
         abs_w = 0.0
 
-    FRONT_DANGER_DIST < front <= FRONT_SAFE_DIST:
+    0.15m < front <= 0.60m:
         front가 가까워질수록 abs_w가 선형 증가
 
-    front <= FRONT_DANGER_DIST:
-        abs_w = MAX_AVOID_W
+    front <= 0.15m:
+        abs_w = 0.90
     """
 
-    # FRONT_SAFE_DIST보다 멀면 회전 없음
+    # 60cm보다 멀면 회전 없음
     if front > FRONT_SAFE_DIST:
         return 0.0
 
-    # FRONT_DANGER_DIST 이하이면 최대 회피
+    # 15cm 이하이면 최대 회피
     if front <= FRONT_DANGER_DIST:
         return MAX_AVOID_W
 
-    # FRONT_DANGER_DIST ~ FRONT_SAFE_DIST 사이에서 비례 계산
+    # 15cm ~ 60cm 사이에서 비례 계산
     ratio = (FRONT_SAFE_DIST - front) / max(
         1e-6,
         FRONT_SAFE_DIST - FRONT_DANGER_DIST
@@ -257,7 +253,6 @@ def compute_proportional_avoid_w(front):
 
     abs_w = ratio * MAX_AVOID_W
 
-    # 회피 구간에 들어왔는데 w가 너무 작아 직진처럼 가는 것 방지
     if abs_w > 0.0:
         abs_w = max(abs_w, MIN_AVOID_W)
 
@@ -268,6 +263,7 @@ def compute_proportional_avoid_w(front):
 
 # =========================
 # 회피 방향 선택 함수
+# 회피 방향 자체를 처음 로봇 앞 방향에 가까워지는 쪽으로 선택
 # =========================
 def choose_initial_front_avoid_w(left, right, abs_w):
     """
@@ -275,22 +271,14 @@ def choose_initial_front_avoid_w(left, right, abs_w):
 
     목표:
         전방 장애물이 있을 때,
-        처음 로봇 앞 방향보다 실제 열린 공간을 우선해서 회피 방향 선택.
+        처음 로봇 앞 방향에 더 가까워지는 회피 방향을 선택.
 
-    우선순위:
-        1. 왼쪽만 확실히 열림 → 좌회피
-        2. 오른쪽만 확실히 열림 → 우회피
-        3. 양쪽 다 열림 + 한쪽이 12cm 이상 넓음 → 넓은 쪽
-        4. 양쪽 다 열림 + 비슷함 → 이전 회피 방향 유지
-        5. 이전 방향 없음 → 처음 방향에 가까운 쪽
-        6. 양쪽 다 막힘 → 이전 회피 방향 유지
+    단, 한쪽만 회피 가능하면 충돌 방지를 위해 그 방향을 우선함.
 
     w 부호:
         +w = 좌회전
         -w = 우회전
     """
-
-    global last_avoid_dir
 
     left_w = abs_w
     right_w = -abs_w
@@ -298,41 +286,16 @@ def choose_initial_front_avoid_w(left, right, abs_w):
     left_available = left >= SIDE_OPTION_DIST
     right_available = right >= SIDE_OPTION_DIST
 
-    # -------------------------
-    # 1. 왼쪽만 확실히 열려 있는 경우
-    # -------------------------
+    # 1. 왼쪽만 회피 가능한 경우
     if left_available and not right_available:
-        last_avoid_dir = 1
         return left_w, "LEFT_ONLY"
 
-    # -------------------------
-    # 2. 오른쪽만 확실히 열려 있는 경우
-    # -------------------------
+    # 2. 오른쪽만 회피 가능한 경우
     if right_available and not left_available:
-        last_avoid_dir = -1
         return right_w, "RIGHT_ONLY"
 
-    # -------------------------
-    # 3. 좌우 둘 다 회피 가능한 경우
-    # -------------------------
+    # 3. 좌우 둘 다 가능하면 처음 방향에 더 가까워지는 쪽 선택
     if left_available and right_available:
-        # 한쪽이 확실히 더 넓으면 처음 방향보다 열린 공간 우선
-        if left - right > SIDE_FORCE_MARGIN:
-            last_avoid_dir = 1
-            return left_w, "LEFT_MUCH_MORE_OPEN"
-
-        if right - left > SIDE_FORCE_MARGIN:
-            last_avoid_dir = -1
-            return right_w, "RIGHT_MUCH_MORE_OPEN"
-
-        # 좌우가 비슷하면 이전 회피 방향 유지
-        if last_avoid_dir > 0:
-            return left_w, "LEFT_KEEP_DIR"
-
-        if last_avoid_dir < 0:
-            return right_w, "RIGHT_KEEP_DIR"
-
-        # 이전 방향이 없을 때만 처음 방향 기준으로 선택
         pred_heading_left = normalize_angle_rad(
             robot_heading + left_w * AVOID_LOOKAHEAD_S
         )
@@ -349,55 +312,32 @@ def choose_initial_front_avoid_w(left, right, abs_w):
             normalize_angle_rad(INITIAL_HEADING_RAD - pred_heading_right)
         )
 
-        if left_err <= right_err:
-            last_avoid_dir = 1
+        if left_err + HEADING_CHOICE_MARGIN_RAD < right_err:
             return left_w, "LEFT_TO_INITIAL_FRONT"
-        else:
-            last_avoid_dir = -1
+
+        elif right_err + HEADING_CHOICE_MARGIN_RAD < left_err:
             return right_w, "RIGHT_TO_INITIAL_FRONT"
 
-    # -------------------------
-    # 4. 좌우 둘 다 막힌 경우
-    #    1~2cm 차이로 방향 바꾸지 않고 이전 회피 방향 유지
-    # -------------------------
-    if last_avoid_dir > 0:
-        return left_w, "LEFT_KEEP_BOTH_BLOCKED"
+        else:
+            # 처음 방향 기준으로 둘 다 비슷하면 더 넓은 쪽 선택
+            if left >= right:
+                return left_w, "LEFT_MORE_OPEN"
+            else:
+                return right_w, "RIGHT_MORE_OPEN"
 
-    if last_avoid_dir < 0:
-        return right_w, "RIGHT_KEEP_BOTH_BLOCKED"
-
-    # 이전 방향이 없을 때만 더 넓은 쪽 선택
+    # 4. 좌우 둘 다 기준상 애매하면 더 넓은 쪽으로 회피
     if left >= right:
-        last_avoid_dir = 1
-        return left_w, "LEFT_FIRST_WIDER"
+        return left_w, "LEFT_WIDER"
     else:
-        last_avoid_dir = -1
-        return right_w, "RIGHT_FIRST_WIDER"
+        return right_w, "RIGHT_WIDER"
 
 
 # =========================
 # w 변화량 제한
-# 방향이 반대로 바뀔 때는 먼저 0.0을 찍고,
-# 다음 루프부터 새 방향으로 리미트 제한을 걸어 증가
 # =========================
 def rate_limit_w(prev_w, target_w, urgent=False):
     limit = W_RATE_LIMIT_URGENT if urgent else W_RATE_LIMIT
 
-    ZERO_EPS = 1e-3
-
-    # -------------------------
-    # 회전 방향이 반대로 바뀌는 경우
-    # 예:
-    # prev_w = -0.90, target_w = +0.90
-    # 바로 +0.90으로 가지 않고 먼저 0.0 반환
-    # -------------------------
-    if abs(prev_w) > ZERO_EPS and abs(target_w) > ZERO_EPS:
-        if prev_w * target_w < 0:
-            return 0.0
-
-    # -------------------------
-    # 일반적인 변화량 제한
-    # -------------------------
     delta = target_w - prev_w
 
     if delta > limit:
@@ -483,8 +423,6 @@ def sector_min_distance(points, min_deg, max_deg):
 # w만 변경해서 회피
 # =========================
 def choose_avoidance_cmd(points, prev_w):
-    global last_avoid_dir
-
     front = sector_min_distance(
         points,
         -FRONT_ANGLE_DEG,
@@ -509,7 +447,7 @@ def choose_avoidance_cmd(points, prev_w):
     heading_w, heading_error = compute_heading_return_w()
 
     # -------------------------
-    # 1. 전방 장애물이 FRONT_SAFE_DIST보다 멀면 w = 0
+    # 1. 전방 장애물이 60cm보다 멀면 w = 0
     # -------------------------
     if front > FRONT_SAFE_DIST:
         target_w = 0.0
@@ -517,12 +455,9 @@ def choose_avoidance_cmd(points, prev_w):
         urgent = False
         abs_w = 0.0
 
-        # 전방이 충분히 안전해지면 이전 회피 방향 초기화
-        last_avoid_dir = 0
-
     # -------------------------
-    # 2. 전방 장애물이 회피 거리 안으로 들어오면
-    #    front 거리에 비례해서 회피 w 계산
+    # 2. 전방 장애물이 15cm ~ 60cm 사이 또는 15cm 이하
+    #    → front 거리에 비례해서 회피 w 계산
     # -------------------------
     else:
         abs_w = compute_proportional_avoid_w(front)
@@ -545,8 +480,7 @@ def choose_avoidance_cmd(points, prev_w):
 
     # =========================
     # 회전 변화량 제한 적용
-    # 방향 전환 시에는 rate_limit_w 안에서 먼저 0.0을 찍고 넘어감
-    # 단, front > FRONT_SAFE_DIST이면 실제 w도 바로 0으로 만듦
+    # 단, front > 60cm이면 사용자가 요청한 대로 실제 w도 바로 0으로 만듦
     # =========================
     if front > FRONT_SAFE_DIST:
         w = 0.0
@@ -562,7 +496,6 @@ def choose_avoidance_cmd(points, prev_w):
         "heading_w": heading_w,
         "heading_error": heading_error,
         "robot_heading": robot_heading,
-        "last_avoid_dir": last_avoid_dir,
         "mode": mode,
         "urgent": urgent
     }
@@ -575,7 +508,6 @@ def choose_avoidance_cmd(points, prev_w):
 # =========================
 def main():
     global robot_heading
-    global last_avoid_dir
 
     lidar = RPLidarC1(LIDAR_PORT, LIDAR_BAUD)
     ardu = serial.Serial(ARDU_PORT, ARDU_BAUD, timeout=0.1)
@@ -597,15 +529,12 @@ def main():
 
     print("[INFO] Start LiDAR obstacle avoidance")
     print("[INFO] v is fixed at 0.18")
-    print("[INFO] if front > 0.85m, w = 0")
-    print("[INFO] if 0.30m < front <= 0.85m, abs(w) is proportional")
-    print("[INFO] if front <= 0.30m, abs(w) = 0.90")
-    print("[INFO] front angle is expanded to +/-40 deg")
-    print("[INFO] min avoid w is 0.25")
+    print("[INFO] if front > 0.60m, w = 0")
+    print("[INFO] if 0.15m < front <= 0.60m, abs(w) is proportional")
+    print("[INFO] if front <= 0.15m, abs(w) = 0.90")
     print("[INFO] Press Ctrl+C to stop")
 
     robot_heading = 0.0
-    last_avoid_dir = 0
 
     last_scan_ok_time = time.time()
     last_w = 0.0
@@ -635,7 +564,6 @@ def main():
                     # 스캔이 오래 없으면 안전상 정지
                     stop()
                     last_w = 0.0
-                    last_avoid_dir = 0
 
                 time.sleep(LOOP_DT_S)
                 continue
@@ -663,7 +591,6 @@ def main():
                     f"front={info['front']:.2f} "
                     f"left={info['left']:.2f} "
                     f"right={info['right']:.2f} "
-                    f"dir={info['last_avoid_dir']} "
                     f"pts={len(points)}"
                 )
 
