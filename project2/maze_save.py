@@ -22,7 +22,7 @@ LIDAR_ANGLE_SIGN = -1.0
 MIN_LIDAR_DIST_M = 0.05
 MAX_LIDAR_DIST_M = 2.5
 MIN_QUALITY = 1
-
+MIN_X_FOR_PLANNING = 0.10
 MAX_EVAL_POINTS = 720
 SCAN_HOLD_S = 0.30
 LOOP_DT_S = 0.05
@@ -40,8 +40,6 @@ CLEARANCE_CAP = 0.6
 FRONT_CORRIDOR_HALF = COLLISION_DIST - 0.09 # 정면으로 간주할 y축 거리
 ACTIVE_FRONT_DIST = 0.30 # 정면 위험 판정 거리
 FRONT_DANGER_DIST = 0.19
-
-MIN_X_FOR_PLANNING = -ROBOT_RADIUS
 
 W_CMD_RATE_LIMIT = 0.30
 W_CMD_RATE_LIMIT_URGENT = 0.40
@@ -470,7 +468,7 @@ def choose_best_cmd(scan, prev_w, cmd_v):
         if len(ry) > 0:
             info_right = float(-np.max(ry))
 
-    near_thresh = 0.14
+    near_thresh = 0.17
 
     best_w = 0.0
     best_score = -float("inf")
