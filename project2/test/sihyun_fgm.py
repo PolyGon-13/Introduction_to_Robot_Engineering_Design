@@ -26,6 +26,9 @@ LOOP_DT_S = 0.05
 
 BASE_V = 0.18
 MIN_V = 0.15
+
+# 전체 회전속도 최대 제한값
+# 180도 회전에서 w=0.90까지 쓰고 싶어서 0.90으로 설정
 MAX_ABS_W = 0.90
 
 ROBOT_RADIUS = 0.16
@@ -36,7 +39,7 @@ ACTIVE_FRONT_DIST = 0.30
 FRONT_DANGER_DIST = 0.19
 
 W_CMD_RATE_LIMIT = 0.30
-W_CMD_RATE_LIMIT_URGENT = 0.40
+W_CMD_RATE_LIMIT_URGENT = 0.90
 URGENT_FRONT_DIST = 0.30
 
 GOAL_X_M = 3.0
@@ -50,7 +53,11 @@ TURN_HARD_LIMIT_RAD = math.radians(80.0)
 # ============================================================
 INITIAL_HEADING_RAD = 0.0
 RECOVERY_TURN_ENABLE = True
+
+# 180도 제자리 회전 w값
+# 너무 빠르면 0.70, 너무 느리면 0.90 유지
 RECOVERY_TURN_W = 0.90
+
 RECOVERY_TURN_TOL_RAD = math.radians(8.0)
 RECOVERY_TURN_TIMEOUT_S = 8.0
 RECOVERY_INITIAL_DEADBAND_RAD = math.radians(2.0)
@@ -58,31 +65,47 @@ RECOVERY_INITIAL_DEADBAND_RAD = math.radians(2.0)
 
 # ============================================================
 # 180도 회전 후 왼쪽 벽 따라가기 설정
-# 핵심 수정:
-# 1) 왼쪽 벽 따라가기 중 front=0.10이 떠도 바로 v=0으로 고정하지 않음
-# 2) 정면이 가까워도 오른쪽으로 되돌아 도는 강제 회전을 제거함
-# 3) 정말 가까운 경우에만 정지하고, 회전 방향은 왼쪽 유지
+# 이번 수정 핵심:
+# - 기존보다 벽 추종 속도는 낮춤
+# - 벽 거리 오차에 대한 w 보정은 크게 키움
+# - w가 너무 작아서 직진처럼 가는 문제 방지
 # ============================================================
 LEFT_WALL_FOLLOW_ENABLE = True
-LEFT_WALL_TARGET_DIST = 0.15
-LEFT_WALL_FOLLOW_V = 0.14
-LEFT_WALL_SLOW_V = 0.07
-LEFT_WALL_KP = 0.90
-LEFT_WALL_MAX_W = 0.30
-LEFT_WALL_SEARCH_W = 0.18
 
-# 벽 따라가기 중 정면 판단은 기존 front보다 좁게 본다.
-# 기존 front는 폭이 넓어서 옆벽이 정면으로 잡히며 v=0이 되는 경우가 있었음.
+# 왼쪽 벽과 유지할 목표 거리
+LEFT_WALL_TARGET_DIST = 0.22
+
+# 왼쪽 벽 따라갈 때 전진 속도
+LEFT_WALL_FOLLOW_V = 0.10
+LEFT_WALL_SLOW_V = 0.06
+
+# 왼쪽 벽 거리 오차 보정 게인
+LEFT_WALL_KP = 2.20
+
+# 왼쪽 벽 따라가기 최대 회전속도
+LEFT_WALL_MAX_W = 0.55
+
+# 왼쪽 벽을 못 봤을 때 왼쪽으로 찾는 회전값
+LEFT_WALL_SEARCH_W = 0.28
+
+# 보정값이 너무 작아서 직진하는 것처럼 보이는 문제 방지용 최소 회전값
+LEFT_WALL_MIN_TURN_ERR = 0.025
+LEFT_WALL_MIN_TURN_W = 0.12
+
+# 벽 따라가기 중 정면 판단은 기존 FGM front보다 좁게 본다
 LEFT_WALL_FRONT_Y_HALF = 0.16
 LEFT_WALL_FRONT_CHECK_DIST = 0.30
 LEFT_WALL_FRONT_SLOW_DIST = 0.14
 LEFT_WALL_FRONT_HARD_STOP_DIST = 0.08
 LEFT_WALL_FRONT_KEEP_TURN_W = 0.18
 
+# 왼쪽 벽이 갑자기 멀어졌을 때 FGM 복귀 판단
 LEFT_WALL_MIN_FOLLOW_TIME_S = 0.80
 LEFT_WALL_JUMP_DIST = 0.22
 LEFT_WALL_LOST_DIST = 0.70
 LEFT_WALL_OPEN_COUNT_N = 3
+
+# 왼쪽 벽 거리 계산 범위
 LEFT_WALL_X_MIN = -0.20
 LEFT_WALL_X_MAX = 0.45
 LEFT_WALL_Y_MIN = 0.05
@@ -354,9 +377,10 @@ def wall_follow_front_distance(points_all):
 def choose_left_wall_follow_cmd(scan, prev_w):
     """
     180도 회전 후 왼쪽 벽을 따라가는 명령 생성.
-    수정 포인트:
-    - 정면이 조금 가깝다고 바로 v=0, w=-0.35로 반대 회전하지 않음
-    - 정말 가까운 경우에만 정지하고 w는 왼쪽 방향 유지
+    이번 수정 포인트:
+    - 기존보다 벽 보정 w를 강하게 줌
+    - 거의 직진처럼 가는 현상을 줄이기 위해 최소 회전 보정값을 추가함
+    - 왼쪽 벽을 놓치면 왼쪽으로 더 적극적으로 탐색함
     """
     points_all = lidar_points_to_xy_all(scan)
     left_dist = left_wall_distance(points_all)
@@ -365,26 +389,36 @@ def choose_left_wall_follow_cmd(scan, prev_w):
 
     if left_valid:
         # left_dist > target이면 벽에서 멀어진 것 -> 왼쪽으로 붙음(+w)
-        # left_dist < target이면 벽에 가까운 것 -> 오른쪽으로 살짝 떨어짐(-w)
+        # left_dist < target이면 벽에 가까운 것 -> 오른쪽으로 떨어짐(-w)
         error = left_dist - LEFT_WALL_TARGET_DIST
         target_w = LEFT_WALL_KP * error
+
+        # 보정값이 너무 작으면 거의 직진처럼 보이므로 최소 회전량을 줌
+        if abs(error) > LEFT_WALL_MIN_TURN_ERR and abs(target_w) < LEFT_WALL_MIN_TURN_W:
+            if target_w > 0:
+                target_w = LEFT_WALL_MIN_TURN_W
+            else:
+                target_w = -LEFT_WALL_MIN_TURN_W
+
     else:
-        # 순간적으로 왼쪽 벽을 못 보면 살짝 왼쪽으로 붙어 벽을 다시 찾음
+        # 왼쪽 벽을 못 보면 왼쪽으로 적극적으로 붙어서 벽을 다시 찾음
         target_w = LEFT_WALL_SEARCH_W
 
-    # 정면이 정말 가까울 때만 멈춤. 단, 반대로 되돌아 도는 오른쪽 강제 회전은 제거함.
+    # 정면이 정말 가까울 때만 멈춤
     if front_dist < LEFT_WALL_FRONT_HARD_STOP_DIST:
         target_v = 0.0
-        target_w = LEFT_WALL_FRONT_KEEP_TURN_W
+        # 여기서도 오른쪽으로 크게 돌지 않고, 왼쪽 벽 추종 방향 유지
+        target_w = max(target_w, LEFT_WALL_FRONT_KEEP_TURN_W)
+
     elif front_dist < LEFT_WALL_FRONT_SLOW_DIST:
         target_v = LEFT_WALL_SLOW_V
-        # 정면이 살짝 가까울 때 target_w가 오른쪽으로 너무 커지는 것을 제한
-        target_w = max(target_w, -0.08)
+
     else:
         target_v = LEFT_WALL_FOLLOW_V
 
     target_w = float(np.clip(target_w, -LEFT_WALL_MAX_W, LEFT_WALL_MAX_W))
     w = rate_limit_w(prev_w, target_w, urgent=True)
+
     return float(target_v), float(w), float(left_dist), bool(left_valid), float(front_dist)
 
 
