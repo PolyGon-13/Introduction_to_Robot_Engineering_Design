@@ -50,7 +50,7 @@ TURN_HARD_LIMIT_RAD = math.radians(80.0)
 # ============================================================
 INITIAL_HEADING_RAD = 0.0
 RECOVERY_TURN_ENABLE = True
-RECOVERY_TURN_W = 0.45
+RECOVERY_TURN_W = 0.90
 RECOVERY_TURN_TOL_RAD = math.radians(8.0)
 RECOVERY_TURN_TIMEOUT_S = 8.0
 RECOVERY_INITIAL_DEADBAND_RAD = math.radians(2.0)
