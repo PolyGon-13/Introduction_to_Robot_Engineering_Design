@@ -61,21 +61,11 @@ FGM_STRAIGHT_WEIGHT = 0.70
 FGM_CLEARANCE_WEIGHT = 1.80
 FGM_EDGE_WEIGHT = 0.85
 
-RECOVERY_TRAP_DIST = 0.18
-RECOVERY_EXIT_FRONT_DIST = 0.24
-RECOVERY_EXIT_SIDE_DIST = 0.22
-RECOVERY_MIN_CYCLES = 8
-RECOVERY_EXIT_CLEAR_CYCLES = 5
-RECOVERY_MAX_CYCLES = 60
-RECOVERY_TARGET_DEG = 30.0
-RECOVERY_MIN_TARGET_DEG = 15.0
-RECOVERY_MAX_TARGET_DEG = 55.0
-RECOVERY_V = 0.08
-RECOVERY_BASE_W = 0.32
-RECOVERY_WALL_TARGET = 0.20
-RECOVERY_WALL_GAIN = 1.20
-RECOVERY_OPPOSITE_GAIN = 0.70
-RECOVERY_FGM_BLEND = 0.30
+DEAD_END_FORWARD_DIST = 0.75
+DEAD_END_SIDE_DIST = COLLISION_DIST + 0.12
+DEAD_END_SIDE_ANGLE_DEG = 35.0
+DEAD_END_SIDE_WINDOW_DEG = 8.0
+DEAD_END_EXPAND_DEG = 8.0
 
 
 def normalize_angle_deg(angle):
@@ -88,14 +78,6 @@ def normalize_angle_rad(angle):
 
 def angle_error_rad(a, b):
     return normalize_angle_rad(a - b)
-
-
-def sign_or_zero(value, eps=1e-6):
-    if value > eps:
-        return 1
-    if value < -eps:
-        return -1
-    return 0
 
 
 class RobotPose:
@@ -370,40 +352,43 @@ def filter_gaps_by_width(gaps):
     return [(start, end) for start, end in gaps if end - start >= min_bins]
 
 
-class RecoveryState:
-    def __init__(self):
-        self.direction = 0
-        self.reason = ""
-        self.cycles = 0
-        self.clear_cycles = 0
+def min_range_near_index(ranges, center_idx, half_bins):
+    if center_idx < 0 or center_idx >= len(ranges):
+        return 0.0
 
-    def active(self):
-        return self.direction != 0
+    start = max(0, center_idx - half_bins)
+    end = min(len(ranges), center_idx + half_bins + 1)
+    if start >= end:
+        return 0.0
+    return float(np.min(ranges[start:end]))
 
-    def enter(self, direction, reason):
-        direction = 1 if direction >= 0 else -1
-        if self.direction != direction:
-            self.cycles = 0
-            self.clear_cycles = 0
-        self.direction = direction
-        self.reason = reason
 
-    def step(self):
-        if self.active():
-            self.cycles += 1
+def compute_dead_end_mask(ranges):
+    n = len(ranges)
+    dead = np.zeros(n, dtype=bool)
+    side_bins = int(round(DEAD_END_SIDE_ANGLE_DEG / FGM_ANGLE_STEP_DEG))
+    half_window = max(1, int(round(DEAD_END_SIDE_WINDOW_DEG / FGM_ANGLE_STEP_DEG)))
 
-    def reset(self):
-        self.direction = 0
-        self.reason = ""
-        self.cycles = 0
-        self.clear_cycles = 0
+    for idx in range(n):
+        forward = float(ranges[idx])
+        if forward > DEAD_END_FORWARD_DIST:
+            continue
 
-    def label(self):
-        if self.direction > 0:
-            return "L"
-        if self.direction < 0:
-            return "R"
-        return "N"
+        left_side = min_range_near_index(ranges, idx + side_bins, half_window)
+        right_side = min_range_near_index(ranges, idx - side_bins, half_window)
+        if left_side <= DEAD_END_SIDE_DIST and right_side <= DEAD_END_SIDE_DIST:
+            dead[idx] = True
+
+    expand_bins = int(round(DEAD_END_EXPAND_DEG / FGM_ANGLE_STEP_DEG))
+    if expand_bins <= 0 or not dead.any():
+        return dead
+
+    expanded = dead.copy()
+    for idx in np.flatnonzero(dead):
+        start = max(0, idx - expand_bins)
+        end = min(n, idx + expand_bins + 1)
+        expanded[start:end] = True
+    return expanded
 
 
 def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, front_factor):
@@ -477,106 +462,6 @@ def choose_fallback_target(angles_deg, ranges):
     return int(np.argmax(usable_ranges))
 
 
-def angle_to_grid_index(angle_rad, n_angles):
-    angle_deg = math.degrees(angle_rad)
-    idx = int(round((angle_deg - FGM_MIN_ANGLE_DEG) / FGM_ANGLE_STEP_DEG))
-    return int(np.clip(idx, 0, n_angles - 1))
-
-
-def is_trap_condition(front_dist, info_left, info_right):
-    return (
-        front_dist <= RECOVERY_TRAP_DIST
-        and info_left <= RECOVERY_TRAP_DIST
-        and info_right <= RECOVERY_TRAP_DIST
-    )
-
-
-def is_recovery_clear(front_dist, info_left, info_right):
-    return (
-        front_dist >= RECOVERY_EXIT_FRONT_DIST
-        and info_left >= RECOVERY_EXIT_SIDE_DIST
-        and info_right >= RECOVERY_EXIT_SIDE_DIST
-    )
-
-
-def choose_recovery_direction(prev_w, target_angle, info_left, info_right):
-    prev_sign = sign_or_zero(prev_w, 0.05)
-    if prev_sign != 0:
-        return -prev_sign
-
-    target_sign = sign_or_zero(target_angle, math.radians(3.0))
-    if target_sign != 0:
-        return -target_sign
-
-    return 1 if info_right <= info_left else -1
-
-
-def update_recovery_state(state, front_dist, info_left, info_right,
-                          prev_w, target_angle):
-    if state is None:
-        return None, ""
-
-    trapped = is_trap_condition(front_dist, info_left, info_right)
-    if not state.active():
-        if trapped:
-            direction = choose_recovery_direction(
-                prev_w, target_angle, info_left, info_right
-            )
-            state.enter(direction, "trap")
-            state.step()
-        return state, "trap" if trapped else ""
-
-    state.step()
-    if is_recovery_clear(front_dist, info_left, info_right):
-        state.clear_cycles += 1
-    else:
-        state.clear_cycles = 0
-
-    if (
-        state.cycles >= RECOVERY_MAX_CYCLES
-        or (
-            state.cycles >= RECOVERY_MIN_CYCLES
-            and state.clear_cycles >= RECOVERY_EXIT_CLEAR_CYCLES
-        )
-    ):
-        state.reset()
-
-    return state, "trap" if trapped else ""
-
-
-def recovery_target_angle(normal_target_angle, direction):
-    min_angle = math.radians(RECOVERY_MIN_TARGET_DEG)
-    max_angle = math.radians(RECOVERY_MAX_TARGET_DEG)
-    default_angle = math.radians(RECOVERY_TARGET_DEG)
-
-    if normal_target_angle * direction > 0.0:
-        magnitude = float(np.clip(abs(normal_target_angle), min_angle, max_angle))
-    else:
-        magnitude = default_angle
-
-    return direction * magnitude
-
-
-def recovery_w(direction, target_angle, info_left, info_right):
-    follow_side = info_left if direction > 0 else info_right
-    opposite_side = info_right if direction > 0 else info_left
-
-    wall_error = follow_side - RECOVERY_WALL_TARGET
-    wall_w = direction * (RECOVERY_BASE_W + RECOVERY_WALL_GAIN * wall_error)
-
-    if opposite_side < RECOVERY_WALL_TARGET:
-        closeness = (RECOVERY_WALL_TARGET - opposite_side) / RECOVERY_WALL_TARGET
-        wall_w += direction * RECOVERY_OPPOSITE_GAIN * closeness
-
-    fgm_w = float(np.clip(FGM_TURN_GAIN * target_angle, -MAX_ABS_W, MAX_ABS_W))
-    if fgm_w * direction > 0.0:
-        w = (1.0 - RECOVERY_FGM_BLEND) * wall_w + RECOVERY_FGM_BLEND * fgm_w
-    else:
-        w = wall_w
-
-    return float(np.clip(w, -MAX_ABS_W, MAX_ABS_W))
-
-
 def rate_limit_w(prev_w, target_w, urgent=False):
     limit = W_CMD_RATE_LIMIT_URGENT if urgent else W_CMD_RATE_LIMIT
     delta = float(np.clip(target_w - prev_w, -limit, limit))
@@ -605,13 +490,7 @@ def choose_speed(target_dist, target_angle, has_safe_gap):
     return float(np.clip(v, 0.0, BASE_V))
 
 
-def choose_recovery_speed(target_dist):
-    if target_dist < COLLISION_DIST:
-        return 0.0
-    return min(RECOVERY_V, choose_speed(target_dist, 0.0, True))
-
-
-def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose, recovery_state=None):
+def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
     points = lidar_points_to_xy(scan)
     front_dist = front_distance(points)
     front_factor = compute_front_factor(front_dist)
@@ -622,46 +501,30 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose, recovery_state=None):
     bubble_ranges, closest_idx, closest_dist, bubble_bins = apply_safety_bubble(
         smooth_ranges, counts
     )
+    dead_end_mask = compute_dead_end_mask(smooth_ranges)
+    planning_ranges = bubble_ranges.copy()
+    planning_ranges[dead_end_mask] = 0.0
 
-    free_mask = bubble_ranges >= FGM_FREE_DIST
+    free_mask = planning_ranges >= FGM_FREE_DIST
     gaps = filter_gaps_by_width(find_free_gaps(free_mask))
     has_safe_gap = len(gaps) > 0
 
     target_idx, best_gap, best_score = choose_target_from_gaps(
-        angles_deg, bubble_ranges, gaps, pose, prev_target_angle, front_factor
+        angles_deg, planning_ranges, gaps, pose, prev_target_angle, front_factor
     )
 
     if target_idx < 0:
-        target_idx = choose_fallback_target(angles_deg, smooth_ranges)
+        target_idx = choose_fallback_target(angles_deg, planning_ranges)
         best_gap = (target_idx, target_idx + 1)
         best_score = 0.0
 
     target_angle = math.radians(float(angles_deg[target_idx]))
     target_angle = float(np.clip(target_angle, -TURN_HARD_LIMIT_RAD, TURN_HARD_LIMIT_RAD))
     target_dist = float(smooth_ranges[target_idx])
-    fgm_target_angle = target_angle
-    fgm_target_dist = target_dist
-
-    recovery_state, recovery_reason = update_recovery_state(
-        recovery_state, front_dist, info_left, info_right, prev_w, target_angle
-    )
-
-    recovery_active = recovery_state is not None and recovery_state.active()
-    if recovery_active:
-        target_angle = recovery_target_angle(target_angle, recovery_state.direction)
-        target_idx = angle_to_grid_index(target_angle, len(angles_deg))
-        target_dist = float(smooth_ranges[target_idx])
-        raw_w = recovery_w(
-            recovery_state.direction, target_angle, info_left, info_right
-        )
-        urgent = True
-        v = choose_recovery_speed(target_dist)
-    else:
-        raw_w = float(np.clip(FGM_TURN_GAIN * target_angle, -MAX_ABS_W, MAX_ABS_W))
-        urgent = front_dist < URGENT_FRONT_DIST or not has_safe_gap
-        v = choose_speed(target_dist, target_angle, has_safe_gap)
-
+    raw_w = float(np.clip(FGM_TURN_GAIN * target_angle, -MAX_ABS_W, MAX_ABS_W))
+    urgent = front_dist < URGENT_FRONT_DIST or not has_safe_gap
     w = rate_limit_w(prev_w, raw_w, urgent=urgent)
+    v = choose_speed(target_dist, target_angle, has_safe_gap)
 
     gap_width = (best_gap[1] - best_gap[0]) * FGM_ANGLE_STEP_DEG
     gap_left = float(angles_deg[best_gap[1] - 1]) if best_gap[1] > best_gap[0] else 0.0
@@ -671,9 +534,7 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose, recovery_state=None):
     return v, w, target_angle, {
         "score": best_score,
         "target_deg": math.degrees(target_angle),
-        "fgm_target_deg": math.degrees(fgm_target_angle),
         "target_dist": target_dist,
-        "fgm_target_dist": fgm_target_dist,
         "front": front_dist,
         "front_factor": front_factor,
         "left": info_left,
@@ -686,12 +547,10 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose, recovery_state=None):
         "closest": closest_dist,
         "closest_angle": closest_angle,
         "bubble_bins": bubble_bins,
+        "dead": int(np.count_nonzero(dead_end_mask)),
         "collision": target_dist < COLLISION_DIST or closest_dist < COLLISION_DIST,
         "raw_w": raw_w,
         "has_safe_gap": has_safe_gap,
-        "recovery": recovery_state.label() if recovery_state is not None else "N",
-        "recovery_reason": recovery_state.reason if recovery_active else recovery_reason,
-        "recovery_cycles": recovery_state.cycles if recovery_active else 0,
     }
 
 
@@ -720,7 +579,6 @@ def main():
     last_scan_ok = 0.0
     last_v, last_w = BASE_V, 0.0
     last_target_angle = 0.0
-    recovery_state = RecoveryState()
     last_log = 0.0
     last_pose_time = time.time()
 
@@ -747,9 +605,7 @@ def main():
                 continue
 
             last_scan_ok = time.time()
-            v, w, target_angle, info = choose_fgm_cmd(
-                scan, last_w, last_target_angle, pose, recovery_state
-            )
+            v, w, target_angle, info = choose_fgm_cmd(scan, last_w, last_target_angle, pose)
             send_vw(v, w)
             pose.update(v, w, dt)
             last_v, last_w = v, w
@@ -767,16 +623,13 @@ def main():
                     f"[FGM] x={pose.x:.2f} y={pose.y:.2f} "
                     f"th={pose.theta:.2f} gd={gd:.2f} he={he:.2f} "
                     f"v={v:.2f} w={w:.2f} raw={info['raw_w']:.2f} "
-                    f"tgt={info['target_deg']:.1f} fgm={info['fgm_target_deg']:.1f} "
-                    f"td={info['target_dist']:.2f} ftd={info['fgm_target_dist']:.2f} "
+                    f"tgt={info['target_deg']:.1f} td={info['target_dist']:.2f} "
                     f"front={info['front']:.2f} ff={info['front_factor']:.2f} "
                     f"gap={info['gap_width']:.0f} "
                     f"gr={info['gap_right']:.0f} gl={info['gap_left']:.0f} "
                     f"gaps={info['gaps']} safe={int(info['has_safe_gap'])} "
                     f"close={info['closest']:.2f}@{info['closest_angle']:.0f} "
-                    f"bb={info['bubble_bins']} score={info['score']:.2f} "
-                    f"rec={info['recovery']} rr={info['recovery_reason']} "
-                    f"rc={info['recovery_cycles']} "
+                    f"bb={info['bubble_bins']} dead={info['dead']} score={info['score']:.2f} "
                     f"pts={info['points']} coll={int(info['collision'])} "
                     f"L={info['left']:.2f} R={info['right']:.2f}"
                 )
