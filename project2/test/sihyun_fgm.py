@@ -50,7 +50,7 @@ TURN_HARD_LIMIT_RAD = math.radians(80.0)
 # ============================================================
 INITIAL_HEADING_RAD = 0.0
 RECOVERY_TURN_ENABLE = True
-RECOVERY_TURN_W = 0.90
+RECOVERY_TURN_W = 0.45
 RECOVERY_TURN_TOL_RAD = math.radians(8.0)
 RECOVERY_TURN_TIMEOUT_S = 8.0
 RECOVERY_INITIAL_DEADBAND_RAD = math.radians(2.0)
@@ -58,21 +58,32 @@ RECOVERY_INITIAL_DEADBAND_RAD = math.radians(2.0)
 
 # ============================================================
 # 180도 회전 후 왼쪽 벽 따라가기 설정
-# - 왼쪽 벽과의 거리값이 갑자기 커지면 다시 FGM 주행으로 복귀
+# 핵심 수정:
+# 1) 왼쪽 벽 따라가기 중 front=0.10이 떠도 바로 v=0으로 고정하지 않음
+# 2) 정면이 가까워도 오른쪽으로 되돌아 도는 강제 회전을 제거함
+# 3) 정말 가까운 경우에만 정지하고, 회전 방향은 왼쪽 유지
 # ============================================================
 LEFT_WALL_FOLLOW_ENABLE = True
-LEFT_WALL_TARGET_DIST = 0.18          # 왼쪽 벽과 유지할 목표 거리(m)
-LEFT_WALL_FOLLOW_V = 0.14             # 벽 따라갈 때 전진 속도
-LEFT_WALL_KP = 1.15                   # 왼쪽 벽 거리 오차에 대한 회전 보정 게인
-LEFT_WALL_MAX_W = 0.45                # 벽 따라가기 최대 회전 속도
-LEFT_WALL_SEARCH_W = 0.18             # 왼쪽 벽을 순간적으로 못 봤을 때 왼쪽으로 살짝 붙는 회전값
-LEFT_WALL_FRONT_STOP_DIST = 0.18      # 벽 따라가는 중 정면이 너무 가까우면 전진 정지
-LEFT_WALL_FRONT_AVOID_W = 0.35        # 정면이 가까울 때 오른쪽으로 틀기 위한 회전값
-LEFT_WALL_MIN_FOLLOW_TIME_S = 0.80    # 회전 직후 오검출 방지용 최소 벽추종 시간
-LEFT_WALL_JUMP_DIST = 0.22            # 이전 왼쪽 거리보다 이만큼 커지면 출구/공간으로 판단
-LEFT_WALL_LOST_DIST = 0.70            # 왼쪽 거리가 이 이상이면 벽이 멀어졌다고 판단
-LEFT_WALL_OPEN_COUNT_N = 3            # 연속 N번 감지되면 FGM으로 복귀
-LEFT_WALL_X_MIN = -0.20               # 왼쪽 벽 거리 계산에 사용할 x 범위
+LEFT_WALL_TARGET_DIST = 0.25
+LEFT_WALL_FOLLOW_V = 0.14
+LEFT_WALL_SLOW_V = 0.07
+LEFT_WALL_KP = 0.90
+LEFT_WALL_MAX_W = 0.30
+LEFT_WALL_SEARCH_W = 0.18
+
+# 벽 따라가기 중 정면 판단은 기존 front보다 좁게 본다.
+# 기존 front는 폭이 넓어서 옆벽이 정면으로 잡히며 v=0이 되는 경우가 있었음.
+LEFT_WALL_FRONT_Y_HALF = 0.16
+LEFT_WALL_FRONT_CHECK_DIST = 0.30
+LEFT_WALL_FRONT_SLOW_DIST = 0.14
+LEFT_WALL_FRONT_HARD_STOP_DIST = 0.08
+LEFT_WALL_FRONT_KEEP_TURN_W = 0.18
+
+LEFT_WALL_MIN_FOLLOW_TIME_S = 0.80
+LEFT_WALL_JUMP_DIST = 0.22
+LEFT_WALL_LOST_DIST = 0.70
+LEFT_WALL_OPEN_COUNT_N = 3
+LEFT_WALL_X_MIN = -0.20
 LEFT_WALL_X_MAX = 0.45
 LEFT_WALL_Y_MIN = 0.05
 LEFT_WALL_Y_MAX = 1.20
@@ -275,7 +286,7 @@ def lidar_points_to_xy_all(scan):
     """
     벽 따라가기용 전체 좌표 변환 함수.
     기존 lidar_points_to_xy()는 x >= MIN_X_FOR_PLANNING 조건 때문에
-    옆벽/뒤쪽 일부 점이 사라질 수 있어서, 여기서는 x 필터를 걸지 않는다.
+    옆벽/뒤쪽 일부 점이 사라질 수 있어서 여기서는 x 필터를 걸지 않는다.
     """
     if scan is None:
         return np.empty((0, 2), dtype=np.float32)
@@ -304,7 +315,6 @@ def left_wall_distance(points_all):
     """
     로봇 왼쪽 벽까지의 거리 추정.
     좌표계 기준: x는 전방, y는 왼쪽.
-    왼쪽 벽은 y > 0 영역에 있으므로 해당 영역의 y값을 거리로 사용한다.
     """
     if len(points_all) == 0:
         return MAX_LIDAR_DIST_M
@@ -322,34 +332,60 @@ def left_wall_distance(points_all):
     return float(np.percentile(ys, 20))
 
 
-def choose_left_wall_follow_cmd(scan, front_dist, prev_w):
+def wall_follow_front_distance(points_all):
+    """
+    왼쪽 벽 따라가기 전용 정면 거리.
+    기존 front_distance()보다 폭을 좁혀서 옆벽이 정면 장애물로 잡히는 현상을 줄인다.
+    """
+    if len(points_all) == 0:
+        return MAX_LIDAR_DIST_M
+
+    mask = (
+        (points_all[:, 0] > 0.03)
+        & (points_all[:, 0] < LEFT_WALL_FRONT_CHECK_DIST)
+        & (np.abs(points_all[:, 1]) < LEFT_WALL_FRONT_Y_HALF)
+    )
+    if not mask.any():
+        return MAX_LIDAR_DIST_M
+
+    return float(np.min(points_all[mask, 0]))
+
+
+def choose_left_wall_follow_cmd(scan, prev_w):
     """
     180도 회전 후 왼쪽 벽을 따라가는 명령 생성.
-    왼쪽 벽이 너무 가까우면 오른쪽으로, 너무 멀면 왼쪽으로 보정한다.
+    수정 포인트:
+    - 정면이 조금 가깝다고 바로 v=0, w=-0.35로 반대 회전하지 않음
+    - 정말 가까운 경우에만 정지하고 w는 왼쪽 방향 유지
     """
     points_all = lidar_points_to_xy_all(scan)
     left_dist = left_wall_distance(points_all)
+    front_dist = wall_follow_front_distance(points_all)
     left_valid = left_dist < LEFT_WALL_LOST_DIST
 
-    if front_dist < LEFT_WALL_FRONT_STOP_DIST:
-        # 정면이 너무 가까우면 전진하지 말고 오른쪽으로 틀어서 충돌을 줄임
+    if left_valid:
+        # left_dist > target이면 벽에서 멀어진 것 -> 왼쪽으로 붙음(+w)
+        # left_dist < target이면 벽에 가까운 것 -> 오른쪽으로 살짝 떨어짐(-w)
+        error = left_dist - LEFT_WALL_TARGET_DIST
+        target_w = LEFT_WALL_KP * error
+    else:
+        # 순간적으로 왼쪽 벽을 못 보면 살짝 왼쪽으로 붙어 벽을 다시 찾음
+        target_w = LEFT_WALL_SEARCH_W
+
+    # 정면이 정말 가까울 때만 멈춤. 단, 반대로 되돌아 도는 오른쪽 강제 회전은 제거함.
+    if front_dist < LEFT_WALL_FRONT_HARD_STOP_DIST:
         target_v = 0.0
-        target_w = -LEFT_WALL_FRONT_AVOID_W
+        target_w = LEFT_WALL_FRONT_KEEP_TURN_W
+    elif front_dist < LEFT_WALL_FRONT_SLOW_DIST:
+        target_v = LEFT_WALL_SLOW_V
+        # 정면이 살짝 가까울 때 target_w가 오른쪽으로 너무 커지는 것을 제한
+        target_w = max(target_w, -0.08)
     else:
         target_v = LEFT_WALL_FOLLOW_V
 
-        if left_valid:
-            # left_dist > target이면 벽에서 멀어진 것 -> 왼쪽으로 붙음(+w)
-            # left_dist < target이면 벽에 가까운 것 -> 오른쪽으로 떨어짐(-w)
-            error = left_dist - LEFT_WALL_TARGET_DIST
-            target_w = LEFT_WALL_KP * error
-        else:
-            # 순간적으로 왼쪽 벽을 못 보면 살짝 왼쪽으로 붙어 벽을 다시 찾음
-            target_w = LEFT_WALL_SEARCH_W
-
     target_w = float(np.clip(target_w, -LEFT_WALL_MAX_W, LEFT_WALL_MAX_W))
     w = rate_limit_w(prev_w, target_w, urgent=True)
-    return float(target_v), float(w), float(left_dist), bool(left_valid)
+    return float(target_v), float(w), float(left_dist), bool(left_valid), float(front_dist)
 
 
 def is_left_wall_open(left_dist, prev_left_dist, follow_start_time):
@@ -706,6 +742,7 @@ def main():
     left_wall_prev_dist = None
     left_wall_open_count = 0
     left_wall_dist_log = MAX_LIDAR_DIST_M
+    left_wall_front_log = MAX_LIDAR_DIST_M
     left_wall_valid_log = False
     # ============================================================
 
@@ -745,16 +782,18 @@ def main():
             recovery_remaining_deg = 0.0
             recovery_mode_name = "FGM"
             left_wall_dist_log = MAX_LIDAR_DIST_M
+            left_wall_front_log = MAX_LIDAR_DIST_M
             left_wall_valid_log = False
 
             # ------------------------------------------------------------
             # 180도 회전이 끝난 뒤: 왼쪽 벽을 따라가다가 왼쪽 거리 급증 시 FGM 복귀
             # ------------------------------------------------------------
             if LEFT_WALL_FOLLOW_ENABLE and left_wall_follow_active:
-                wall_v, wall_w, left_dist, left_valid = choose_left_wall_follow_cmd(
-                    scan, info["front"], last_w
+                wall_v, wall_w, left_dist, left_valid, wall_front = choose_left_wall_follow_cmd(
+                    scan, last_w
                 )
                 left_wall_dist_log = left_dist
+                left_wall_front_log = wall_front
                 left_wall_valid_log = left_valid
 
                 if is_left_wall_open(left_dist, left_wall_prev_dist, left_wall_follow_start_time):
@@ -884,9 +923,10 @@ def main():
                         f"th={math.degrees(pose.theta):.1f}deg "
                         f"v={v:.2f} w={w:.2f} "
                         f"left_wall={left_wall_dist_log:.2f} "
+                        f"wall_front={left_wall_front_log:.2f} "
                         f"valid={int(left_wall_valid_log)} "
                         f"open_cnt={left_wall_open_count} "
-                        f"front={info['front']:.2f} "
+                        f"fgm_front={info['front']:.2f} "
                         f"gaps={info['gaps']} safe={int(info['has_safe_gap'])} "
                         f"close={info['closest']:.2f}@{info['closest_angle']:.0f}"
                     )
