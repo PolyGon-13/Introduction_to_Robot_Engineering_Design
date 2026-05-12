@@ -62,7 +62,7 @@ FGM_CLEARANCE_WEIGHT = 1.80
 FGM_EDGE_WEIGHT = 0.85
 
 CORRIDOR_START_M = 0.18
-CORRIDOR_REQUIRED_DEPTH_M = 1.00
+CORRIDOR_REQUIRED_DEPTH_M = 0.80
 CORRIDOR_LOOKAHEAD_M = 1.05
 CORRIDOR_STEP_M = 0.12
 CORRIDOR_HALF_WIDTH_M = ROBOT_RADIUS + 0.07
@@ -72,7 +72,7 @@ CORRIDOR_SIDE_CLOSE_M = ROBOT_RADIUS + 0.12
 CORRIDOR_FRONT_WINDOW_M = CORRIDOR_HALF_WIDTH_M
 CORRIDOR_DEPTH_PENALTY_WEIGHT = 3.20
 CORRIDOR_WIDTH_PENALTY_WEIGHT = 2.00
-CORRIDOR_CORNER_PENALTY_WEIGHT = 5.50
+CORRIDOR_CORNER_PENALTY_WEIGHT = 4.00
 
 
 def normalize_angle_deg(angle):
@@ -359,6 +359,29 @@ def filter_gaps_by_width(gaps):
     return [(start, end) for start, end in gaps if end - start >= min_bins]
 
 
+def format_gap_summary(angles_deg, ranges, gaps, selected_gap=None, max_items=6):
+    if not gaps:
+        return "-"
+
+    parts = []
+    for start, end in gaps[:max_items]:
+        if end <= start:
+            continue
+        segment = ranges[start:end]
+        peak_offset = int(np.argmax(segment))
+        peak_idx = start + peak_offset
+        width = (end - start) * FGM_ANGLE_STEP_DEG
+        marker = "*" if selected_gap == (start, end) else ""
+        parts.append(
+            f"{marker}{angles_deg[start]:.0f}:{angles_deg[end - 1]:.0f}"
+            f"/w{width:.0f}/pk{ranges[peak_idx]:.2f}@{angles_deg[peak_idx]:.0f}"
+        )
+
+    if len(gaps) > max_items:
+        parts.append(f"+{len(gaps) - max_items}")
+    return "|".join(parts) if parts else "-"
+
+
 def default_corridor_metrics():
     return {
         "penalty": 0.0,
@@ -605,8 +628,13 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
         smooth_ranges, counts
     )
 
+    pre_free_mask = smooth_ranges >= FGM_FREE_DIST
+    pre_gaps_all = find_free_gaps(pre_free_mask)
+    pre_gaps = filter_gaps_by_width(pre_gaps_all)
+
     free_mask = bubble_ranges >= FGM_FREE_DIST
-    gaps = filter_gaps_by_width(find_free_gaps(free_mask))
+    gaps_all = find_free_gaps(free_mask)
+    gaps = filter_gaps_by_width(gaps_all)
     has_safe_gap = len(gaps) > 0
 
     target_idx, best_gap, best_score, corridor_metrics = choose_target_from_gaps(
@@ -637,6 +665,10 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
     gap_left = float(angles_deg[best_gap[1] - 1]) if best_gap[1] > best_gap[0] else 0.0
     gap_right = float(angles_deg[best_gap[0]]) if best_gap[1] > best_gap[0] else 0.0
     closest_angle = float(angles_deg[closest_idx]) if closest_idx >= 0 else 0.0
+    pre_gap_summary = format_gap_summary(angles_deg, smooth_ranges, pre_gaps_all)
+    post_gap_summary = format_gap_summary(
+        angles_deg, bubble_ranges, gaps_all, selected_gap=best_gap
+    )
 
     return v, w, target_angle, {
         "score": best_score,
@@ -648,6 +680,11 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
         "right": info_right,
         "points": len(points),
         "gaps": len(gaps),
+        "pre_gaps": len(pre_gaps),
+        "pre_gaps_all": len(pre_gaps_all),
+        "post_gaps_all": len(gaps_all),
+        "pre_gap_summary": pre_gap_summary,
+        "post_gap_summary": post_gap_summary,
         "gap_width": gap_width,
         "gap_right": gap_right,
         "gap_left": gap_left,
@@ -739,6 +776,8 @@ def main():
                     f"gap={info['gap_width']:.0f} "
                     f"gr={info['gap_right']:.0f} gl={info['gap_left']:.0f} "
                     f"gaps={info['gaps']} safe={int(info['has_safe_gap'])} "
+                    f"preN={info['pre_gaps']}/{info['pre_gaps_all']} "
+                    f"postN={info['gaps']}/{info['post_gaps_all']} "
                     f"cd={info['corridor_depth']:.2f} "
                     f"cw={info['corridor_width']:.2f} "
                     f"cf={info['corridor_front']:.2f} "
@@ -748,6 +787,10 @@ def main():
                     f"bb={info['bubble_bins']} score={info['score']:.2f} "
                     f"pts={info['points']} coll={int(info['collision'])} "
                     f"L={info['left']:.2f} R={info['right']:.2f}"
+                )
+                print(
+                    f"[FGM_GAPS] pre={info['pre_gap_summary']} "
+                    f"post={info['post_gap_summary']}"
                 )
                 last_log = time.time()
 
