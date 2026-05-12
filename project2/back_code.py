@@ -6,6 +6,7 @@ import math
 import threading
 import numpy as np
 
+
 LIDAR_PORT = "/dev/ttyUSB0"
 LIDAR_BAUD = 460800
 ARDU_PORT = "/dev/ttyS0"
@@ -26,6 +27,11 @@ LOOP_DT_S = 0.05
 BASE_V = 0.18
 MIN_V = 0.15
 MAX_ABS_W = 0.70
+
+# --- 추가/수정된 후진(Recovery) 관련 파라미터 ---
+REVERSE_V = -0.15              # 후진 속도 (음수값)
+RECOVERY_GAP_WIDTH_DEG = 40.0  # 후진을 멈추고 탈출할 '일정 크기 이상의' 최소 Gap (도)
+# -------------------------------------------------
 
 ROBOT_RADIUS = 0.16
 COLLISION_DIST = ROBOT_RADIUS + 0.05
@@ -60,21 +66,18 @@ FGM_STRAIGHT_WEIGHT = 0.70
 FGM_CLEARANCE_WEIGHT = 1.80
 FGM_EDGE_WEIGHT = 0.85
 
-# --- [수정된 부분] 막다른 길 탈출용 상수 ---
-DEAD_END_FRONT_DIST = 0.30       # 후진을 시작할 전방 거리
-DEAD_END_SIDE_DIST = 0.25        # 후진을 시작할 측면 거리
-EXIT_GAP_WIDTH_DEG = 40.0        # 후진을 종료할(빠져나왔다고 판단할) 목표 Gap의 최소 각도 폭 (40도로 수정됨)
-REVERSE_V = -0.15
-# ----------------------------------------
 
 def normalize_angle_deg(angle):
     return (angle + 180.0) % 360.0 - 180.0
 
+
 def normalize_angle_rad(angle):
     return math.atan2(math.sin(angle), math.cos(angle))
 
+
 def angle_error_rad(a, b):
     return normalize_angle_rad(a - b)
+
 
 class RobotPose:
     def __init__(self):
@@ -97,11 +100,13 @@ class RobotPose:
         dy = GOAL_Y_M - self.y
         return math.hypot(dx, dy)
 
+
 def goal_heading_error(x, y, theta):
     dx = GOAL_X_M - x
     dy = GOAL_Y_M - y
     target_heading = math.atan2(dy, dx)
     return normalize_angle_rad(target_heading - theta)
+
 
 class RPLidarC1:
     def __init__(self, port, baud):
@@ -178,6 +183,7 @@ class RPLidarC1:
         time.sleep(0.1)
         self.ser.close()
 
+
 def lidar_points_to_xy(scan):
     if scan is None:
         return np.empty((0, 2), dtype=np.float32)
@@ -210,6 +216,7 @@ def lidar_points_to_xy(scan):
         points = points[order[:MAX_EVAL_POINTS]]
     return points
 
+
 def front_distance(points):
     if len(points) == 0:
         return MAX_LIDAR_DIST_M
@@ -223,6 +230,7 @@ def front_distance(points):
         return MAX_LIDAR_DIST_M
     return float(np.min(points[mask, 0]))
 
+
 def compute_front_factor(front_dist):
     return float(
         np.clip(
@@ -232,6 +240,7 @@ def compute_front_factor(front_dist):
             1.0,
         )
     )
+
 
 def compute_side_info(points):
     info_left = 1.0
@@ -249,6 +258,7 @@ def compute_side_info(points):
         if len(right) > 0:
             info_right = float(-np.max(right))
     return info_left, info_right
+
 
 def scan_to_angle_ranges(scan):
     angles_grid = np.arange(
@@ -288,6 +298,7 @@ def scan_to_angle_ranges(scan):
 
     return angles_grid, ranges, counts
 
+
 def smooth_ranges_conservative(ranges):
     if FGM_SMOOTH_WINDOW <= 1:
         return ranges.copy()
@@ -300,6 +311,7 @@ def smooth_ranges_conservative(ranges):
     padded = np.pad(ranges, (pad, pad), mode="edge")
     averaged = np.convolve(padded, kernel, mode="valid").astype(np.float32)
     return np.minimum(ranges, averaged)
+
 
 def apply_safety_bubble(ranges, counts):
     working = ranges.copy()
@@ -319,6 +331,7 @@ def apply_safety_bubble(ranges, counts):
     working[start:end] = 0.0
     return working, closest_idx, closest_dist, half_bins
 
+
 def find_free_gaps(free_mask):
     gaps = []
     start = None
@@ -332,9 +345,11 @@ def find_free_gaps(free_mask):
         gaps.append((start, len(free_mask)))
     return gaps
 
+
 def filter_gaps_by_width(gaps):
     min_bins = max(1, int(math.ceil(FGM_MIN_GAP_WIDTH_DEG / FGM_ANGLE_STEP_DEG)))
     return [(start, end) for start, end in gaps if end - start >= min_bins]
+
 
 def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, front_factor):
     if not gaps:
@@ -398,6 +413,7 @@ def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, f
 
     return best_idx, best_gap, best_score
 
+
 def choose_fallback_target(angles_deg, ranges):
     usable = ranges > MIN_LIDAR_DIST_M
     if not usable.any():
@@ -405,10 +421,12 @@ def choose_fallback_target(angles_deg, ranges):
     usable_ranges = np.where(usable, ranges, -np.inf)
     return int(np.argmax(usable_ranges))
 
+
 def rate_limit_w(prev_w, target_w, urgent=False):
     limit = W_CMD_RATE_LIMIT_URGENT if urgent else W_CMD_RATE_LIMIT
     delta = float(np.clip(target_w - prev_w, -limit, limit))
     return prev_w + delta
+
 
 def choose_speed(target_dist, target_angle, has_safe_gap):
     if not has_safe_gap:
@@ -430,6 +448,7 @@ def choose_speed(target_dist, target_angle, has_safe_gap):
         v = 0.0
 
     return float(np.clip(v, 0.0, BASE_V))
+
 
 def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
     points = lidar_points_to_xy(scan)
@@ -490,6 +509,7 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
         "has_safe_gap": has_safe_gap,
     }
 
+
 def main():
     pose = RobotPose()
     lidar = RPLidarC1(LIDAR_PORT, LIDAR_BAUD)
@@ -518,7 +538,9 @@ def main():
     last_log = 0.0
     last_pose_time = time.time()
 
-    is_reversing = False
+    # --- 상태 변수 추가 ---
+    is_reversing = False 
+    # ----------------------
 
     try:
         while True:
@@ -545,22 +567,26 @@ def main():
             last_scan_ok = time.time()
             v, w, target_angle, info = choose_fgm_cmd(scan, last_w, last_target_angle, pose)
 
-            # --- [핵심 수정] Gap 크기 기반 후진 종료 ---
+            # =========================================================================
+            # 막다른 길(Dead End) 회피 및 후진(Recovery) 로직
+            # =========================================================================
             if not is_reversing:
-                # 앞, 왼쪽, 오른쪽이 모두 좁을 때만 막다른 길로 판정
-                if info['front'] < DEAD_END_FRONT_DIST and info['left'] < DEAD_END_SIDE_DIST and info['right'] < DEAD_END_SIDE_DIST:
+                # 전진 중: 안전한 Gap이 하나도 없고(has_safe_gap == False), 
+                # 전방 거리가 활성화 거리(ACTIVE_FRONT_DIST) 이내로 들어와 완전히 갇혔을 때
+                if not info['has_safe_gap'] and info['front'] < ACTIVE_FRONT_DIST:
                     is_reversing = True
-                    print(f"[WARN] 막다른 길 감지 (전방:{info['front']:.2f}m)! 후진을 시작합니다.")
-            
-            if is_reversing:
-                # 안전한 Gap이 하나라도 있고, '그 Gap의 폭(gap_width)'이 우리가 정한 30도 이상 넉넉할 때
-                if info['has_safe_gap'] and info['gap_width'] >= EXIT_GAP_WIDTH_DEG:
+                    print("\n[WARN] 막다른 길 감지! 일정한 Gap이 보일 때까지 후진합니다.")
+            else:
+                # 후진 중: 안전한 Gap이 생겼고, 그 Gap의 크기가 설정값(15도) 이상일 때 탈출
+                if info['has_safe_gap'] and info['gap_width'] >= RECOVERY_GAP_WIDTH_DEG:
                     is_reversing = False
-                    print(f"[INFO] 충분한 크기의 Gap 발견 (폭: {info['gap_width']:.0f}도). Gap을 향해 주행합니다.")
-                else:
-                    v = REVERSE_V
-                    w = 0.0 # 뒤로 똑바로 후진
-            # -------------------------------------------
+                    print(f"\n[INFO] 충분한 크기의 Gap({info['gap_width']}도) 발견! 전진 주행을 재개합니다.")
+
+            # 후진 상태일 경우 FGM에서 계산된 v, w를 무시하고 후진 명령으로 덮어씀
+            if is_reversing:
+                v = REVERSE_V  # 음수 속도로 후진
+                w = 0.0        # 후진 시에는 일단 직진으로 후진 (필요시 조향 추가 가능)
+            # =========================================================================
 
             send_vw(v, w)
             pose.update(v, w, dt)
@@ -575,8 +601,10 @@ def main():
                 break
 
             if time.time() - last_log > 0.25:
+                # 출력에 현재 후진 중인지(REV) 표시 추가
+                state_str = "REV" if is_reversing else "FWD"
                 print(
-                    f"[FGM] x={pose.x:.2f} y={pose.y:.2f} "
+                    f"[{state_str}] x={pose.x:.2f} y={pose.y:.2f} "
                     f"th={pose.theta:.2f} gd={gd:.2f} he={he:.2f} "
                     f"v={v:.2f} w={w:.2f} raw={info['raw_w']:.2f} "
                     f"tgt={info['target_deg']:.1f} td={info['target_dist']:.2f} "
@@ -601,6 +629,7 @@ def main():
         ardu.close()
         lidar.close()
         print("[INFO] Shutdown complete.")
+
 
 if __name__ == "__main__":
     main()
