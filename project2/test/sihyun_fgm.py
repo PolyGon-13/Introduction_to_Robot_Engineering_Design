@@ -65,9 +65,11 @@ FGM_EDGE_WEIGHT = 0.85
 # 라이다 점으로 직선을 찾고, 직선 끝을 10cm 연장했을 때 다른 직선과 연결되면
 # 그 연결 구간을 가상 벽으로 만들어 FGM 후보 gap에서 완전히 제외한다.
 HOUGH_TRAP_BLOCK_ENABLE = True
+
 HOUGH_MIN_X_M = 0.05
 HOUGH_MAX_X_M = 1.40
 HOUGH_MAX_ABS_Y_M = 1.20
+
 HOUGH_THETA_STEP_DEG = 2.0
 HOUGH_RHO_STEP_M = 0.025
 HOUGH_MIN_VOTES = 7
@@ -77,13 +79,23 @@ HOUGH_REMOVE_DIST_M = 0.040
 HOUGH_MIN_SEG_LEN_M = 0.12
 
 HOUGH_EXTEND_M = 0.10
-HOUGH_CONNECT_DIST_M = 0.06
+HOUGH_CONNECT_DIST_M = 0.09
 HOUGH_CONNECT_SAMPLE_STEP_M = 0.015
+
 HOUGH_BLOCK_SAMPLE_STEP_M = 0.015
-HOUGH_BLOCK_MARGIN_M = 0.06
+HOUGH_BLOCK_MARGIN_M = ROBOT_RADIUS + 0.08
 HOUGH_BLOCK_EXTRA_ANGLE_DEG = 1.5
 HOUGH_BLOCK_MIN_RANGE_M = 0.05
 HOUGH_BLOCK_MAX_RANGE_M = 1.40
+
+# 허프 가상 벽이 라이다 노이즈로 순간적으로 사라져도 잠깐 유지
+HOUGH_BLOCK_LATCH_S = 0.60
+
+# 가장 가까운 장애물이 이 거리 안쪽이면 후보 방향이 멀어도 전진 금지
+CLOSEST_COLLISION_STOP_DIST = COLLISION_DIST + 0.02
+
+_last_hough_blocks = []
+_last_hough_block_time = 0.0
 
 
 def normalize_angle_deg(angle):
@@ -492,18 +504,21 @@ def detect_hough_line_segments(points):
 
         rho_i, theta_i = np.unravel_index(best_flat, acc.shape)
         rho = float(rho_i * HOUGH_RHO_STEP_M - rho_max)
+
         n = np.array([cos_t[theta_i], sin_t[theta_i]], dtype=np.float32)
         d = np.array([-sin_t[theta_i], cos_t[theta_i]], dtype=np.float32)
 
         signed_dist_all = np.abs(pts @ n - rho)
         inlier_mask = remaining & (signed_dist_all <= HOUGH_INLIER_DIST_M)
         inlier_count = int(np.count_nonzero(inlier_mask))
+
         if inlier_count < HOUGH_MIN_VOTES:
             remaining &= signed_dist_all > HOUGH_REMOVE_DIST_M
             continue
 
         inlier_pts = pts[inlier_mask]
         t = inlier_pts @ d
+
         t_min = float(np.min(t))
         t_max = float(np.max(t))
         seg_len = t_max - t_min
@@ -511,6 +526,7 @@ def detect_hough_line_segments(points):
         if seg_len >= HOUGH_MIN_SEG_LEN_M:
             p0 = (n * rho + d * t_min).astype(np.float32)
             p1 = (n * rho + d * t_max).astype(np.float32)
+
             lines.append(
                 {
                     "p0": p0,
@@ -534,24 +550,30 @@ def build_hough_extension_blocks(lines):
         return []
 
     blocks = []
+
     for i, line in enumerate(lines):
         p0 = line["p0"]
         p1 = line["p1"]
         d = line["dir"]
+
         d_norm = float(np.linalg.norm(d))
         if d_norm < 1e-6:
             continue
+
         d = d / d_norm
 
         # 직선 양 끝을 각각 바깥 방향으로 10cm 연장한다.
         endpoints = [(p0, -d), (p1, d)]
+
         for endpoint, ext_dir in endpoints:
             ext_end = endpoint + ext_dir * HOUGH_EXTEND_M
             ext_len = float(np.linalg.norm(ext_end - endpoint))
+
             steps = max(2, int(math.ceil(ext_len / HOUGH_CONNECT_SAMPLE_STEP_M)) + 1)
             samples = np.linspace(endpoint, ext_end, steps).astype(np.float32)
 
             connected = False
+
             for j, other in enumerate(lines):
                 if i == j:
                     continue
@@ -562,9 +584,11 @@ def build_hough_extension_blocks(lines):
                 # 연장한 10cm 선분 위의 점이 다른 직선 선분에 가까워지면 연결로 판단한다.
                 for sample in samples[1:]:
                     q, dist = closest_point_on_segment(sample, other_p0, other_p1)
+
                     if dist <= HOUGH_CONNECT_DIST_M:
                         if float(np.linalg.norm(q - endpoint)) >= 0.025:
                             blocks.append((endpoint.copy(), q.astype(np.float32)))
+
                         connected = True
                         break
 
@@ -573,18 +597,40 @@ def build_hough_extension_blocks(lines):
 
     # 거의 같은 가상 벽 중복 제거
     unique = []
+
     for a, b in blocks:
         duplicated = False
+
         for c, d in unique:
             same = np.linalg.norm(a - c) < 0.03 and np.linalg.norm(b - d) < 0.03
             reverse = np.linalg.norm(a - d) < 0.03 and np.linalg.norm(b - c) < 0.03
+
             if same or reverse:
                 duplicated = True
                 break
+
         if not duplicated:
             unique.append((a, b))
 
     return unique
+
+
+def latch_hough_blocks(blocks):
+    global _last_hough_blocks, _last_hough_block_time
+
+    now = time.time()
+
+    if len(blocks) > 0:
+        _last_hough_blocks = blocks
+        _last_hough_block_time = now
+        return blocks
+
+    # 허프 검출은 라이다 노이즈 때문에 한두 프레임씩 끊길 수 있다.
+    # 그래서 직전에 막힌 구간은 0.6초 정도 유지한다.
+    if now - _last_hough_block_time <= HOUGH_BLOCK_LATCH_S:
+        return _last_hough_blocks
+
+    return []
 
 
 def apply_hough_blocks_to_ranges(angles_deg, ranges, block_segments):
@@ -606,10 +652,12 @@ def apply_hough_blocks_to_ranges(angles_deg, ranges, block_segments):
             x = float(p[0])
             y = float(p[1])
             r = math.hypot(x, y)
+
             if r < HOUGH_BLOCK_MIN_RANGE_M or r > HOUGH_BLOCK_MAX_RANGE_M:
                 continue
 
             angle = math.degrees(math.atan2(y, x))
+
             if angle < FGM_MIN_ANGLE_DEG or angle > FGM_MAX_ANGLE_DEG:
                 continue
 
@@ -617,6 +665,7 @@ def apply_hough_blocks_to_ranges(angles_deg, ranges, block_segments):
                 math.degrees(math.atan2(HOUGH_BLOCK_MARGIN_M, max(r, MIN_LIDAR_DIST_M)))
                 + HOUGH_BLOCK_EXTRA_ANGLE_DEG
             )
+
             diff = normalize_angle_deg(angles_deg - angle)
             block_mask = np.abs(diff) <= half_angle
 
@@ -677,7 +726,9 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
 
     # 허프변환으로 직선 검출 → 직선 끝 10cm 연장 → 다른 직선과 연결되면 가상 벽 처리
     hough_lines = detect_hough_line_segments(points)
-    hough_blocks = build_hough_extension_blocks(hough_lines)
+    hough_blocks_raw = build_hough_extension_blocks(hough_lines)
+    hough_blocks = latch_hough_blocks(hough_blocks_raw)
+
     bubble_ranges, hough_blocked_bins = apply_hough_blocks_to_ranges(
         angles_deg, bubble_ranges, hough_blocks
     )
@@ -698,10 +749,17 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
     target_angle = math.radians(float(angles_deg[target_idx]))
     target_angle = float(np.clip(target_angle, -TURN_HARD_LIMIT_RAD, TURN_HARD_LIMIT_RAD))
     target_dist = float(bubble_ranges[target_idx])
+
     raw_w = float(np.clip(FGM_TURN_GAIN * target_angle, -MAX_ABS_W, MAX_ABS_W))
     urgent = front_dist < URGENT_FRONT_DIST or not has_safe_gap
+
     w = rate_limit_w(prev_w, raw_w, urgent=urgent)
     v = choose_speed(target_dist, target_angle, has_safe_gap)
+
+    # 가장 가까운 장애물이 로봇 충돌 거리 안쪽이면 후보 방향이 멀어도 정지
+    # 단, w는 그대로 보내서 제자리 회전으로 빠져나갈 수 있게 한다.
+    if closest_dist < CLOSEST_COLLISION_STOP_DIST:
+        v = 0.0
 
     gap_width = (best_gap[1] - best_gap[0]) * FGM_ANGLE_STEP_DEG
     gap_left = float(angles_deg[best_gap[1] - 1]) if best_gap[1] > best_gap[0] else 0.0
@@ -729,6 +787,7 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
         "has_safe_gap": has_safe_gap,
         "hough_lines": len(hough_lines),
         "hough_blocks": len(hough_blocks),
+        "hough_blocks_raw": len(hough_blocks_raw),
         "hough_blocked_bins": hough_blocked_bins,
     }
 
@@ -807,7 +866,10 @@ def main():
                     f"gap={info['gap_width']:.0f} "
                     f"gr={info['gap_right']:.0f} gl={info['gap_left']:.0f} "
                     f"gaps={info['gaps']} safe={int(info['has_safe_gap'])} "
-                    f"hl={info['hough_lines']} hb={info['hough_blocks']} hbin={info['hough_blocked_bins']} "
+                    f"hl={info['hough_lines']} "
+                    f"hb={info['hough_blocks']} "
+                    f"rawhb={info['hough_blocks_raw']} "
+                    f"hbin={info['hough_blocked_bins']} "
                     f"close={info['closest']:.2f}@{info['closest_angle']:.0f} "
                     f"bb={info['bubble_bins']} score={info['score']:.2f} "
                     f"pts={info['points']} coll={int(info['collision'])} "
