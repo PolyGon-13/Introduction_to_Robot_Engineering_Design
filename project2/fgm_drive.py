@@ -60,6 +60,10 @@ FGM_GOAL_WEIGHT_DANGER = 0.30
 FGM_STRAIGHT_WEIGHT = 0.70
 FGM_CLEARANCE_WEIGHT = 1.80
 FGM_EDGE_WEIGHT = 0.85
+GAP_SHAPE_PENALTY_WEIGHT = 2.20
+GAP_SHAPE_SUPPORT_BAD = 0.10
+GAP_SHAPE_RATIO_BAD = 2.00
+GAP_SHAPE_EDGE_BAD = 0.45
 
 
 def normalize_angle_deg(angle):
@@ -375,6 +379,27 @@ def gap_shape_metrics(angles_deg, ranges, gap):
     }
 
 
+def gap_shape_penalty(metrics):
+    low_support = np.clip(
+        (GAP_SHAPE_SUPPORT_BAD - metrics["support_frac"])
+        / max(GAP_SHAPE_SUPPORT_BAD, 1e-6),
+        0.0,
+        1.0,
+    )
+    high_ratio = np.clip(
+        (metrics["peak_ratio"] - GAP_SHAPE_RATIO_BAD) / GAP_SHAPE_RATIO_BAD,
+        0.0,
+        1.0,
+    )
+    close_edges = np.clip(
+        (GAP_SHAPE_EDGE_BAD - metrics["edge_mean"])
+        / max(GAP_SHAPE_EDGE_BAD, 1e-6),
+        0.0,
+        1.0,
+    )
+    return GAP_SHAPE_PENALTY_WEIGHT * low_support * (0.55 * high_ratio + 0.45 * close_edges)
+
+
 def format_gap_shapes(angles_deg, ranges, gaps, selected_gap, max_gaps=4):
     if not gaps:
         return "-"
@@ -382,6 +407,7 @@ def format_gap_shapes(angles_deg, ranges, gaps, selected_gap, max_gaps=4):
     parts = []
     for gap in gaps[:max_gaps]:
         m = gap_shape_metrics(angles_deg, ranges, gap)
+        penalty = gap_shape_penalty(m)
         selected = "*" if gap == selected_gap else ""
         parts.append(
             f"{selected}{m['right_deg']:.0f}:{m['left_deg']:.0f}"
@@ -390,6 +416,7 @@ def format_gap_shapes(angles_deg, ranges, gaps, selected_gap, max_gaps=4):
             f"/ed{m['edge_mean']:.2f}"
             f"/pr{m['peak_ratio']:.1f}"
             f"/sp{m['support_frac']:.2f}"
+            f"/gp{penalty:.2f}"
         )
 
     if len(gaps) > max_gaps:
@@ -416,6 +443,8 @@ def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, f
     )
 
     for start, end in gaps:
+        gap_metrics = gap_shape_metrics(angles_deg, ranges, (start, end))
+        shape_penalty = gap_shape_penalty(gap_metrics)
         idxs = np.arange(start, end)
         angle_rad = np.deg2rad(angles_deg[idxs])
         targetable = np.abs(angle_rad) <= max_target_angle
@@ -449,6 +478,7 @@ def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, f
             + goal_weight * goal_score
             + FGM_PREV_TARGET_WEIGHT * prev_score
             + 0.25 * width_score
+            - shape_penalty
         )
 
         local_best = int(np.argmax(scores))
