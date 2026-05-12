@@ -47,7 +47,7 @@ BASE_V = 0.18              # 직진 속도 고정
 # 장애물 회피 파라미터
 # =========================
 FRONT_SAFE_DIST = 0.60     # 60cm보다 멀면 w = 0
-FRONT_WARN_DIST = 0.25     # 로그/모드 구분용
+FRONT_WARN_DIST = 0.40     # 로그/모드 구분용
 FRONT_DANGER_DIST = 0.20   # 15cm 이하이면 abs(w) = 0.90
 
 FRONT_ANGLE_DEG = 25       # 정면 판단 각도: -25도 ~ +25도
