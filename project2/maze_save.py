@@ -31,6 +31,7 @@ LOOP_DT_S = 0.05
 BASE_V = 0.18
 W_CANDIDATES = [-0.70, -0.50, -0.35, -0.20, -0.10, 0.0,
                 0.10, 0.20, 0.35, 0.50, 0.70]
+MAX_ABS_W = max(abs(wc) for wc in W_CANDIDATES)
 
 PREDICT_TIME = 1.50
 PREDICT_DT = 0.10
@@ -71,9 +72,56 @@ turn_weight = 0.25
 far_turn_weight = 0.55
 smooth_weight = 0.5
 
-robot_x = 0.0
-robot_y = 0.0
-robot_theta = 0.0
+
+# 각도(degree) -180° ~ +180° 범위 정규화
+def normalize_angle_deg(angle):
+    angle = (angle + 180.0) % 360.0 - 180.0
+    return angle
+
+# 각도(rad) -π ~ +π 범위 정규화
+def normalize_angle_rad(angle):
+    return math.atan2(math.sin(angle), math.cos(angle))
+
+
+class RobotPose:
+    def __init__(self):
+        self.x = 0.0
+        self.y = 0.0
+        self.theta = 0.0
+
+    def reset(self):
+        self.x = 0.0
+        self.y = 0.0
+        self.theta = 0.0
+
+    # 일정시간 동안 로봇이 이동한 거리/각도 계산
+    def update(self, v, w, dt):
+        self.x += v * math.cos(self.theta) * dt # x축으로 간 거리
+        self.y += v * math.sin(self.theta) * dt # y축으로 간 거리
+        self.theta = normalize_angle_rad(self.theta + w * dt) # 각도 변화량
+
+    # 목표 지점까지의 직선 거리 계산
+    def goal_distance(self):
+        dx = GOAL_X_M - self.x
+        dy = GOAL_Y_M - self.y
+        return math.hypot(dx, dy) # 유클리드 거리 (sqrt(dx^2 + dy^2)) - 빗변 계산
+
+    # 로봇 기준 좌표(local) -> 전역 좌표(global)
+    # 로봇의 전역좌표에 원하는 지점의 좌표를 전역좌표로 변경하여 더해주는 과정
+    def local_to_global(self, local_x, local_y):
+        c = math.cos(self.theta)
+        s = math.sin(self.theta)
+        gx = self.x + (local_x * c - local_y * s)
+        gy = self.y + (local_x * s + local_y * c)
+        return gx, gy
+
+
+# 목표 방향과 현재 헤딩의 차이 계산
+def goal_heading_error(x, y, theta):
+    dx = GOAL_X_M - x
+    dy = GOAL_Y_M - y
+    target_heading = math.atan2(dy, dx)
+    return normalize_angle_rad(target_heading - theta)
 
 
 # RPLidar C1 시리얼 통신 드라이버
@@ -144,47 +192,6 @@ class RPLidarC1:
         try: self.ser.write(bytes([0xA5, 0x25])) # STOP
         except: pass
         time.sleep(0.1); self.ser.close()
-
-
-# 각도(degree) -180° ~ +180° 범위 정규화
-def normalize_angle_deg(angle):
-    angle = (angle + 180.0) % 360.0 - 180.0
-    return angle
-
-# 각도(rad) -π ~ +π 범위 정규화
-def normalize_angle_rad(angle):
-    return math.atan2(math.sin(angle), math.cos(angle))
-
-
-# 일정시간 동안 로봇이 이동한 거리/각도 계산
-def update_pose(v, w, dt):
-    global robot_x, robot_y, robot_theta
-    robot_x += v * math.cos(robot_theta) * dt # x축으로 간 거리
-    robot_y += v * math.sin(robot_theta) * dt # y축으로 간 거리
-    robot_theta += w * dt # 각도 변화량
-    robot_theta = normalize_angle_rad(robot_theta)
-
-
-# 목표 지점까지의 직선 거리 계산
-def goal_distance():
-    dx = GOAL_X_M - robot_x
-    dy = GOAL_Y_M - robot_y
-    return math.hypot(dx, dy) # 유클리드 거리 (sqrt(dx^2 + dy^2)) - 빗변 계산
-
-# 목표 방향과 현재 헤딩의 차이 계산
-def goal_heading_error_from_pose(x, y, theta):
-    dx = GOAL_X_M - x
-    dy = GOAL_Y_M - y
-    target_heading = math.atan2(dy, dx)
-    return normalize_angle_rad(target_heading - theta)
-
-
-# 로봇 기준 좌표(local) -> 전역 좌표(global)
-# 로봇의 전역좌표에 원하는 지점의 좌표를 전역좌표로 변경하여 더해주는 과정
-def transform_local_to_global(local_x, local_y):
-    gx = robot_x + (local_x * math.cos(robot_theta) - local_y * math.sin(robot_theta))
-    gy = robot_y + (local_x * math.sin(robot_theta) + local_y * math.cos(robot_theta))
-    return gx, gy
 
 
 def lidar_points_to_xy(scan):
@@ -305,23 +312,53 @@ def trajectory_clearances(traj, points):
     return front_clear, side_clear, body_clear
 
 
-# (v,w)에 대해 cost항으로 점수 계산
-def evaluate_candidate(v, w, points, prev_w, front_dist):
-    traj = predict_trajectory(v, w) # 후보 경로
-    front_clearance, side_clearance, body_clearance = trajectory_clearances(traj, points) # 정면/측면/전체 최단 거리
+# 전방이 얼마나 위험한지를 0~1로 표현 (안전할수록 1에 가까움)
+# ACTIVE_FRONT_DIST보다 크거나 같으면 0.0, FRONT_DANGER_DIST보다 작으면 1.0
+def compute_front_factor(front_dist):
+    return float(np.clip(
+        (ACTIVE_FRONT_DIST - front_dist) / max(1e-6, ACTIVE_FRONT_DIST - FRONT_DANGER_DIST),
+        0.0, 1.0))
 
-    max_abs_w = max(abs(wc) for wc in W_CANDIDATES)
-    # 전방이 얼마나 위험한지를 0~1로 표현 (안전할수록 1에 가까움)
-    # ACTIVE_FRONT_DIST보다 크거나 같으면 0.0, FRONT_DANGER_DIST보다 작으면 1.0
-    front_factor = float(np.clip((ACTIVE_FRONT_DIST - front_dist) / max(1e-6, ACTIVE_FRONT_DIST - FRONT_DANGER_DIST), 0.0, 1.0))
+
+# 로봇 근처(±0.15m, ±0.3m) 좌/우 가장 가까운 장애물 거리
+def compute_side_info(points):
+    info_left = 1.0
+    info_right = 1.0
+    sb = (np.abs(points[:, 0]) < 0.15) & (np.abs(points[:, 1]) < 0.30)
+    if sb.any():
+        ys_sb = points[sb, 1]
+        ly = ys_sb[ys_sb > 0.05]
+        ry = ys_sb[ys_sb < -0.05]
+        if len(ly) > 0:
+            info_left = float(np.min(ly))
+        if len(ry) > 0:
+            info_right = float(-np.max(ry))
+    return info_left, info_right
+
+
+# 후보 평가 루프마다 공통으로 쓰이는 값들을 한 번만 계산해 묶음
+class PlanContext:
+    def __init__(self, points, front_dist, front_factor, info_left, info_right, current_goal_dist):
+        self.points = points
+        self.front_dist = front_dist
+        self.front_factor = front_factor
+        self.info_left = info_left
+        self.info_right = info_right
+        self.current_goal_dist = current_goal_dist
+
+
+# (v,w)에 대해 cost항으로 점수 계산
+def evaluate_candidate(v, w, ctx, pose, prev_w):
+    traj = predict_trajectory(v, w) # 후보 경로
+    front_clearance, side_clearance, body_clearance = trajectory_clearances(traj, ctx.points) # 정면/측면/전체 최단 거리
 
     # 직진 보상 가중치
     # 전방이 안전할수록(front_factor이 0에 가까워짐) 커짐
-    forward_w = forward_weight + (1.0 - front_factor) * far_forward_weight # 1.0 ~ 3.2
+    forward_w = forward_weight + (1.0 - ctx.front_factor) * far_forward_weight # 1.0 ~ 3.2
 
     # 회전 보상 가중치
     # 전방이 안전할수록(front_factor이 0에 가까워짐) 작아짐
-    turn_w = turn_weight + (1.0 - front_factor) * far_turn_weight # 0.25 ~ 0.80
+    turn_w = turn_weight + (1.0 - ctx.front_factor) * far_turn_weight # 0.25 ~ 0.80
 
 
     # 보상 함수 부분
@@ -354,8 +391,8 @@ def evaluate_candidate(v, w, points, prev_w, front_dist):
         score -= side_near_weight * ((COLLISION_DIST + 0.1) - side_clearance) # -0.8 ~ 0
     
     # 직진에 가까운 후보일수록 보상
-    # max_abs_w는 W_CANDIDATES 리스트의 최댓값
-    score += forward_w * (1.0 - abs(w) / max_abs_w) # 0.0 ~ 3.2
+    # MAX_ABS_W는 W_CANDIDATES 리스트의 최댓값
+    score += forward_w * (1.0 - abs(w) / MAX_ABS_W) # 0.0 ~ 3.2
 
     # 회전량이 클수록 페널티
     score -= turn_w * abs(w) # -0.72 ~ 0
@@ -370,29 +407,26 @@ def evaluate_candidate(v, w, points, prev_w, front_dist):
     local_theta = float(traj[-1, 2])
 
     # 로봇 기준 좌표를 전역 좌표계 위치로 변환
-    candidate_x, candidate_y = transform_local_to_global(local_x, local_y)
+    candidate_x, candidate_y = pose.local_to_global(local_x, local_y)
 
     # 후보 경로의 최종 방향을 전역 방향으로 변환
-    candidate_theta = normalize_angle_rad(robot_theta + local_theta)
+    candidate_theta = normalize_angle_rad(pose.theta + local_theta)
 
     # 후보 실행 후 위치/방향에서 봤을 때, 목표점을 향하려면 얼마나 방향 오차가 있는지 계산
-    heading_err = goal_heading_error_from_pose(candidate_x, candidate_y, candidate_theta)
+    heading_err = goal_heading_error(candidate_x, candidate_y, candidate_theta)
 
     # 후보 실행 후 y위치가 목표 경로 y에서 얼마나 벗어났는지 계산
     lateral_err = candidate_y - GOAL_Y_M
-
-    # 현재 로봇 위치에서 목표점까지의 거리
-    current_goal_dist = goal_distance()
 
     # 후보 실행 후 예상 위치에서 목표점까지의 거리
     candidate_goal_dist = math.hypot(GOAL_X_M - candidate_x, GOAL_Y_M - candidate_y)
 
     # 목표점에 얼마나 가까워지는지 계산
-    goal_progress = current_goal_dist - candidate_goal_dist
+    goal_progress = ctx.current_goal_dist - candidate_goal_dist
 
     # 목표점 추종을 얼마나 강하게 반영할지 결정
     # 전방이 안전하면 강하게 추종, 위험하면 거의 무시
-    goal_factor = 1.0 - front_factor
+    goal_factor = 1.0 - ctx.front_factor
 
     # 후보 실행 후 로봇 방향이 기준 방향에서 얼마나 틀어졌는지 절댓값으로 확인
     theta_abs = abs(candidate_theta)
@@ -402,7 +436,7 @@ def evaluate_candidate(v, w, points, prev_w, front_dist):
 
     # 현재 방향보다 후보 실행 후 방향이 얼마나 더 켜졌는지 계산
     # 현재 A도, 후보 실행 후 B도면 A-B, 만약 0보다 작다면(기준선에서 멀어지는 방향의 회전이 아니라면), 0으로 설정
-    theta_growth = max(0.0, theta_abs - abs(robot_theta))
+    theta_growth = max(0.0, theta_abs - abs(pose.theta))
 
     # 후보 경로가 목표점에 가까워지면 보상, 멀어지면 페널티
     score += goal_factor * GOAL_DISTANCE_WEIGHT * goal_progress # -0.086 ~ 0.086
@@ -418,13 +452,40 @@ def evaluate_candidate(v, w, points, prev_w, front_dist):
 
     # 로봇 방향이 너무 틀어지는 것 방지 페널티
     # TURN_SOFT_LIMIT_RAD 초과 틀어지면 페널티
-    if abs(robot_theta) > TURN_SOFT_LIMIT_RAD:
+    if abs(pose.theta) > TURN_SOFT_LIMIT_RAD:
         score -= TURN_GROWTH_WEIGHT * theta_growth # -23 ~ 0
     # TURN_HARD_LIMIT_RAD 초과 틀어지면 "강한" 페널티
     if theta_abs > TURN_HARD_LIMIT_RAD:
         score -= collision_weight * (theta_abs - TURN_HARD_LIMIT_RAD + 1.0) # -260.6 ~ -100
 
     return score, front_clearance, side_clearance, body_clearance, candidate_theta
+
+
+# all_collision 상황에서 비상 탈출용 점수
+# 정상 score 대신 clearance 위주의 단순 점수로 후보를 다시 고름
+def compute_emergency_score(w, clearance, side_clearance, candidate_theta, prev_w, pose, info_left, info_right):
+    score = clearance + 0.18 * side_clearance + 0.03 * abs(w) - 0.02 * abs(w - prev_w)
+
+    theta_abs = abs(candidate_theta)
+    theta_excess = max(0.0, theta_abs - TURN_SOFT_LIMIT_RAD)
+    theta_growth = max(0.0, theta_abs - abs(pose.theta))
+    score -= 0.20 * theta_excess
+    if abs(pose.theta) > TURN_SOFT_LIMIT_RAD:
+        score -= 0.12 * theta_growth
+
+    near_thresh = 0.17
+    if w < 0 and info_right < near_thresh:
+        closeness = (near_thresh - info_right) / near_thresh
+        score -= 0.5 * closeness * abs(w)
+    if w > 0 and info_left < near_thresh:
+        closeness = (near_thresh - info_left) / near_thresh
+        score -= 0.7 * closeness * abs(w)
+    if w == 0.0:
+        nearest = min(info_left, info_right)
+        if nearest < near_thresh:
+            closeness = (near_thresh - nearest) / near_thresh
+            score -= 0.7 * closeness
+    return score
 
 
 # 전방 장애물 거리 fdist가 URGENT_FRONT_DIST보다 작으면 urgent=True
@@ -435,7 +496,7 @@ def rate_limit_w(prev_w, target_w, urgent=False):
     return prev_w + delta
 
 
-def choose_best_cmd(scan, prev_w, cmd_v):
+def choose_best_cmd(scan, prev_w, cmd_v, pose):
     points = lidar_points_to_xy(scan)
     if len(points) == 0:
         return cmd_v, rate_limit_w(prev_w, 0.0), {
@@ -448,66 +509,51 @@ def choose_best_cmd(scan, prev_w, cmd_v):
             "points": 0,
             "collision": False,
             "raw_w": 0.0,
-            "cth": robot_theta,
+            "cth": pose.theta,
             "left": 1.0,
             "right": 1.0,
         }
 
+    # 루프당 1회만 계산되는 컨텍스트
     fdist = front_distance(points)
-    front_factor = float(np.clip((ACTIVE_FRONT_DIST - fdist) / max(1e-6, ACTIVE_FRONT_DIST - FRONT_DANGER_DIST), 0.0, 1.0))
-
-    info_left = 1.0
-    info_right = 1.0
-    sb = (np.abs(points[:, 0]) < 0.15) & (np.abs(points[:, 1]) < 0.30)
-    if sb.any():
-        ys_sb = points[sb, 1]
-        ly = ys_sb[ys_sb > 0.05]
-        ry = ys_sb[ys_sb < -0.05]
-        if len(ly) > 0:
-            info_left = float(np.min(ly))
-        if len(ry) > 0:
-            info_right = float(-np.max(ry))
-
-    near_thresh = 0.16
+    front_factor = compute_front_factor(fdist)
+    info_left, info_right = compute_side_info(points)
+    ctx = PlanContext(
+        points=points,
+        front_dist=fdist,
+        front_factor=front_factor,
+        info_left=info_left,
+        info_right=info_right,
+        current_goal_dist=pose.goal_distance(),
+    )
 
     best_w = 0.0
     best_score = -float("inf")
     best_clearance = -float("inf")
     best_side_clearance = MAX_LIDAR_DIST_M
     best_body_clearance = MAX_LIDAR_DIST_M
-    all_collision = True
+    best_theta = 0.0
+
     best_clear_w = 0.0
     best_clear_score = -float("inf")
-    best_theta = 0.0
+
+    all_collision = True
 
     for w in W_CANDIDATES:
         score, clearance, side_clearance, body_clearance, candidate_theta = (
-            evaluate_candidate(cmd_v, w, points, prev_w, fdist)
+            evaluate_candidate(cmd_v, w, ctx, pose, prev_w)
         )
         collision = clearance < COLLISION_DIST
         if not collision:
             all_collision = False
-        theta_abs = abs(candidate_theta)
-        theta_excess = max(0.0, theta_abs - TURN_SOFT_LIMIT_RAD)
-        theta_growth = max(0.0, theta_abs - abs(robot_theta))
-        clear_score = clearance + 0.18 * side_clearance + 0.03 * abs(w) - 0.02 * abs(w - prev_w)
-        clear_score -= 0.20 * theta_excess
-        if abs(robot_theta) > TURN_SOFT_LIMIT_RAD:
-            clear_score -= 0.12 * theta_growth
-        if w < 0 and info_right < near_thresh:
-            closeness = (near_thresh - info_right) / near_thresh
-            clear_score -= 0.5 * closeness * abs(w)
-        if w > 0 and info_left < near_thresh:
-            closeness = (near_thresh - info_left) / near_thresh
-            clear_score -= 0.7 * closeness * abs(w)
-        if w == 0.0:
-            nearest = min(info_left, info_right)
-            if nearest < near_thresh:
-                closeness = (near_thresh - nearest) / near_thresh
-                clear_score -= 0.7 * closeness
+
+        clear_score = compute_emergency_score(
+            w, clearance, side_clearance, candidate_theta, prev_w, pose, info_left, info_right
+        )
         if clear_score > best_clear_score:
             best_clear_score = clear_score
             best_clear_w = w
+
         if score > best_score:
             best_score = score
             best_w = w
@@ -519,7 +565,7 @@ def choose_best_cmd(scan, prev_w, cmd_v):
     if all_collision:
         best_w = best_clear_w
         best_score, best_clearance, best_side_clearance, best_body_clearance, best_theta = (
-            evaluate_candidate(cmd_v, best_w, points, prev_w, fdist)
+            evaluate_candidate(cmd_v, best_w, ctx, pose, prev_w)
         )
 
     raw_best_w = best_w
@@ -541,7 +587,7 @@ def choose_best_cmd(scan, prev_w, cmd_v):
 
 
 def main():
-    global robot_x, robot_y, robot_theta
+    pose = RobotPose()
     lidar = RPLidarC1(LIDAR_PORT, LIDAR_BAUD)
     ardu  = serial.Serial(ARDU_PORT, ARDU_BAUD, timeout=0.1)
     print("[INFO] Warming up for 2 seconds..."); time.sleep(2.0)
@@ -560,9 +606,7 @@ def main():
         print("[WARN] Could not read standard input. Starting immediately.")
     print("[INFO] Go!!")
 
-    robot_x = 0.0
-    robot_y = 0.0
-    robot_theta = 0.0
+    pose.reset()
     last_scan_ok = 0.0
     last_v, last_w = BASE_V, 0.0
     last_log = 0.0
@@ -574,7 +618,7 @@ def main():
             dt = max(0.0, min(0.20, now - last_pose_time))
             last_pose_time = now
 
-            if goal_distance() <= GOAL_TOL_M:
+            if pose.goal_distance() <= GOAL_TOL_M:
                 stop()
                 print("[INFO] Goal reached. Stopping.")
                 break
@@ -583,32 +627,32 @@ def main():
             if scan is None:
                 if time.time() - last_scan_ok <= SCAN_HOLD_S:
                     send_vw(last_v, last_w)
-                    update_pose(last_v, last_w, dt)
+                    pose.update(last_v, last_w, dt)
                 else:
                     send_vw(0.0, 0.0)
-                    update_pose(0.0, 0.0, dt)
-                if goal_distance() <= GOAL_TOL_M:
+                    pose.update(0.0, 0.0, dt)
+                if pose.goal_distance() <= GOAL_TOL_M:
                     stop()
                     print("[INFO] Goal reached. Stopping.")
                     break
                 time.sleep(LOOP_DT_S); continue
 
             last_scan_ok = time.time()
-            v, w, info = choose_best_cmd(scan, last_w, BASE_V)
+            v, w, info = choose_best_cmd(scan, last_w, BASE_V, pose)
             send_vw(v, w)
-            update_pose(v, w, dt)
+            pose.update(v, w, dt)
             last_v, last_w = v, w
 
-            gd = goal_distance()
-            he = goal_heading_error_from_pose(robot_x, robot_y, robot_theta)
+            gd = pose.goal_distance()
+            he = goal_heading_error(pose.x, pose.y, pose.theta)
             if gd <= GOAL_TOL_M:
                 stop()
                 print("[INFO] Goal reached. Stopping.")
                 break
 
             if time.time() - last_log > 0.25:
-                print(f"[RUN2] x={robot_x:.2f} y={robot_y:.2f} "
-                    f"th={robot_theta:.2f} gd={gd:.2f} he={he:.2f} "
+                print(f"[RUN2] x={pose.x:.2f} y={pose.y:.2f} "
+                    f"th={pose.theta:.2f} gd={gd:.2f} he={he:.2f} "
                     f"v={v:.2f} w={w:.2f} raw={info['raw_w']:.2f} "
                     f"front={info['front']:.2f} ff={info['front_factor']:.2f} clear={info['clear']:.2f} "
                     f"side={info['side']:.2f} body={info['body']:.2f} "
