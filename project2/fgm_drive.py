@@ -61,28 +61,21 @@ FGM_STRAIGHT_WEIGHT = 0.70
 FGM_CLEARANCE_WEIGHT = 1.80
 FGM_EDGE_WEIGHT = 0.85
 
-RECOVERY_BAD_TARGET_DEG = 35.0
-RECOVERY_BAD_TARGET_DIST = 0.80
-RECOVERY_BAD_FRONT_DIST = 0.25
-RECOVERY_ENTER_CLOSE_DIST = COLLISION_DIST + 0.03
-RECOVERY_ENTER_SIDE_DIST = ROBOT_RADIUS + 0.02
-RECOVERY_EXIT_CLOSE_DIST = COLLISION_DIST + 0.12
-RECOVERY_EXIT_SIDE_DIST = COLLISION_DIST + 0.03
-RECOVERY_EXIT_TARGET_DIST = 0.65
+RECOVERY_TRAP_DIST = 0.18
+RECOVERY_EXIT_FRONT_DIST = 0.24
+RECOVERY_EXIT_SIDE_DIST = 0.22
 RECOVERY_MIN_CYCLES = 8
-RECOVERY_EXIT_CLEAR_CYCLES = 6
-RECOVERY_MAX_CYCLES = 80
-RECOVERY_DEFAULT_TARGET_DEG = 30.0
-RECOVERY_MIN_TARGET_DEG = 12.0
+RECOVERY_EXIT_CLEAR_CYCLES = 5
+RECOVERY_MAX_CYCLES = 60
+RECOVERY_TARGET_DEG = 30.0
+RECOVERY_MIN_TARGET_DEG = 15.0
 RECOVERY_MAX_TARGET_DEG = 55.0
-RECOVERY_V = 0.10
-RECOVERY_MIN_V = 0.06
-RECOVERY_BASE_W = 0.30
-RECOVERY_WALL_DIST = COLLISION_DIST + 0.05
+RECOVERY_V = 0.08
+RECOVERY_BASE_W = 0.32
+RECOVERY_WALL_TARGET = 0.20
 RECOVERY_WALL_GAIN = 1.20
-RECOVERY_TURN_SIDE_GAIN = 0.80
 RECOVERY_OPPOSITE_GAIN = 0.70
-RECOVERY_FGM_BLEND = 0.35
+RECOVERY_FGM_BLEND = 0.30
 
 
 def normalize_angle_deg(angle):
@@ -490,76 +483,51 @@ def angle_to_grid_index(angle_rad, n_angles):
     return int(np.clip(idx, 0, n_angles - 1))
 
 
-def detect_recovery_reason(target_angle, target_dist, front_dist,
-                           closest_dist, info_left, info_right):
-    bad_gap = (
-        abs(math.degrees(target_angle)) >= RECOVERY_BAD_TARGET_DEG
-        and target_dist <= RECOVERY_BAD_TARGET_DIST
-        and front_dist <= RECOVERY_BAD_FRONT_DIST
+def is_trap_condition(front_dist, info_left, info_right):
+    return (
+        front_dist <= RECOVERY_TRAP_DIST
+        and info_left <= RECOVERY_TRAP_DIST
+        and info_right <= RECOVERY_TRAP_DIST
     )
-    if bad_gap:
-        return "bad_gap"
-
-    if closest_dist <= RECOVERY_ENTER_CLOSE_DIST:
-        return "close"
-
-    if min(info_left, info_right) <= RECOVERY_ENTER_SIDE_DIST:
-        return "side"
-
-    if target_dist <= COLLISION_DIST:
-        return "blocked"
-
-    return ""
 
 
-def choose_recovery_direction(reason, target_angle, prev_w, info_left, info_right):
-    target_sign = sign_or_zero(target_angle, math.radians(3.0))
-    if reason == "bad_gap" and target_sign != 0:
-        return -target_sign
+def is_recovery_clear(front_dist, info_left, info_right):
+    return (
+        front_dist >= RECOVERY_EXIT_FRONT_DIST
+        and info_left >= RECOVERY_EXIT_SIDE_DIST
+        and info_right >= RECOVERY_EXIT_SIDE_DIST
+    )
 
-    if info_right < info_left and info_right <= RECOVERY_ENTER_SIDE_DIST:
-        return 1
-    if info_left < info_right and info_left <= RECOVERY_ENTER_SIDE_DIST:
-        return -1
 
-    if target_sign != 0:
-        return -target_sign
-
+def choose_recovery_direction(prev_w, target_angle, info_left, info_right):
     prev_sign = sign_or_zero(prev_w, 0.05)
     if prev_sign != 0:
         return -prev_sign
 
+    target_sign = sign_or_zero(target_angle, math.radians(3.0))
+    if target_sign != 0:
+        return -target_sign
+
     return 1 if info_right <= info_left else -1
 
 
-def recovery_is_clear(target_dist, closest_dist, info_left, info_right):
-    return (
-        target_dist >= RECOVERY_EXIT_TARGET_DIST
-        and closest_dist >= RECOVERY_EXIT_CLOSE_DIST
-        and min(info_left, info_right) >= RECOVERY_EXIT_SIDE_DIST
-    )
-
-
-def update_recovery_state(state, target_angle, target_dist, front_dist,
-                          closest_dist, info_left, info_right, prev_w):
+def update_recovery_state(state, front_dist, info_left, info_right,
+                          prev_w, target_angle):
     if state is None:
         return None, ""
 
-    reason = detect_recovery_reason(
-        target_angle, target_dist, front_dist, closest_dist, info_left, info_right
-    )
-
+    trapped = is_trap_condition(front_dist, info_left, info_right)
     if not state.active():
-        if reason:
+        if trapped:
             direction = choose_recovery_direction(
-                reason, target_angle, prev_w, info_left, info_right
+                prev_w, target_angle, info_left, info_right
             )
-            state.enter(direction, reason)
+            state.enter(direction, "trap")
             state.step()
-        return state, reason
+        return state, "trap" if trapped else ""
 
     state.step()
-    if recovery_is_clear(target_dist, closest_dist, info_left, info_right):
+    if is_recovery_clear(front_dist, info_left, info_right):
         state.clear_cycles += 1
     else:
         state.clear_cycles = 0
@@ -573,13 +541,13 @@ def update_recovery_state(state, target_angle, target_dist, front_dist,
     ):
         state.reset()
 
-    return state, reason
+    return state, "trap" if trapped else ""
 
 
 def recovery_target_angle(normal_target_angle, direction):
     min_angle = math.radians(RECOVERY_MIN_TARGET_DEG)
     max_angle = math.radians(RECOVERY_MAX_TARGET_DEG)
-    default_angle = math.radians(RECOVERY_DEFAULT_TARGET_DEG)
+    default_angle = math.radians(RECOVERY_TARGET_DEG)
 
     if normal_target_angle * direction > 0.0:
         magnitude = float(np.clip(abs(normal_target_angle), min_angle, max_angle))
@@ -590,18 +558,14 @@ def recovery_target_angle(normal_target_angle, direction):
 
 
 def recovery_w(direction, target_angle, info_left, info_right):
-    turn_side = info_left if direction > 0 else info_right
+    follow_side = info_left if direction > 0 else info_right
     opposite_side = info_right if direction > 0 else info_left
 
-    side_error = min(turn_side, RECOVERY_WALL_DIST + 0.20) - RECOVERY_WALL_DIST
-    wall_w = direction * (RECOVERY_BASE_W + RECOVERY_WALL_GAIN * side_error)
+    wall_error = follow_side - RECOVERY_WALL_TARGET
+    wall_w = direction * (RECOVERY_BASE_W + RECOVERY_WALL_GAIN * wall_error)
 
-    if turn_side < COLLISION_DIST:
-        closeness = (COLLISION_DIST - turn_side) / max(1e-6, COLLISION_DIST)
-        wall_w -= direction * RECOVERY_TURN_SIDE_GAIN * closeness
-
-    if opposite_side < COLLISION_DIST:
-        closeness = (COLLISION_DIST - opposite_side) / max(1e-6, COLLISION_DIST)
+    if opposite_side < RECOVERY_WALL_TARGET:
+        closeness = (RECOVERY_WALL_TARGET - opposite_side) / RECOVERY_WALL_TARGET
         wall_w += direction * RECOVERY_OPPOSITE_GAIN * closeness
 
     fgm_w = float(np.clip(FGM_TURN_GAIN * target_angle, -MAX_ABS_W, MAX_ABS_W))
@@ -641,18 +605,10 @@ def choose_speed(target_dist, target_angle, has_safe_gap):
     return float(np.clip(v, 0.0, BASE_V))
 
 
-def choose_recovery_speed(target_dist, closest_dist):
-    if target_dist < COLLISION_DIST or closest_dist < ROBOT_RADIUS:
+def choose_recovery_speed(target_dist):
+    if target_dist < COLLISION_DIST:
         return 0.0
-
-    near_ratio = np.clip(
-        (closest_dist - COLLISION_DIST)
-        / max(1e-6, RECOVERY_EXIT_CLOSE_DIST - COLLISION_DIST),
-        0.0,
-        1.0,
-    )
-    v = RECOVERY_MIN_V + (RECOVERY_V - RECOVERY_MIN_V) * float(near_ratio)
-    return float(np.clip(v, 0.0, RECOVERY_V))
+    return min(RECOVERY_V, choose_speed(target_dist, 0.0, True))
 
 
 def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose, recovery_state=None):
@@ -687,14 +643,7 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose, recovery_state=None):
     fgm_target_dist = target_dist
 
     recovery_state, recovery_reason = update_recovery_state(
-        recovery_state,
-        target_angle,
-        target_dist,
-        front_dist,
-        closest_dist,
-        info_left,
-        info_right,
-        prev_w,
+        recovery_state, front_dist, info_left, info_right, prev_w, target_angle
     )
 
     recovery_active = recovery_state is not None and recovery_state.active()
@@ -706,7 +655,7 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose, recovery_state=None):
             recovery_state.direction, target_angle, info_left, info_right
         )
         urgent = True
-        v = choose_recovery_speed(target_dist, closest_dist)
+        v = choose_recovery_speed(target_dist)
     else:
         raw_w = float(np.clip(FGM_TURN_GAIN * target_angle, -MAX_ABS_W, MAX_ABS_W))
         urgent = front_dist < URGENT_FRONT_DIST or not has_safe_gap
