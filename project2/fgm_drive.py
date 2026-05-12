@@ -61,6 +61,19 @@ FGM_STRAIGHT_WEIGHT = 0.70
 FGM_CLEARANCE_WEIGHT = 1.80
 FGM_EDGE_WEIGHT = 0.85
 
+CORRIDOR_START_M = 0.18
+CORRIDOR_REQUIRED_DEPTH_M = 0.80
+CORRIDOR_LOOKAHEAD_M = 1.05
+CORRIDOR_STEP_M = 0.12
+CORRIDOR_HALF_WIDTH_M = ROBOT_RADIUS + 0.07
+CORRIDOR_MIN_WIDTH_M = 2.0 * (ROBOT_RADIUS + 0.06)
+CORRIDOR_SIDE_WINDOW_M = ROBOT_RADIUS + 0.32
+CORRIDOR_SIDE_CLOSE_M = ROBOT_RADIUS + 0.12
+CORRIDOR_FRONT_WINDOW_M = CORRIDOR_HALF_WIDTH_M
+CORRIDOR_DEPTH_PENALTY_WEIGHT = 3.20
+CORRIDOR_WIDTH_PENALTY_WEIGHT = 2.00
+CORRIDOR_CORNER_PENALTY_WEIGHT = 4.00
+
 
 def normalize_angle_deg(angle):
     return (angle + 180.0) % 360.0 - 180.0
@@ -179,7 +192,7 @@ class RPLidarC1:
         self.ser.close()
 
 
-def lidar_points_to_xy(scan):
+def lidar_points_to_xy(scan, min_x=MIN_X_FOR_PLANNING):
     if scan is None:
         return np.empty((0, 2), dtype=np.float32)
 
@@ -201,7 +214,7 @@ def lidar_points_to_xy(scan):
     x = dist_m * np.cos(angle_rad)
     y = dist_m * np.sin(angle_rad)
 
-    mask_xy = x >= MIN_X_FOR_PLANNING
+    mask_xy = x >= min_x
     if not mask_xy.any():
         return np.empty((0, 2), dtype=np.float32)
 
@@ -346,9 +359,132 @@ def filter_gaps_by_width(gaps):
     return [(start, end) for start, end in gaps if end - start >= min_bins]
 
 
-def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, front_factor):
+def default_corridor_metrics():
+    return {
+        "penalty": 0.0,
+        "open_depth": CORRIDOR_LOOKAHEAD_M,
+        "min_width": 2.0 * CORRIDOR_SIDE_WINDOW_M,
+        "front_close": CORRIDOR_LOOKAHEAD_M,
+        "corner": 0.0,
+    }
+
+
+def corridor_validation_metrics(points, target_angle):
+    if len(points) == 0:
+        return default_corridor_metrics()
+
+    c = math.cos(target_angle)
+    s = math.sin(target_angle)
+    forward = points[:, 0] * c + points[:, 1] * s
+    lateral = -points[:, 0] * s + points[:, 1] * c
+
+    usable = (
+        (forward >= CORRIDOR_START_M)
+        & (forward <= CORRIDOR_LOOKAHEAD_M)
+        & (np.abs(lateral) <= CORRIDOR_SIDE_WINDOW_M)
+    )
+    if not usable.any():
+        return default_corridor_metrics()
+
+    fwd = forward[usable]
+    lat = lateral[usable]
+
+    front_mask = np.abs(lat) <= CORRIDOR_FRONT_WINDOW_M
+    if front_mask.any():
+        front_close = float(np.min(fwd[front_mask]))
+    else:
+        front_close = CORRIDOR_LOOKAHEAD_M
+
+    min_width = 2.0 * CORRIDOR_SIDE_WINDOW_M
+    open_depth = CORRIDOR_LOOKAHEAD_M
+    side_close_score = 0.0
+    depths = np.arange(
+        CORRIDOR_START_M + CORRIDOR_STEP_M,
+        CORRIDOR_REQUIRED_DEPTH_M + 0.5 * CORRIDOR_STEP_M,
+        CORRIDOR_STEP_M,
+        dtype=np.float32,
+    )
+
+    for depth in depths:
+        slice_mask = np.abs(fwd - float(depth)) <= 0.5 * CORRIDOR_STEP_M
+        if not slice_mask.any():
+            continue
+
+        slice_lat = lat[slice_mask]
+        left_pts = slice_lat[slice_lat > 0.0]
+        right_pts = slice_lat[slice_lat < 0.0]
+        left_clear = (
+            float(np.min(left_pts)) if len(left_pts) > 0 else CORRIDOR_SIDE_WINDOW_M
+        )
+        right_clear = (
+            float(np.min(-right_pts)) if len(right_pts) > 0 else CORRIDOR_SIDE_WINDOW_M
+        )
+        width = min(2.0 * CORRIDOR_SIDE_WINDOW_M, left_clear + right_clear)
+        min_width = min(min_width, width)
+
+        nearest_side = min(left_clear, right_clear)
+        if nearest_side < CORRIDOR_SIDE_CLOSE_M:
+            side_close_score = max(
+                side_close_score,
+                float(
+                    np.clip(
+                        (CORRIDOR_SIDE_CLOSE_M - nearest_side)
+                        / max(1e-6, CORRIDOR_SIDE_CLOSE_M - CORRIDOR_HALF_WIDTH_M),
+                        0.0,
+                        1.0,
+                    )
+                ),
+            )
+
+        center_blocked = bool(np.any(np.abs(slice_lat) <= CORRIDOR_HALF_WIDTH_M))
+        if center_blocked or width < CORRIDOR_MIN_WIDTH_M:
+            open_depth = float(depth)
+            break
+
+    depth_penalty = float(
+        np.clip(
+            (CORRIDOR_REQUIRED_DEPTH_M - open_depth)
+            / max(1e-6, CORRIDOR_REQUIRED_DEPTH_M - CORRIDOR_START_M),
+            0.0,
+            1.0,
+        )
+    )
+    width_penalty = float(
+        np.clip(
+            (CORRIDOR_MIN_WIDTH_M - min_width) / max(1e-6, CORRIDOR_MIN_WIDTH_M),
+            0.0,
+            1.0,
+        )
+    )
+    front_penalty = float(
+        np.clip(
+            (CORRIDOR_REQUIRED_DEPTH_M - front_close)
+            / max(1e-6, CORRIDOR_REQUIRED_DEPTH_M - CORRIDOR_START_M),
+            0.0,
+            1.0,
+        )
+    )
+    corner_score = front_penalty * max(width_penalty, side_close_score)
+    penalty = (
+        CORRIDOR_DEPTH_PENALTY_WEIGHT * depth_penalty
+        + CORRIDOR_WIDTH_PENALTY_WEIGHT * width_penalty
+        + CORRIDOR_CORNER_PENALTY_WEIGHT * corner_score
+    )
+
+    return {
+        "penalty": float(penalty),
+        "open_depth": float(open_depth),
+        "min_width": float(min_width),
+        "front_close": float(front_close),
+        "corner": float(corner_score),
+    }
+
+
+def choose_target_from_gaps(
+    angles_deg, ranges, gaps, pose, prev_target_angle, front_factor, corridor_points
+):
     if not gaps:
-        return -1, (0, 0), -float("inf")
+        return -1, (0, 0), -float("inf"), default_corridor_metrics()
 
     goal_angle = goal_heading_error(pose.x, pose.y, pose.theta)
     goal_angle = float(np.clip(goal_angle, -TURN_HARD_LIMIT_RAD, TURN_HARD_LIMIT_RAD))
@@ -357,6 +493,7 @@ def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, f
     best_idx = -1
     best_gap = (0, 0)
     best_score = -float("inf")
+    best_metrics = default_corridor_metrics()
     max_target_angle = TURN_HARD_LIMIT_RAD
     goal_weight = (
         FGM_GOAL_WEIGHT_SAFE * (1.0 - front_factor)
@@ -390,6 +527,14 @@ def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, f
         )
         width_score = min(1.0, local_width * FGM_ANGLE_STEP_DEG / 60.0)
 
+        corridor_metrics = [
+            corridor_validation_metrics(corridor_points, float(angle))
+            for angle in angle_rad
+        ]
+        corridor_penalty = np.array(
+            [metrics["penalty"] for metrics in corridor_metrics], dtype=np.float32
+        )
+
         scores = (
             FGM_CLEARANCE_WEIGHT * clearance_score
             + FGM_EDGE_WEIGHT * edge_score
@@ -397,6 +542,7 @@ def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, f
             + goal_weight * goal_score
             + FGM_PREV_TARGET_WEIGHT * prev_score
             + 0.25 * width_score
+            - corridor_penalty
         )
 
         local_best = int(np.argmax(scores))
@@ -405,8 +551,9 @@ def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, f
             best_score = score
             best_idx = int(idxs[local_best])
             best_gap = (start, end)
+            best_metrics = corridor_metrics[local_best]
 
-    return best_idx, best_gap, best_score
+    return best_idx, best_gap, best_score, best_metrics
 
 
 def choose_fallback_target(angles_deg, ranges):
@@ -447,6 +594,7 @@ def choose_speed(target_dist, target_angle, has_safe_gap):
 
 def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
     points = lidar_points_to_xy(scan)
+    corridor_points = lidar_points_to_xy(scan, min_x=-0.05)
     front_dist = front_distance(points)
     front_factor = compute_front_factor(front_dist)
     info_left, info_right = compute_side_info(points)
@@ -461,14 +609,21 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
     gaps = filter_gaps_by_width(find_free_gaps(free_mask))
     has_safe_gap = len(gaps) > 0
 
-    target_idx, best_gap, best_score = choose_target_from_gaps(
-        angles_deg, bubble_ranges, gaps, pose, prev_target_angle, front_factor
+    target_idx, best_gap, best_score, corridor_metrics = choose_target_from_gaps(
+        angles_deg,
+        bubble_ranges,
+        gaps,
+        pose,
+        prev_target_angle,
+        front_factor,
+        corridor_points,
     )
 
     if target_idx < 0:
         target_idx = choose_fallback_target(angles_deg, smooth_ranges)
         best_gap = (target_idx, target_idx + 1)
         best_score = 0.0
+        corridor_metrics = default_corridor_metrics()
 
     target_angle = math.radians(float(angles_deg[target_idx]))
     target_angle = float(np.clip(target_angle, -TURN_HARD_LIMIT_RAD, TURN_HARD_LIMIT_RAD))
@@ -499,6 +654,11 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
         "closest": closest_dist,
         "closest_angle": closest_angle,
         "bubble_bins": bubble_bins,
+        "corridor_penalty": corridor_metrics["penalty"],
+        "corridor_depth": corridor_metrics["open_depth"],
+        "corridor_width": corridor_metrics["min_width"],
+        "corridor_front": corridor_metrics["front_close"],
+        "corridor_corner": corridor_metrics["corner"],
         "collision": target_dist < COLLISION_DIST or closest_dist < COLLISION_DIST,
         "raw_w": raw_w,
         "has_safe_gap": has_safe_gap,
@@ -579,6 +739,11 @@ def main():
                     f"gap={info['gap_width']:.0f} "
                     f"gr={info['gap_right']:.0f} gl={info['gap_left']:.0f} "
                     f"gaps={info['gaps']} safe={int(info['has_safe_gap'])} "
+                    f"cd={info['corridor_depth']:.2f} "
+                    f"cw={info['corridor_width']:.2f} "
+                    f"cf={info['corridor_front']:.2f} "
+                    f"ck={info['corridor_corner']:.2f} "
+                    f"cp={info['corridor_penalty']:.2f} "
                     f"close={info['closest']:.2f}@{info['closest_angle']:.0f} "
                     f"bb={info['bubble_bins']} score={info['score']:.2f} "
                     f"pts={info['points']} coll={int(info['collision'])} "
