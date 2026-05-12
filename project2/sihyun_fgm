@@ -63,19 +63,22 @@ FGM_EDGE_WEIGHT = 0.85
 
 
 # ============================================================
-# 추가 수정 부분:
 # 벽과 장애물 사이의 좁은 틈으로 파고드는 것 방지
-# 코드 기준: y > 0 왼쪽, y < 0 오른쪽
+# 코드 기준:
+# y > 0 : 왼쪽
+# y < 0 : 오른쪽
+# angle > 0 : 왼쪽 회전 후보
+# angle < 0 : 오른쪽 회전 후보
 # ============================================================
 
 SIDE_BLOCK_X_MIN = 0.05
-SIDE_BLOCK_X_MAX = 0.90
+SIDE_BLOCK_X_MAX = 1.20
 SIDE_BLOCK_Y_MIN = 0.05
-SIDE_BLOCK_Y_MAX = 0.55
+SIDE_BLOCK_Y_MAX = 0.75
 
 # 이 거리 안쪽에 점이 많이 잡히면 해당 방향이 막힌 것으로 판단
 SIDE_BLOCKED_DIST = 0.45
-SIDE_BLOCK_MIN_POINTS = 8
+SIDE_BLOCK_MIN_POINTS = 4
 
 # 막힌 쪽 후보 감점
 SIDE_BLOCK_PENALTY = 3.50
@@ -86,6 +89,12 @@ OPEN_SIDE_BIAS_WEIGHT = 1.50
 # 벽 옆 좁은 gap 감점
 NARROW_WALL_GAP_MIN_DEG = 22.0
 NARROW_WALL_GAP_PENALTY = 1.40
+
+# 한쪽이 막혔을 때, 열린 쪽으로 최소 이 각도 이상 꺾는 후보만 우선 선택
+FORCE_OPEN_SIDE_MIN_ANGLE_DEG = 18.0
+
+# 한쪽이 막혔을 때, 열린 쪽으로 최소 이 정도 w는 주도록 강제
+FORCE_OPEN_SIDE_MIN_W = 0.45
 
 
 def normalize_angle_deg(angle):
@@ -287,10 +296,6 @@ def compute_forward_side_block(points):
 
     y > 0 : 왼쪽
     y < 0 : 오른쪽
-
-    기존 compute_side_info()는 로봇 바로 옆만 보는데,
-    이 함수는 앞쪽까지 넓게 봐서 사진처럼 왼쪽 벽/장애물 쪽 좁은 틈으로
-    들어가는 것을 막기 위한 판단값을 만든다.
     """
     left_dist = MAX_LIDAR_DIST_M
     right_dist = MAX_LIDAR_DIST_M
@@ -438,6 +443,8 @@ def choose_target_from_gaps(
     best_gap = (0, 0)
     best_score = -float("inf")
     max_target_angle = TURN_HARD_LIMIT_RAD
+    force_angle = math.radians(FORCE_OPEN_SIDE_MIN_ANGLE_DEG)
+
     goal_weight = (
         FGM_GOAL_WEIGHT_SAFE * (1.0 - front_factor)
         + FGM_GOAL_WEIGHT_DANGER * front_factor
@@ -452,6 +459,43 @@ def choose_target_from_gaps(
 
         idxs = idxs[targetable]
         angle_rad = angle_rad[targetable]
+
+        # ============================================================
+        # 중요 수정:
+        # 한쪽이 막혔으면 점수 감점이 아니라,
+        # 막힌 방향 후보를 아예 제거한다.
+        # ============================================================
+
+        if left_blocked and not right_blocked:
+            # 왼쪽이 막힘 → 오른쪽 후보만 남김
+            open_side_mask = angle_rad < -force_angle
+
+            if open_side_mask.any():
+                idxs = idxs[open_side_mask]
+                angle_rad = angle_rad[open_side_mask]
+            else:
+                open_side_mask = angle_rad < 0.0
+                if open_side_mask.any():
+                    idxs = idxs[open_side_mask]
+                    angle_rad = angle_rad[open_side_mask]
+                else:
+                    continue
+
+        elif right_blocked and not left_blocked:
+            # 오른쪽이 막힘 → 왼쪽 후보만 남김
+            open_side_mask = angle_rad > force_angle
+
+            if open_side_mask.any():
+                idxs = idxs[open_side_mask]
+                angle_rad = angle_rad[open_side_mask]
+            else:
+                open_side_mask = angle_rad > 0.0
+                if open_side_mask.any():
+                    idxs = idxs[open_side_mask]
+                    angle_rad = angle_rad[open_side_mask]
+                else:
+                    continue
+
         local_width = max(1, end - start)
 
         edge_steps = np.minimum(idxs - start + 1, end - idxs)
@@ -474,13 +518,6 @@ def choose_target_from_gaps(
         width_score = min(1.0, local_width * FGM_ANGLE_STEP_DEG / 60.0)
         gap_width_deg = local_width * FGM_ANGLE_STEP_DEG
 
-        # ============================================================
-        # 추가 수정 부분:
-        # 막힌 쪽 후보 감점, 열린 쪽 후보 가점
-        # angle_rad > 0 : 왼쪽 방향
-        # angle_rad < 0 : 오른쪽 방향
-        # ============================================================
-
         blocked_side_penalty = np.zeros_like(angle_rad, dtype=np.float32)
         open_side_score = np.zeros_like(angle_rad, dtype=np.float32)
         narrow_wall_gap_penalty = np.zeros_like(angle_rad, dtype=np.float32)
@@ -489,13 +526,9 @@ def choose_target_from_gaps(
             left_turn = np.clip(angle_rad / max_target_angle, 0.0, 1.0)
             right_turn = np.clip(-angle_rad / max_target_angle, 0.0, 1.0)
 
-            # 왼쪽이 막혔으면 왼쪽으로 향하는 후보 감점
             blocked_side_penalty += left_turn
-
-            # 반대로 오른쪽으로 향하는 후보 가점
             open_side_score += right_turn
 
-            # 왼쪽 벽 옆 좁은 틈은 추가 감점
             if gap_width_deg < NARROW_WALL_GAP_MIN_DEG:
                 narrow_wall_gap_penalty += left_turn
 
@@ -503,18 +536,13 @@ def choose_target_from_gaps(
             right_turn = np.clip(-angle_rad / max_target_angle, 0.0, 1.0)
             left_turn = np.clip(angle_rad / max_target_angle, 0.0, 1.0)
 
-            # 오른쪽이 막혔으면 오른쪽으로 향하는 후보 감점
             blocked_side_penalty += right_turn
-
-            # 반대로 왼쪽으로 향하는 후보 가점
             open_side_score += left_turn
 
-            # 오른쪽 벽 옆 좁은 틈은 추가 감점
             if gap_width_deg < NARROW_WALL_GAP_MIN_DEG:
                 narrow_wall_gap_penalty += right_turn
 
         elif left_blocked and right_blocked:
-            # 양쪽이 모두 막힌 경우에는 극단적인 좌/우 회전을 살짝 억제
             blocked_side_penalty += 0.35 * np.clip(
                 np.abs(angle_rad) / max_target_angle,
                 0.0,
@@ -543,10 +571,31 @@ def choose_target_from_gaps(
     return best_idx, best_gap, best_score
 
 
-def choose_fallback_target(angles_deg, ranges):
+def choose_fallback_target(angles_deg, ranges, left_blocked=False, right_blocked=False):
     usable = ranges > MIN_LIDAR_DIST_M
+
+    # fallback에서도 막힌 방향으로 가지 않게 제한
+    if left_blocked and not right_blocked:
+        right_strong = angles_deg < -FORCE_OPEN_SIDE_MIN_ANGLE_DEG
+        right_any = angles_deg < 0.0
+
+        if np.any(usable & right_strong):
+            usable = usable & right_strong
+        elif np.any(usable & right_any):
+            usable = usable & right_any
+
+    elif right_blocked and not left_blocked:
+        left_strong = angles_deg > FORCE_OPEN_SIDE_MIN_ANGLE_DEG
+        left_any = angles_deg > 0.0
+
+        if np.any(usable & left_strong):
+            usable = usable & left_strong
+        elif np.any(usable & left_any):
+            usable = usable & left_any
+
     if not usable.any():
         return len(ranges) // 2
+
     usable_ranges = np.where(usable, ranges, -np.inf)
     return int(np.argmax(usable_ranges))
 
@@ -585,7 +634,6 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
     front_factor = compute_front_factor(front_dist)
     info_left, info_right = compute_side_info(points)
 
-    # 추가: 앞쪽 좌우 막힘 판단
     side_left_blocked, side_right_blocked, side_left_front, side_right_front = compute_forward_side_block(points)
 
     angles_deg, raw_ranges, counts = scan_to_angle_ranges(scan)
@@ -610,14 +658,36 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
     )
 
     if target_idx < 0:
-        target_idx = choose_fallback_target(angles_deg, smooth_ranges)
+        target_idx = choose_fallback_target(
+            angles_deg,
+            smooth_ranges,
+            side_left_blocked,
+            side_right_blocked,
+        )
         best_gap = (target_idx, target_idx + 1)
         best_score = 0.0
 
     target_angle = math.radians(float(angles_deg[target_idx]))
     target_angle = float(np.clip(target_angle, -TURN_HARD_LIMIT_RAD, TURN_HARD_LIMIT_RAD))
     target_dist = float(smooth_ranges[target_idx])
+
     raw_w = float(np.clip(FGM_TURN_GAIN * target_angle, -MAX_ABS_W, MAX_ABS_W))
+
+    # ============================================================
+    # 중요 수정:
+    # 한쪽이 막혔을 때 열린 쪽으로 최소 회전 w를 강제로 준다.
+    # 왼쪽 막힘 → 오른쪽 회전이므로 w 음수
+    # 오른쪽 막힘 → 왼쪽 회전이므로 w 양수
+    # ============================================================
+
+    if side_left_blocked and not side_right_blocked:
+        raw_w = min(raw_w, -FORCE_OPEN_SIDE_MIN_W)
+
+    elif side_right_blocked and not side_left_blocked:
+        raw_w = max(raw_w, FORCE_OPEN_SIDE_MIN_W)
+
+    raw_w = float(np.clip(raw_w, -MAX_ABS_W, MAX_ABS_W))
+
     urgent = front_dist < URGENT_FRONT_DIST or not has_safe_gap
     w = rate_limit_w(prev_w, raw_w, urgent=urgent)
     v = choose_speed(target_dist, target_angle, has_safe_gap)
