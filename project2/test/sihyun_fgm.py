@@ -79,7 +79,7 @@ WALL_FOLLOW_V = 0.10
 WALL_SLOW_V = 0.06
 
 # 벽 거리 오차 보정 게인
-WALL_KP = 8.8
+WALL_KP = 6.2
 
 # 벽 따라가기 최대 회전속도
 WALL_MAX_W = 0.65
