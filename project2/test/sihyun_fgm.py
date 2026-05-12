@@ -58,6 +58,8 @@ RECOVERY_TURN_ENABLE = True
 # 너무 빠르면 0.70, 너무 느리면 0.90 유지
 RECOVERY_TURN_W = 0.90
 
+RECOVERY_TURN_ANGLE_RAD = math.radians(200.0)
+
 RECOVERY_TURN_TOL_RAD = math.radians(8.0)
 RECOVERY_TURN_TIMEOUT_S = 8.0
 RECOVERY_INITIAL_DEADBAND_RAD = math.radians(2.0)
@@ -80,17 +82,17 @@ LEFT_WALL_FOLLOW_V = 0.10
 LEFT_WALL_SLOW_V = 0.06
 
 # 왼쪽 벽 거리 오차 보정 게인
-LEFT_WALL_KP = 2.20
+LEFT_WALL_KP = 2.80
 
 # 왼쪽 벽 따라가기 최대 회전속도
-LEFT_WALL_MAX_W = 0.55
+LEFT_WALL_MAX_W = 0.65
 
 # 왼쪽 벽을 못 봤을 때 왼쪽으로 찾는 회전값
 LEFT_WALL_SEARCH_W = 0.28
 
 # 보정값이 너무 작아서 직진하는 것처럼 보이는 문제 방지용 최소 회전값
 LEFT_WALL_MIN_TURN_ERR = 0.025
-LEFT_WALL_MIN_TURN_W = 0.12
+LEFT_WALL_MIN_TURN_W = 0.16
 
 # 벽 따라가기 중 정면 판단은 기존 FGM front보다 좁게 본다
 LEFT_WALL_FRONT_Y_HALF = 0.16
