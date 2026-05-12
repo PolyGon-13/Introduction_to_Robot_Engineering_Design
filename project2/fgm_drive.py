@@ -12,7 +12,7 @@ LIDAR_BAUD = 460800
 ARDU_PORT = "/dev/ttyS0"
 ARDU_BAUD = 9600
 
-ANGLE_OFFSET_DEG = +1.54
+ANGLE_OFFSET_DEG = 1.54
 DIST_OFFSET_MM = 0.0
 LIDAR_ANGLE_SIGN = -1.0
 
@@ -73,6 +73,10 @@ CORRIDOR_FRONT_WINDOW_M = CORRIDOR_HALF_WIDTH_M
 CORRIDOR_DEPTH_PENALTY_WEIGHT = 3.20
 CORRIDOR_WIDTH_PENALTY_WEIGHT = 2.00
 CORRIDOR_CORNER_PENALTY_WEIGHT = 4.00
+CORRIDOR_REJECT_PENALTY = 3.00
+CORRIDOR_REJECT_DEPTH_M = 0.60
+CORRIDOR_REJECT_CORNER = 0.40
+CORRIDOR_REJECT_WIDTH_M = 0.24
 
 
 def normalize_angle_deg(angle):
@@ -392,6 +396,17 @@ def default_corridor_metrics():
     }
 
 
+def is_corridor_rejected(metrics):
+    return (
+        metrics["penalty"] >= CORRIDOR_REJECT_PENALTY
+        or (
+            metrics["open_depth"] < CORRIDOR_REJECT_DEPTH_M
+            and metrics["corner"] >= CORRIDOR_REJECT_CORNER
+        )
+        or metrics["min_width"] < CORRIDOR_REJECT_WIDTH_M
+    )
+
+
 def corridor_validation_metrics(points, target_angle):
     if len(points) == 0:
         return default_corridor_metrics()
@@ -507,7 +522,7 @@ def choose_target_from_gaps(
     angles_deg, ranges, gaps, pose, prev_target_angle, front_factor, corridor_points
 ):
     if not gaps:
-        return -1, (0, 0), -float("inf"), default_corridor_metrics()
+        return -1, (0, 0), -float("inf"), default_corridor_metrics(), 0, 0
 
     goal_angle = goal_heading_error(pose.x, pose.y, pose.theta)
     goal_angle = float(np.clip(goal_angle, -TURN_HARD_LIMIT_RAD, TURN_HARD_LIMIT_RAD))
@@ -517,6 +532,8 @@ def choose_target_from_gaps(
     best_gap = (0, 0)
     best_score = -float("inf")
     best_metrics = default_corridor_metrics()
+    rejected_count = 0
+    candidate_count = 0
     max_target_angle = TURN_HARD_LIMIT_RAD
     goal_weight = (
         FGM_GOAL_WEIGHT_SAFE * (1.0 - front_factor)
@@ -532,6 +549,7 @@ def choose_target_from_gaps(
 
         idxs = idxs[targetable]
         angle_rad = angle_rad[targetable]
+        candidate_count += len(angle_rad)
         local_width = max(1, end - start)
 
         edge_steps = np.minimum(idxs - start + 1, end - idxs)
@@ -557,6 +575,11 @@ def choose_target_from_gaps(
         corridor_penalty = np.array(
             [metrics["penalty"] for metrics in corridor_metrics], dtype=np.float32
         )
+        reject_mask = np.array(
+            [is_corridor_rejected(metrics) for metrics in corridor_metrics],
+            dtype=bool,
+        )
+        rejected_count += int(np.count_nonzero(reject_mask))
 
         scores = (
             FGM_CLEARANCE_WEIGHT * clearance_score
@@ -567,6 +590,9 @@ def choose_target_from_gaps(
             + 0.25 * width_score
             - corridor_penalty
         )
+        scores = np.where(reject_mask, -np.inf, scores)
+        if not np.isfinite(scores).any():
+            continue
 
         local_best = int(np.argmax(scores))
         score = float(scores[local_best])
@@ -576,7 +602,7 @@ def choose_target_from_gaps(
             best_gap = (start, end)
             best_metrics = corridor_metrics[local_best]
 
-    return best_idx, best_gap, best_score, best_metrics
+    return best_idx, best_gap, best_score, best_metrics, rejected_count, candidate_count
 
 
 def choose_fallback_target(angles_deg, ranges):
@@ -635,9 +661,15 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
     free_mask = bubble_ranges >= FGM_FREE_DIST
     gaps_all = find_free_gaps(free_mask)
     gaps = filter_gaps_by_width(gaps_all)
-    has_safe_gap = len(gaps) > 0
 
-    target_idx, best_gap, best_score, corridor_metrics = choose_target_from_gaps(
+    (
+        target_idx,
+        best_gap,
+        best_score,
+        corridor_metrics,
+        rejected_count,
+        candidate_count,
+    ) = choose_target_from_gaps(
         angles_deg,
         bubble_ranges,
         gaps,
@@ -646,6 +678,7 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
         front_factor,
         corridor_points,
     )
+    has_safe_gap = target_idx >= 0
 
     if target_idx < 0:
         target_idx = choose_fallback_target(angles_deg, smooth_ranges)
@@ -683,6 +716,8 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
         "pre_gaps": len(pre_gaps),
         "pre_gaps_all": len(pre_gaps_all),
         "post_gaps_all": len(gaps_all),
+        "rejected_candidates": rejected_count,
+        "candidate_count": candidate_count,
         "pre_gap_summary": pre_gap_summary,
         "post_gap_summary": post_gap_summary,
         "gap_width": gap_width,
@@ -778,6 +813,7 @@ def main():
                     f"gaps={info['gaps']} safe={int(info['has_safe_gap'])} "
                     f"preN={info['pre_gaps']}/{info['pre_gaps_all']} "
                     f"postN={info['gaps']}/{info['post_gaps_all']} "
+                    f"rej={info['rejected_candidates']}/{info['candidate_count']} "
                     f"cd={info['corridor_depth']:.2f} "
                     f"cw={info['corridor_width']:.2f} "
                     f"cf={info['corridor_front']:.2f} "
