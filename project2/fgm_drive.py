@@ -521,10 +521,17 @@ def corridor_validation_metrics(points, target_angle):
 
 
 def choose_target_from_gaps(
-    angles_deg, ranges, gaps, pose, prev_target_angle, front_factor, corridor_points
+    angles_deg,
+    ranges,
+    gaps,
+    pose,
+    prev_target_angle,
+    front_factor,
+    corridor_points,
+    prev_avoid_side,
 ):
     if not gaps:
-        return -1, (0, 0), -float("inf"), default_corridor_metrics(), 0, 0, "none", 0.0
+        return -1, (0, 0), -float("inf"), default_corridor_metrics(), 0, 0, "none", 0.0, 0.0
 
     goal_angle = goal_heading_error(pose.x, pose.y, pose.theta)
     goal_angle = float(np.clip(goal_angle, -TURN_HARD_LIMIT_RAD, TURN_HARD_LIMIT_RAD))
@@ -628,11 +635,22 @@ def choose_target_from_gaps(
             candidate_count,
             "normal",
             0.0,
+            0.0,
         )
 
     rejected_records = [record for record in candidate_records if record["rejected"]]
     if not rejected_records:
-        return -1, (0, 0), -float("inf"), default_corridor_metrics(), rejected_count, candidate_count, "none", 0.0
+        return (
+            -1,
+            (0, 0),
+            -float("inf"),
+            default_corridor_metrics(),
+            rejected_count,
+            candidate_count,
+            "none",
+            0.0,
+            0.0,
+        )
 
     blocked = max(rejected_records, key=lambda record: record["score"])
     blocked_angle = blocked["angle"]
@@ -650,15 +668,30 @@ def choose_target_from_gaps(
         fallback_side = -1.0 if prev_angle >= 0.0 else 1.0
 
     side_min_angle = math.radians(OPPOSITE_FALLBACK_MIN_SIDE_DEG)
-    fallback_records = [
-        record
-        for record in candidate_records
-        if record["angle"] * fallback_side >= side_min_angle
-    ]
-    if not fallback_records:
-        fallback_records = [
-            record for record in candidate_records if record["angle"] * fallback_side > 0.0
+
+    def records_on_side(side):
+        records = [
+            record
+            for record in candidate_records
+            if record["angle"] * side >= side_min_angle
         ]
+        if not records:
+            records = [
+                record
+                for record in candidate_records
+                if record["angle"] * side > 0.0
+            ]
+        return records
+
+    if prev_avoid_side != 0.0:
+        fallback_records = records_on_side(prev_avoid_side)
+        if fallback_records:
+            fallback_side = prev_avoid_side
+        else:
+            fallback_records = records_on_side(fallback_side)
+    else:
+        fallback_records = records_on_side(fallback_side)
+
     if not fallback_records:
         return (
             -1,
@@ -669,6 +702,7 @@ def choose_target_from_gaps(
             candidate_count,
             "none",
             math.degrees(blocked_angle),
+            0.0,
         )
 
     fallback = max(fallback_records, key=lambda record: record["score"])
@@ -681,6 +715,7 @@ def choose_target_from_gaps(
         candidate_count,
         "opp",
         math.degrees(blocked_angle),
+        fallback_side,
     )
 
 
@@ -720,7 +755,7 @@ def choose_speed(target_dist, target_angle, has_safe_gap):
     return float(np.clip(v, 0.0, BASE_V))
 
 
-def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
+def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose, prev_avoid_side):
     points = lidar_points_to_xy(scan)
     corridor_points = lidar_points_to_xy(scan, min_x=-0.05)
     front_dist = front_distance(points)
@@ -750,6 +785,7 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
         candidate_count,
         fallback_mode,
         blocked_angle_deg,
+        avoid_side,
     ) = choose_target_from_gaps(
         angles_deg,
         bubble_ranges,
@@ -758,6 +794,7 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
         prev_target_angle,
         front_factor,
         corridor_points,
+        prev_avoid_side,
     )
     has_safe_gap = target_idx >= 0
 
@@ -804,6 +841,7 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
         "candidate_count": candidate_count,
         "fallback_mode": fallback_mode,
         "blocked_angle": blocked_angle_deg,
+        "avoid_side": avoid_side,
         "pre_gap_summary": pre_gap_summary,
         "post_gap_summary": post_gap_summary,
         "gap_width": gap_width,
@@ -848,6 +886,7 @@ def main():
     last_scan_ok = 0.0
     last_v, last_w = BASE_V, 0.0
     last_target_angle = 0.0
+    last_avoid_side = 0.0
     last_log = 0.0
     last_pose_time = time.time()
 
@@ -874,11 +913,14 @@ def main():
                 continue
 
             last_scan_ok = time.time()
-            v, w, target_angle, info = choose_fgm_cmd(scan, last_w, last_target_angle, pose)
+            v, w, target_angle, info = choose_fgm_cmd(
+                scan, last_w, last_target_angle, pose, last_avoid_side
+            )
             send_vw(v, w)
             pose.update(v, w, dt)
             last_v, last_w = v, w
             last_target_angle = target_angle
+            last_avoid_side = info["avoid_side"] if info["fallback_mode"] == "opp" else 0.0
 
             gd = pose.goal_distance()
             he = goal_heading_error(pose.x, pose.y, pose.theta)
@@ -901,6 +943,7 @@ def main():
                     f"postN={info['gaps']}/{info['post_gaps_all']} "
                     f"rej={info['rejected_candidates']}/{info['candidate_count']} "
                     f"fb={info['fallback_mode']} blk={info['blocked_angle']:.0f} "
+                    f"av={info['avoid_side']:.0f} "
                     f"cd={info['corridor_depth']:.2f} "
                     f"cw={info['corridor_width']:.2f} "
                     f"cf={info['corridor_front']:.2f} "
