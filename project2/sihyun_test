@@ -1,0 +1,621 @@
+#!/usr/bin/env python3
+
+import serial
+import time
+import threading
+import math
+import numpy as np
+
+# =========================
+# 통신 규격 유지
+# =========================
+LIDAR_PORT = "/dev/ttyUSB0"
+LIDAR_BAUD = 460800
+
+ARDU_PORT = "/dev/ttyS0"
+ARDU_BAUD = 9600
+
+# =========================
+# 라이다 보정값 유지
+# =========================
+ANGLE_OFFSET_DEG = +1.54
+DIST_OFFSET_MM = 0.0
+LIDAR_ANGLE_SIGN = -1.0
+
+# 좌표계:
+# +각도 / +y = 좌측
+# -각도 / -y = 우측
+
+# =========================
+# 라이다 필터 설정
+# =========================
+MIN_LIDAR_DIST_M = 0.05
+MAX_LIDAR_DIST_M = 2.5
+MIN_QUALITY = 1
+
+LOOP_DT_S = 0.05
+SCAN_HOLD_S = 0.30
+
+# =========================
+# 주행 파라미터
+# =========================
+BASE_V = 0.18              # 직진 속도 고정
+
+# =========================
+# 장애물 회피 파라미터
+# =========================
+FRONT_SAFE_DIST = 0.55     # 전방이 이 거리보다 멀면 안전
+FRONT_WARN_DIST = 0.35     # 이 거리부터 회피 시작
+FRONT_DANGER_DIST = 0.22   # 이 거리보다 가까우면 강하게 회피
+
+FRONT_ANGLE_DEG = 25       # 정면 판단 각도: -25도 ~ +25도
+SIDE_MIN_DEG = 30          # 좌우 판단 시작 각도
+SIDE_MAX_DEG = 90          # 좌우 판단 끝 각도
+
+CENTER_KP = 0.10           # 평상시 좌우 중심 보정 강도
+MAX_CENTER_W = 0.12        # 평상시 좌우 보정 최대 w
+
+AVOID_W = 0.55             # 장애물 가까울 때 회피 w
+STRONG_AVOID_W = 0.75      # 장애물 위험할 때 회피 w
+EMERGENCY_W = 0.90         # 장애물 매우 가까울 때 회피 w
+
+W_RATE_LIMIT = 0.20        # w 변화량 제한
+W_RATE_LIMIT_URGENT = 0.35 # 급한 상황 w 변화량 제한
+
+# =========================
+# 처음 방향 복귀 파라미터
+# =========================
+INITIAL_HEADING_RAD = 0.0          # 처음 출발 방향을 0도로 둠
+robot_heading = 0.0                # 현재 로봇 방향 추정값
+
+HEADING_KP = 0.95                  # 처음 방향으로 복귀하려는 강도
+HEADING_MAX_W = 0.35               # 처음 방향 복귀용 최대 w
+HEADING_DEADBAND_RAD = math.radians(2.0)  # 2도 이내 오차는 무시
+
+SAFE_TOTAL_W_LIMIT = 0.45          # 전방 안전할 때 전체 w 제한
+AVOID_HEADING_BLEND = 0.35         # 회피 중 초기 방향 복귀 성분 반영 비율
+
+# =========================
+# 회피 방향 선택 파라미터
+# =========================
+SIDE_OPTION_DIST = 0.28            # 이 거리 이상이면 해당 방향으로 회피 가능하다고 판단
+AVOID_LOOKAHEAD_S = 0.70           # 회피 방향 선택 시 0.7초 뒤 방향을 예측
+HEADING_CHOICE_MARGIN_RAD = math.radians(3.0)  # 3도 이내 차이는 비슷하다고 판단
+
+
+# =========================
+# RPLidar C1 통신 드라이버
+# =========================
+class RPLidarC1:
+    def __init__(self, port, baud):
+        self.ser = serial.Serial(port, baud, timeout=0.1)
+
+        # RESET
+        self.ser.write(bytes([0xA5, 0x40]))
+        time.sleep(2.0)
+        self.ser.reset_input_buffer()
+
+        # SCAN
+        self.ser.write(bytes([0xA5, 0x20]))
+
+        header = self.ser.read(7)
+        if len(header) != 7 or header[0] != 0xA5 or header[1] != 0x5A:
+            self.ser.close()
+            raise RuntimeError("[LIDAR] Response Header Error")
+
+        self.lock = threading.Lock()
+        self.latest_scan = None
+        self.running = True
+
+        self.thread = threading.Thread(target=self._loop, daemon=True)
+        self.thread.start()
+
+    def _loop(self):
+        buf_a, buf_d, buf_q = [], [], []
+
+        while self.running:
+            try:
+                data = self.ser.read(5)
+
+                if len(data) != 5:
+                    continue
+
+                s_flag = data[0] & 0x01
+                s_inv = (data[0] & 0x02) >> 1
+
+                # 시작 플래그 검증
+                if s_inv != (1 - s_flag):
+                    continue
+
+                # 두 번째 바이트 bit0 검증
+                if (data[1] & 0x01) != 1:
+                    continue
+
+                quality = data[0] >> 2
+                angle = ((data[1] >> 1) | (data[2] << 7)) / 64.0
+                dist = (data[3] | (data[4] << 8)) / 4.0
+
+                # 한 바퀴 스캔 종료 시 최신 스캔 저장
+                if s_flag == 1 and len(buf_a) > 50:
+                    with self.lock:
+                        self.latest_scan = (
+                            np.array(buf_a, dtype=np.float32),
+                            np.array(buf_d, dtype=np.float32),
+                            np.array(buf_q, dtype=np.float32)
+                        )
+
+                    buf_a, buf_d, buf_q = [], [], []
+
+                if dist > 0 and quality > 0:
+                    buf_a.append(angle)
+                    buf_d.append(dist)
+                    buf_q.append(quality)
+
+            except (serial.SerialException, OSError) as e:
+                print(f"[LIDAR] Serial Error: {e}")
+                time.sleep(1.0)
+
+                try:
+                    self.ser.reset_input_buffer()
+                except:
+                    pass
+
+    def get_scan(self):
+        with self.lock:
+            return self.latest_scan
+
+    def close(self):
+        self.running = False
+
+        try:
+            # STOP
+            self.ser.write(bytes([0xA5, 0x25]))
+        except:
+            pass
+
+        time.sleep(0.1)
+        self.ser.close()
+
+
+# =========================
+# 각도 정규화
+# =========================
+def normalize_angle_deg(angle):
+    return (angle + 180.0) % 360.0 - 180.0
+
+
+def normalize_angle_rad(angle):
+    return math.atan2(math.sin(angle), math.cos(angle))
+
+
+# =========================
+# 현재 방향 추정
+# =========================
+def update_heading_by_w(w, dt):
+    global robot_heading
+
+    robot_heading += w * dt
+    robot_heading = normalize_angle_rad(robot_heading)
+
+
+# =========================
+# 처음 방향으로 복귀하기 위한 w 계산
+# =========================
+def compute_heading_return_w():
+    heading_error = normalize_angle_rad(INITIAL_HEADING_RAD - robot_heading)
+
+    if abs(heading_error) < HEADING_DEADBAND_RAD:
+        return 0.0, heading_error
+
+    heading_w = HEADING_KP * heading_error
+    heading_w = float(np.clip(heading_w, -HEADING_MAX_W, HEADING_MAX_W))
+
+    return heading_w, heading_error
+
+
+# =========================
+# 좌우 선택지가 있을 때 처음 정면 방향에 유리한 회피 방향 선택
+# =========================
+def choose_front_friendly_avoid_w(left, right, abs_w):
+    """
+    좌우 회피 방향 선택 함수.
+
+    기존 방식:
+        좌우 중 더 넓은 쪽 선택
+
+    수정 방식:
+        좌우 둘 다 회피 가능하면,
+        처음 출발 정면 방향에 더 가까워지는 방향 선택
+
+    w 부호:
+        +w = 좌회전
+        -w = 우회전
+    """
+
+    left_w = abs_w
+    right_w = -abs_w
+
+    left_available = left >= SIDE_OPTION_DIST
+    right_available = right >= SIDE_OPTION_DIST
+
+    # -------------------------
+    # 1. 좌우가 둘 다 회피 가능한 경우
+    # -------------------------
+    if left_available and right_available:
+        # 왼쪽으로 회피했을 때 예상 방향
+        pred_heading_left = normalize_angle_rad(
+            robot_heading + left_w * AVOID_LOOKAHEAD_S
+        )
+
+        # 오른쪽으로 회피했을 때 예상 방향
+        pred_heading_right = normalize_angle_rad(
+            robot_heading + right_w * AVOID_LOOKAHEAD_S
+        )
+
+        # 각각 처음 정면 방향과 얼마나 차이 나는지 계산
+        left_err = abs(
+            normalize_angle_rad(INITIAL_HEADING_RAD - pred_heading_left)
+        )
+
+        right_err = abs(
+            normalize_angle_rad(INITIAL_HEADING_RAD - pred_heading_right)
+        )
+
+        # 왼쪽 회피가 처음 정면 방향에 더 가까워지는 경우
+        if left_err + HEADING_CHOICE_MARGIN_RAD < right_err:
+            return left_w, "LEFT_FRONT_FRIENDLY"
+
+        # 오른쪽 회피가 처음 정면 방향에 더 가까워지는 경우
+        elif right_err + HEADING_CHOICE_MARGIN_RAD < left_err:
+            return right_w, "RIGHT_FRONT_FRIENDLY"
+
+        # 둘 다 처음 정면 방향 기준으로 비슷하면 더 넓은 쪽 선택
+        else:
+            if left >= right:
+                return left_w, "LEFT_MORE_OPEN"
+            else:
+                return right_w, "RIGHT_MORE_OPEN"
+
+    # -------------------------
+    # 2. 왼쪽만 회피 가능한 경우
+    # -------------------------
+    elif left_available:
+        return left_w, "LEFT_ONLY"
+
+    # -------------------------
+    # 3. 오른쪽만 회피 가능한 경우
+    # -------------------------
+    elif right_available:
+        return right_w, "RIGHT_ONLY"
+
+    # -------------------------
+    # 4. 둘 다 애매하면 더 넓은 쪽 선택
+    # -------------------------
+    else:
+        if left >= right:
+            return left_w, "LEFT_WIDER"
+        else:
+            return right_w, "RIGHT_WIDER"
+
+
+# =========================
+# w 변화량 제한
+# =========================
+def rate_limit_w(prev_w, target_w, urgent=False):
+    limit = W_RATE_LIMIT_URGENT if urgent else W_RATE_LIMIT
+
+    delta = target_w - prev_w
+
+    if delta > limit:
+        delta = limit
+    elif delta < -limit:
+        delta = -limit
+
+    return prev_w + delta
+
+
+# =========================
+# 라이다 스캔을 x, y 점으로 변환
+# =========================
+def lidar_scan_to_points(scan):
+    if scan is None:
+        return np.empty((0, 2), dtype=np.float32)
+
+    angles, dists, qualities = scan
+
+    # mm -> m 변환
+    dist_m = (dists.astype(np.float32) + DIST_OFFSET_MM) / 1000.0
+
+    # 각도 보정
+    angle_deg = normalize_angle_deg(
+        angles.astype(np.float32) + ANGLE_OFFSET_DEG
+    )
+
+    # 좌우 방향 보정
+    angle_deg = LIDAR_ANGLE_SIGN * angle_deg
+
+    # 유효한 라이다 값만 사용
+    mask = (
+        (dist_m >= MIN_LIDAR_DIST_M) &
+        (dist_m <= MAX_LIDAR_DIST_M) &
+        (qualities >= MIN_QUALITY)
+    )
+
+    if not mask.any():
+        return np.empty((0, 2), dtype=np.float32)
+
+    dist_m = dist_m[mask]
+    angle_rad = np.deg2rad(angle_deg[mask])
+
+    # 극좌표 -> 직교좌표
+    x = dist_m * np.cos(angle_rad)
+    y = dist_m * np.sin(angle_rad)
+
+    # 뒤쪽 점 제거, 앞쪽만 사용
+    front_mask = x > 0.0
+
+    if not front_mask.any():
+        return np.empty((0, 2), dtype=np.float32)
+
+    points = np.column_stack((x[front_mask], y[front_mask])).astype(np.float32)
+
+    return points
+
+
+# =========================
+# 특정 각도 구간의 가장 가까운 거리 계산
+# =========================
+def sector_min_distance(points, min_deg, max_deg):
+    if len(points) == 0:
+        return MAX_LIDAR_DIST_M
+
+    x = points[:, 0]
+    y = points[:, 1]
+
+    dist = np.sqrt(x ** 2 + y ** 2)
+    angle_deg = np.degrees(np.arctan2(y, x))
+
+    mask = (angle_deg >= min_deg) & (angle_deg <= max_deg)
+
+    if not mask.any():
+        return MAX_LIDAR_DIST_M
+
+    return float(np.min(dist[mask]))
+
+
+# =========================
+# 장애물 회피 알고리즘
+# v는 항상 0.18 고정
+# w만 변경해서 회피
+# 회피 후 처음 방향으로 복귀
+# 회피 중에도 좌우 선택지가 있으면 처음 정면 방향에 유리한 쪽 선택
+# =========================
+def choose_avoidance_cmd(points, prev_w):
+    front = sector_min_distance(
+        points,
+        -FRONT_ANGLE_DEG,
+        FRONT_ANGLE_DEG
+    )
+
+    left = sector_min_distance(
+        points,
+        SIDE_MIN_DEG,
+        SIDE_MAX_DEG
+    )
+
+    right = sector_min_distance(
+        points,
+        -SIDE_MAX_DEG,
+        -SIDE_MIN_DEG
+    )
+
+    # 직진 속도는 무조건 고정
+    v = BASE_V
+
+    # 처음 방향으로 복귀하기 위한 w
+    heading_w, heading_error = compute_heading_return_w()
+
+    # -------------------------
+    # 1. 전방이 충분히 안전한 경우
+    #    → 처음 출발 방향으로 복귀
+    # -------------------------
+    if front > FRONT_SAFE_DIST:
+        side_diff = left - right
+
+        # 좌우 거리 차이로 약하게 중심 보정
+        center_w = CENTER_KP * side_diff
+        center_w = float(np.clip(center_w, -MAX_CENTER_W, MAX_CENTER_W))
+
+        # 장애물이 없으면 처음 정면 방향 복귀 우선
+        target_w = heading_w + center_w
+        target_w = float(np.clip(target_w, -SAFE_TOTAL_W_LIMIT, SAFE_TOTAL_W_LIMIT))
+
+        if abs(heading_error) > HEADING_DEADBAND_RAD:
+            mode = "RETURN_TO_INITIAL_FRONT"
+        else:
+            mode = "FORWARD_INITIAL_FRONT"
+
+        urgent = False
+
+    # -------------------------
+    # 2. 전방에 장애물이 가까워지는 경우
+    #    → 좌우 선택지가 있으면 처음 정면 방향에 유리한 쪽으로 회피
+    # -------------------------
+    elif front > FRONT_WARN_DIST:
+        avoid_w, avoid_mode = choose_front_friendly_avoid_w(
+            left,
+            right,
+            AVOID_W
+        )
+
+        # 회피 중에도 초기 정면 복귀 성분을 조금 섞음
+        target_w = avoid_w + AVOID_HEADING_BLEND * heading_w
+        target_w = float(np.clip(target_w, -STRONG_AVOID_W, STRONG_AVOID_W))
+
+        mode = "AVOID_" + avoid_mode
+        urgent = False
+
+    # -------------------------
+    # 3. 전방이 위험한 경우
+    #    → 강한 회피
+    #    → 그래도 좌우 둘 다 가능하면 처음 정면 방향에 유리한 쪽 선택
+    # -------------------------
+    elif front > FRONT_DANGER_DIST:
+        target_w, avoid_mode = choose_front_friendly_avoid_w(
+            left,
+            right,
+            STRONG_AVOID_W
+        )
+
+        mode = "STRONG_" + avoid_mode
+        urgent = True
+
+    # -------------------------
+    # 4. 전방이 매우 가까운 경우
+    #    → 최대 회피
+    #    → 좌우 둘 다 가능하면 처음 정면 방향에 유리한 쪽 선택
+    # -------------------------
+    else:
+        target_w, avoid_mode = choose_front_friendly_avoid_w(
+            left,
+            right,
+            EMERGENCY_W
+        )
+
+        mode = "EMERGENCY_" + avoid_mode
+        urgent = True
+
+    # w가 갑자기 튀지 않도록 제한
+    w = rate_limit_w(prev_w, target_w, urgent)
+
+    info = {
+        "front": front,
+        "left": left,
+        "right": right,
+        "target_w": target_w,
+        "heading_w": heading_w,
+        "heading_error": heading_error,
+        "robot_heading": robot_heading,
+        "mode": mode,
+        "urgent": urgent
+    }
+
+    return v, w, info
+
+
+# =========================
+# 메인 코드
+# =========================
+def main():
+    global robot_heading
+
+    lidar = RPLidarC1(LIDAR_PORT, LIDAR_BAUD)
+    ardu = serial.Serial(ARDU_PORT, ARDU_BAUD, timeout=0.1)
+
+    print("[INFO] Warming up...")
+    time.sleep(2.0)
+
+    def send_vw(v, w):
+        # 기존 통신 규격 유지
+        # 예: V0.180,-0.650\n
+        msg = f"V{v:.3f},{w:.3f}\n"
+        ardu.write(msg.encode())
+
+    def stop():
+        # 기존 정지 명령 유지
+        ardu.write(b"S\n")
+
+    stop()
+
+    print("[INFO] Start LiDAR obstacle avoidance")
+    print("[INFO] v is fixed at 0.18")
+    print("[INFO] Avoidance is controlled only by w")
+    print("[INFO] Robot returns to initial front direction")
+    print("[INFO] During avoidance, front-friendly direction is preferred")
+    print("[INFO] Press Ctrl+C to stop")
+
+    robot_heading = 0.0
+
+    last_scan_ok_time = time.time()
+    last_w = 0.0
+    last_log_time = 0.0
+    last_loop_time = time.time()
+
+    try:
+        while True:
+            now = time.time()
+            dt = now - last_loop_time
+            last_loop_time = now
+
+            # dt가 너무 커지는 것 방지
+            dt = max(0.0, min(dt, 0.20))
+
+            # 이전 w 명령 기준으로 현재 방향 추정
+            update_heading_by_w(last_w, dt)
+
+            scan = lidar.get_scan()
+
+            # 라이다 스캔이 없는 경우
+            if scan is None:
+                # 잠깐 끊기면 마지막 w 유지하면서 v=0.18
+                if time.time() - last_scan_ok_time < SCAN_HOLD_S:
+                    send_vw(BASE_V, last_w)
+                else:
+                    # 스캔이 오래 없으면 안전상 정지
+                    stop()
+                    last_w = 0.0
+
+                time.sleep(LOOP_DT_S)
+                continue
+
+            last_scan_ok_time = time.time()
+
+            points = lidar_scan_to_points(scan)
+
+            v, w, info = choose_avoidance_cmd(points, last_w)
+
+            # v는 항상 0.18
+            send_vw(BASE_V, w)
+
+            last_w = w
+
+            if time.time() - last_log_time > 0.25:
+                print(
+                    f"[AVOID] mode={info['mode']} "
+                    f"v={BASE_V:.2f} "
+                    f"w={w:.2f} "
+                    f"target_w={info['target_w']:.2f} "
+                    f"heading={math.degrees(info['robot_heading']):.1f}deg "
+                    f"head_err={math.degrees(info['heading_error']):.1f}deg "
+                    f"front={info['front']:.2f} "
+                    f"left={info['left']:.2f} "
+                    f"right={info['right']:.2f} "
+                    f"pts={len(points)}"
+                )
+
+                last_log_time = time.time()
+
+            time.sleep(LOOP_DT_S)
+
+    except KeyboardInterrupt:
+        print("\n[INFO] KeyboardInterrupt")
+
+    finally:
+        stop()
+        time.sleep(0.2)
+
+        try:
+            ardu.close()
+        except:
+            pass
+
+        try:
+            lidar.close()
+        except:
+            pass
+
+        print("[INFO] Shutdown complete")
+
+
+if __name__ == "__main__":
+    main()
