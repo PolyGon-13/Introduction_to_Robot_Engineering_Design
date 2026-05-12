@@ -26,7 +26,7 @@ LOOP_DT_S = 0.05
 
 BASE_V = 0.18
 MIN_V = 0.15
-MAX_ABS_W = 0.70
+MAX_ABS_W = 0.90
 
 ROBOT_RADIUS = 0.16
 COLLISION_DIST = ROBOT_RADIUS + 0.05
@@ -64,7 +64,7 @@ RECOVERY_INITIAL_DEADBAND_RAD = math.radians(2.0)
 # 3) 정말 가까운 경우에만 정지하고, 회전 방향은 왼쪽 유지
 # ============================================================
 LEFT_WALL_FOLLOW_ENABLE = True
-LEFT_WALL_TARGET_DIST = 0.25
+LEFT_WALL_TARGET_DIST = 0.15
 LEFT_WALL_FOLLOW_V = 0.14
 LEFT_WALL_SLOW_V = 0.07
 LEFT_WALL_KP = 0.90
