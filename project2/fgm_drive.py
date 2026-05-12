@@ -71,6 +71,14 @@ RECOVERY_TURN_ANGLE_RAD = math.radians(70.0)
 RECOVERY_TURN_W = 0.55
 RECOVERY_TURN_MIN_S = 0.60
 RECOVERY_TURN_MAX_S = 2.30
+RECOVERY_TURN_EXIT_FRONT = 0.24
+RECOVERY_FOLLOW_S = 1.30
+RECOVERY_FOLLOW_V = 0.09
+RECOVERY_FOLLOW_DIST = 0.20
+RECOVERY_FOLLOW_KP = 2.0
+RECOVERY_FOLLOW_MAX_W = 0.40
+RECOVERY_FOLLOW_FRONT_DANGER = 0.22
+RECOVERY_FOLLOW_FRONT_W = 0.35
 RECOVERY_COOLDOWN_S = 0.80
 
 
@@ -582,10 +590,12 @@ def main():
     last_log = 0.0
     last_pose_time = time.time()
     entry_turn_side = 0
-    recovery_active = False
+    recovery_phase = "none"
     recovery_turn_side = 0
+    recovery_follow_side = 0
     recovery_start_time = 0.0
     recovery_start_theta = 0.0
+    recovery_follow_start_time = 0.0
     recovery_cooldown_until = 0.0
 
     try:
@@ -615,18 +625,18 @@ def main():
             recovery_mode = "none"
 
             if (
-                not recovery_active
+                recovery_phase == "none"
                 and v > 0.03
                 and abs(target_angle) >= RECOVERY_ENTRY_HEADING_MIN_RAD
             ):
                 entry_turn_side = 1 if target_angle > 0.0 else -1
 
             if (
-                not recovery_active
+                recovery_phase == "none"
                 and now >= recovery_cooldown_until
                 and info["boxed_in"]
             ):
-                recovery_active = True
+                recovery_phase = "turn"
                 recovery_start_time = now
                 recovery_start_theta = pose.theta
                 if entry_turn_side != 0:
@@ -637,27 +647,63 @@ def main():
                         if info["recovery_right"] >= info["recovery_left"]
                         else 1
                     )
+                recovery_follow_side = -recovery_turn_side
 
-            if recovery_active:
+            if recovery_phase == "turn":
                 elapsed_recovery = now - recovery_start_time
                 turned_recovery = abs(
                     angle_error_rad(pose.theta, recovery_start_theta)
                 )
+                front_open = info["recovery_front"] >= RECOVERY_TURN_EXIT_FRONT
                 if (
                     elapsed_recovery >= RECOVERY_TURN_MIN_S
-                    and turned_recovery >= RECOVERY_TURN_ANGLE_RAD
-                ) or elapsed_recovery >= RECOVERY_TURN_MAX_S:
-                    recovery_active = False
-                    recovery_cooldown_until = now + RECOVERY_COOLDOWN_S
-                    recovery_mode = "exit"
-                    entry_turn_side = 0
+                    and front_open
+                    and turned_recovery >= 0.35 * RECOVERY_TURN_ANGLE_RAD
+                ):
+                    recovery_phase = "follow"
+                    recovery_follow_start_time = now
+                    recovery_mode = "follow"
                 else:
                     v = 0.0
                     w = recovery_turn_side * RECOVERY_TURN_W
                     recovery_mode = "turn"
 
+            if recovery_phase == "follow":
+                follow_elapsed = now - recovery_follow_start_time
+                if follow_elapsed >= RECOVERY_FOLLOW_S:
+                    recovery_phase = "none"
+                    recovery_cooldown_until = now + RECOVERY_COOLDOWN_S
+                    recovery_mode = "exit"
+                    entry_turn_side = 0
+                    recovery_turn_side = 0
+                    recovery_follow_side = 0
+                else:
+                    side_dist = (
+                        info["left"] if recovery_follow_side > 0 else info["right"]
+                    )
+                    if side_dist >= 0.95:
+                        side_dist = RECOVERY_FOLLOW_DIST
+                    side_error = side_dist - RECOVERY_FOLLOW_DIST
+                    w = recovery_follow_side * RECOVERY_FOLLOW_KP * side_error
+                    if info["recovery_front"] < RECOVERY_FOLLOW_FRONT_DANGER:
+                        w -= recovery_follow_side * RECOVERY_FOLLOW_FRONT_W
+                    w = float(
+                        np.clip(
+                            w,
+                            -RECOVERY_FOLLOW_MAX_W,
+                            RECOVERY_FOLLOW_MAX_W,
+                        )
+                    )
+                    v = RECOVERY_FOLLOW_V
+                    recovery_mode = "follow"
+
             info["recovery_mode"] = recovery_mode
-            info["recovery_turn_side"] = recovery_turn_side if recovery_active else 0
+            info["recovery_turn_side"] = (
+                recovery_turn_side if recovery_phase != "none" else 0
+            )
+            info["recovery_follow_side"] = (
+                recovery_follow_side if recovery_phase == "follow" else 0
+            )
             info["entry_turn_side"] = entry_turn_side
 
             send_vw(v, w)
@@ -684,6 +730,7 @@ def main():
                     f"gaps={info['gaps']} safe={int(info['has_safe_gap'])} "
                     f"rec={info['recovery_mode']} "
                     f"ets={info['entry_turn_side']} rts={info['recovery_turn_side']} "
+                    f"fs={info['recovery_follow_side']} "
                     f"box={int(info['boxed_in'])} "
                     f"bd={info['recovery_front']:.2f} "
                     f"bl={info['recovery_left']:.2f} "
