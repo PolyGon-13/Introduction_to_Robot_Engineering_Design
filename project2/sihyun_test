@@ -6,7 +6,6 @@ import threading
 import math
 import numpy as np
 
-
 # =========================
 # 통신 규격 유지
 # =========================
@@ -44,7 +43,6 @@ BASE_V = 0.18              # 직진 속도 고정
 
 # =========================
 # 장애물 회피 파라미터
-# 회피를 더 일찍 시작하도록 수정
 # =========================
 FRONT_SAFE_DIST = 0.85     # 전방 장애물이 85cm 이내로 들어오면 회피 시작
 FRONT_WARN_DIST = 0.60     # 60cm 이내면 강한 회피 준비
@@ -54,18 +52,18 @@ FRONT_ANGLE_DEG = 25       # 정면 판단 각도: -25도 ~ +25도
 SIDE_MIN_DEG = 30          # 좌우 판단 시작 각도
 SIDE_MAX_DEG = 90          # 좌우 판단 끝 각도
 
-CENTER_KP = 0.10           # 평상시 좌우 중심 보정 강도
-MAX_CENTER_W = 0.12        # 평상시 좌우 보정 최대 w
-
-AVOID_W = 0.55             # 장애물 가까울 때 회피 w
-STRONG_AVOID_W = 0.75      # 장애물 위험할 때 회피 w
-EMERGENCY_W = 0.90         # 장애물 매우 가까울 때 회피 w
-
 # =========================
-# 회전 변화량 제한 다시 추가
+# 와리가리 줄이기 위해 약하게 조정
 # =========================
-W_RATE_LIMIT = 0.30        # 일반 상황에서 w 변화량 제한
-W_RATE_LIMIT_URGENT = 0.50 # 급한 상황에서 w 변화량 제한
+CENTER_KP = 0.04           # 평상시 좌우 중심 보정 강도 낮춤
+MAX_CENTER_W = 0.06        # 평상시 좌우 보정 최대 w 낮춤
+
+AVOID_W = 0.35             # 일반 회피 w 낮춤
+STRONG_AVOID_W = 0.55      # 강한 회피 w 낮춤
+EMERGENCY_W = 0.70         # 긴급 회피 w 낮춤
+
+W_RATE_LIMIT = 0.12        # 일반 상황에서 w 변화량 제한
+W_RATE_LIMIT_URGENT = 0.22 # 급한 상황에서 w 변화량 제한
 
 # =========================
 # 처음 방향 복귀 파라미터
@@ -73,18 +71,31 @@ W_RATE_LIMIT_URGENT = 0.50 # 급한 상황에서 w 변화량 제한
 INITIAL_HEADING_RAD = 0.0
 robot_heading = 0.0
 
-HEADING_KP = 0.95
-HEADING_MAX_W = 0.35
+HEADING_KP = 0.45
+HEADING_MAX_W = 0.18
 HEADING_DEADBAND_RAD = math.radians(2.0)
 
-SAFE_TOTAL_W_LIMIT = 0.45
+SAFE_TOTAL_W_LIMIT = 0.25
 
 # =========================
 # 회피 방향 선택 파라미터
 # =========================
 SIDE_OPTION_DIST = 0.28
+SIDE_FORCE_MARGIN = 0.15
+
 AVOID_LOOKAHEAD_S = 0.70
 HEADING_CHOICE_MARGIN_RAD = math.radians(3.0)
+
+# =========================
+# 회피 방향 고정 파라미터
+# =========================
+RETURN_FRONT_DIST = 0.95       # 전방이 95cm 이상 비어야 복귀 가능
+RETURN_SIDE_DIST = 0.35        # 좌우도 35cm 이상 비어야 복귀 가능
+RETURN_CLEAR_COUNT_N = 8       # 위 조건이 8번 연속 만족되어야 회피 종료
+
+avoid_active = False           # 현재 회피 중인지
+avoid_dir = 0                  # +1 = 좌회피, -1 = 우회피
+clear_count = 0                # 안전 상태 연속 카운트
 
 
 # =========================
@@ -218,46 +229,49 @@ def compute_heading_return_w():
 
 
 # =========================
-# 회피 방향 선택 함수
-# 회피 방향 자체를 처음 로봇 앞 방향에 가까워지는 쪽으로 선택
+# 회피 방향을 1번만 정하는 함수
 # =========================
-def choose_initial_front_avoid_w(left, right, abs_w):
+def choose_initial_front_avoid_dir(left, right):
     """
-    회피 방향 선택 함수.
+    회피 방향 결정 함수.
 
-    목표:
-        전방 장애물이 있을 때,
-        처음 로봇 앞 방향에 더 가까워지는 회피 방향을 선택.
+    반환값:
+        +1 = 좌회피
+        -1 = 우회피
 
-    단, 한쪽만 회피 가능하면 충돌 방지를 위해 그 방향을 우선함.
-
-    w 부호:
-        +w = 좌회전
-        -w = 우회전
+    우선순위:
+        1. 한쪽만 열려 있으면 열린 쪽
+        2. 한쪽이 확실히 넓으면 넓은 쪽
+        3. 둘 다 비슷하면 처음 정면 방향에 가까워지는 쪽
     """
-
-    left_w = abs_w
-    right_w = -abs_w
 
     left_available = left >= SIDE_OPTION_DIST
     right_available = right >= SIDE_OPTION_DIST
 
-    # 1. 왼쪽만 회피 가능한 경우
+    # 왼쪽만 회피 가능
     if left_available and not right_available:
-        return left_w, "LEFT_ONLY"
+        return 1, "LEFT_ONLY"
 
-    # 2. 오른쪽만 회피 가능한 경우
+    # 오른쪽만 회피 가능
     if right_available and not left_available:
-        return right_w, "RIGHT_ONLY"
+        return -1, "RIGHT_ONLY"
 
-    # 3. 좌우 둘 다 가능하면 처음 방향에 더 가까워지는 쪽 선택
+    # 둘 다 회피 가능
     if left_available and right_available:
+        # 한쪽이 확실히 더 넓으면 그쪽 우선
+        if left - right > SIDE_FORCE_MARGIN:
+            return 1, "LEFT_MUCH_MORE_OPEN"
+
+        if right - left > SIDE_FORCE_MARGIN:
+            return -1, "RIGHT_MUCH_MORE_OPEN"
+
+        # 둘 다 비슷하면 처음 방향에 더 가까워지는 쪽 선택
         pred_heading_left = normalize_angle_rad(
-            robot_heading + left_w * AVOID_LOOKAHEAD_S
+            robot_heading + AVOID_W * AVOID_LOOKAHEAD_S
         )
 
         pred_heading_right = normalize_angle_rad(
-            robot_heading + right_w * AVOID_LOOKAHEAD_S
+            robot_heading - AVOID_W * AVOID_LOOKAHEAD_S
         )
 
         left_err = abs(
@@ -269,23 +283,22 @@ def choose_initial_front_avoid_w(left, right, abs_w):
         )
 
         if left_err + HEADING_CHOICE_MARGIN_RAD < right_err:
-            return left_w, "LEFT_TO_INITIAL_FRONT"
+            return 1, "LEFT_TO_INITIAL_FRONT"
 
         elif right_err + HEADING_CHOICE_MARGIN_RAD < left_err:
-            return right_w, "RIGHT_TO_INITIAL_FRONT"
+            return -1, "RIGHT_TO_INITIAL_FRONT"
 
         else:
-            # 처음 방향 기준으로 둘 다 비슷하면 더 넓은 쪽 선택
             if left >= right:
-                return left_w, "LEFT_MORE_OPEN"
+                return 1, "LEFT_SLIGHTLY_OPEN"
             else:
-                return right_w, "RIGHT_MORE_OPEN"
+                return -1, "RIGHT_SLIGHTLY_OPEN"
 
-    # 4. 좌우 둘 다 기준상 애매하면 더 넓은 쪽으로 회피
+    # 둘 다 기준상 애매하면 더 넓은 쪽 선택
     if left >= right:
-        return left_w, "LEFT_WIDER"
+        return 1, "LEFT_WIDER_BUT_NARROW"
     else:
-        return right_w, "RIGHT_WIDER"
+        return -1, "RIGHT_WIDER_BUT_NARROW"
 
 
 # =========================
@@ -377,8 +390,14 @@ def sector_min_distance(points, min_deg, max_deg):
 # 장애물 회피 알고리즘
 # v는 항상 0.18 고정
 # w만 변경해서 회피
+#
+# 핵심:
+# 회피 방향을 한 번 정하면,
+# 장애물을 완전히 지날 때까지 방향을 바꾸지 않음
 # =========================
 def choose_avoidance_cmd(points, prev_w):
+    global avoid_active, avoid_dir, clear_count
+
     front = sector_min_distance(
         points,
         -FRONT_ANGLE_DEG,
@@ -403,72 +422,100 @@ def choose_avoidance_cmd(points, prev_w):
     # 처음 방향으로 복귀하기 위한 w
     heading_w, heading_error = compute_heading_return_w()
 
-    # -------------------------
-    # 1. 전방이 충분히 안전한 경우
-    #    → 처음 출발 방향으로 복귀
-    # -------------------------
-    if front > FRONT_SAFE_DIST:
-        side_diff = left - right
+    # =========================
+    # 1. 회피 시작 조건
+    # =========================
+    if front <= FRONT_SAFE_DIST and not avoid_active:
+        avoid_active = True
+        clear_count = 0
 
-        # 평상시에는 좌우 중심 보정 + 처음 방향 복귀
-        center_w = CENTER_KP * side_diff
-        center_w = float(np.clip(center_w, -MAX_CENTER_W, MAX_CENTER_W))
+        avoid_dir, avoid_reason = choose_initial_front_avoid_dir(left, right)
 
-        target_w = heading_w + center_w
-        target_w = float(np.clip(target_w, -SAFE_TOTAL_W_LIMIT, SAFE_TOTAL_W_LIMIT))
-
-        if abs(heading_error) > HEADING_DEADBAND_RAD:
-            mode = "RETURN_TO_INITIAL_FRONT"
+    # =========================
+    # 2. 회피 중일 때
+    #    한 번 정한 avoid_dir 유지
+    # =========================
+    if avoid_active:
+        # 장애물을 완전히 지난 상태인지 확인
+        if (
+            front > RETURN_FRONT_DIST and
+            left > RETURN_SIDE_DIST and
+            right > RETURN_SIDE_DIST
+        ):
+            clear_count += 1
         else:
-            mode = "FORWARD_INITIAL_FRONT"
+            clear_count = 0
 
-        urgent = False
+        # 주변이 충분히 안전한 상태가 일정 횟수 유지되면 회피 종료
+        if clear_count >= RETURN_CLEAR_COUNT_N:
+            avoid_active = False
+            avoid_dir = 0
+            clear_count = 0
 
-    # -------------------------
-    # 2. 전방에 장애물이 가까워지는 경우
-    #    → 회피 시작
-    # -------------------------
-    elif front > FRONT_WARN_DIST:
-        target_w, avoid_mode = choose_initial_front_avoid_w(
-            left,
-            right,
-            AVOID_W
-        )
+        else:
+            # 전방 거리별 회피 강도 선택
+            if front > FRONT_WARN_DIST:
+                abs_w = AVOID_W
+                mode_level = "AVOID"
+                urgent = False
 
-        mode = "AVOID_" + avoid_mode
-        urgent = False
+            elif front > FRONT_DANGER_DIST:
+                abs_w = STRONG_AVOID_W
+                mode_level = "STRONG"
+                urgent = True
 
-    # -------------------------
-    # 3. 전방이 위험한 경우
-    #    → 강한 회피
-    # -------------------------
-    elif front > FRONT_DANGER_DIST:
-        target_w, avoid_mode = choose_initial_front_avoid_w(
-            left,
-            right,
-            STRONG_AVOID_W
-        )
+            else:
+                abs_w = EMERGENCY_W
+                mode_level = "EMERGENCY"
+                urgent = True
 
-        mode = "STRONG_" + avoid_mode
-        urgent = True
+            # 핵심:
+            # 회피 중에는 방향을 다시 고르지 않음
+            # 처음 정한 avoid_dir 그대로 사용
+            target_w = avoid_dir * abs_w
 
-    # -------------------------
-    # 4. 전방이 매우 가까운 경우
-    #    → 최대 회피
-    # -------------------------
+            if avoid_dir > 0:
+                mode = mode_level + "_LEFT_LOCKED"
+            else:
+                mode = mode_level + "_RIGHT_LOCKED"
+
+            w = rate_limit_w(prev_w, target_w, urgent)
+
+            info = {
+                "front": front,
+                "left": left,
+                "right": right,
+                "target_w": target_w,
+                "heading_w": heading_w,
+                "heading_error": heading_error,
+                "robot_heading": robot_heading,
+                "mode": mode,
+                "urgent": urgent,
+                "avoid_active": avoid_active,
+                "avoid_dir": avoid_dir,
+                "clear_count": clear_count
+            }
+
+            return v, w, info
+
+    # =========================
+    # 3. 회피 중이 아닐 때
+    #    처음 방향으로 부드럽게 복귀
+    # =========================
+    side_diff = left - right
+
+    center_w = CENTER_KP * side_diff
+    center_w = float(np.clip(center_w, -MAX_CENTER_W, MAX_CENTER_W))
+
+    target_w = heading_w + center_w
+    target_w = float(np.clip(target_w, -SAFE_TOTAL_W_LIMIT, SAFE_TOTAL_W_LIMIT))
+
+    if abs(heading_error) > HEADING_DEADBAND_RAD:
+        mode = "RETURN_TO_INITIAL_FRONT"
     else:
-        target_w, avoid_mode = choose_initial_front_avoid_w(
-            left,
-            right,
-            EMERGENCY_W
-        )
+        mode = "FORWARD_INITIAL_FRONT"
 
-        mode = "EMERGENCY_" + avoid_mode
-        urgent = True
-
-    # =========================
-    # 회전 변화량 제한 적용
-    # =========================
+    urgent = False
     w = rate_limit_w(prev_w, target_w, urgent)
 
     info = {
@@ -480,7 +527,10 @@ def choose_avoidance_cmd(points, prev_w):
         "heading_error": heading_error,
         "robot_heading": robot_heading,
         "mode": mode,
-        "urgent": urgent
+        "urgent": urgent,
+        "avoid_active": avoid_active,
+        "avoid_dir": avoid_dir,
+        "clear_count": clear_count
     }
 
     return v, w, info
@@ -491,6 +541,7 @@ def choose_avoidance_cmd(points, prev_w):
 # =========================
 def main():
     global robot_heading
+    global avoid_active, avoid_dir, clear_count
 
     lidar = RPLidarC1(LIDAR_PORT, LIDAR_BAUD)
     ardu = serial.Serial(ARDU_PORT, ARDU_BAUD, timeout=0.1)
@@ -513,11 +564,13 @@ def main():
     print("[INFO] Start LiDAR obstacle avoidance")
     print("[INFO] v is fixed at 0.18")
     print("[INFO] Avoidance is controlled only by w")
-    print("[INFO] Front distances: SAFE=0.85, WARN=0.60, DANGER=0.40")
-    print("[INFO] W rate limit enabled")
+    print("[INFO] Avoid direction is locked until obstacle is cleared")
     print("[INFO] Press Ctrl+C to stop")
 
     robot_heading = 0.0
+    avoid_active = False
+    avoid_dir = 0
+    clear_count = 0
 
     last_scan_ok_time = time.time()
     last_w = 0.0
@@ -547,6 +600,9 @@ def main():
                     # 스캔이 오래 없으면 안전상 정지
                     stop()
                     last_w = 0.0
+                    avoid_active = False
+                    avoid_dir = 0
+                    clear_count = 0
 
                 time.sleep(LOOP_DT_S)
                 continue
@@ -573,6 +629,9 @@ def main():
                     f"front={info['front']:.2f} "
                     f"left={info['left']:.2f} "
                     f"right={info['right']:.2f} "
+                    f"avoid={int(info.get('avoid_active', 0))} "
+                    f"dir={info.get('avoid_dir', 0)} "
+                    f"clearCnt={info.get('clear_count', 0)} "
                     f"pts={len(points)}"
                 )
 
