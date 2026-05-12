@@ -43,10 +43,11 @@ BASE_V = 0.18              # 직진 속도 고정
 
 # =========================
 # 장애물 회피 파라미터
+# 회피를 더 일찍 시작하도록 수정
 # =========================
-FRONT_SAFE_DIST = 0.55     # 전방이 이 거리보다 멀면 안전
-FRONT_WARN_DIST = 0.35     # 이 거리부터 회피 시작
-FRONT_DANGER_DIST = 0.22   # 이 거리보다 가까우면 강하게 회피
+FRONT_SAFE_DIST = 0.85     # 전방 장애물이 85cm 이내로 들어오면 회피 시작
+FRONT_WARN_DIST = 0.60     # 60cm 이내면 강한 회피 준비
+FRONT_DANGER_DIST = 0.40   # 40cm 이내면 강한 회피
 
 FRONT_ANGLE_DEG = 25       # 정면 판단 각도: -25도 ~ +25도
 SIDE_MIN_DEG = 30          # 좌우 판단 시작 각도
@@ -59,8 +60,8 @@ AVOID_W = 0.55             # 장애물 가까울 때 회피 w
 STRONG_AVOID_W = 0.75      # 장애물 위험할 때 회피 w
 EMERGENCY_W = 0.90         # 장애물 매우 가까울 때 회피 w
 
-W_RATE_LIMIT = 0.20        # w 변화량 제한
-W_RATE_LIMIT_URGENT = 0.35 # 급한 상황 w 변화량 제한
+# 회전 리미트 제거
+# 기존 W_RATE_LIMIT, W_RATE_LIMIT_URGENT 사용하지 않음
 
 # =========================
 # 처음 방향 복귀 파라미터
@@ -214,9 +215,7 @@ def compute_heading_return_w():
 
 # =========================
 # 회피 방향 선택 함수
-# 핵심 수정:
-# 회피 중에는 직진/복귀 유지 성분을 더하지 않음.
-# 대신 회피 방향 자체를 처음 로봇 앞 방향에 가까워지는 쪽으로 선택.
+# 회피 방향 자체를 처음 로봇 앞 방향에 가까워지는 쪽으로 선택
 # =========================
 def choose_initial_front_avoid_w(left, right, abs_w):
     """
@@ -224,10 +223,9 @@ def choose_initial_front_avoid_w(left, right, abs_w):
 
     목표:
         전방 장애물이 있을 때,
-        단순히 더 넓은 쪽으로만 피하는 것이 아니라
         처음 로봇 앞 방향에 더 가까워지는 회피 방향을 선택.
 
-    단, 충돌 위험 때문에 한쪽만 회피 가능하면 그 방향을 우선함.
+    단, 한쪽만 회피 가능하면 충돌 방지를 위해 그 방향을 우선함.
 
     w 부호:
         +w = 좌회전
@@ -294,22 +292,6 @@ def choose_initial_front_avoid_w(left, right, abs_w):
         return left_w, "LEFT_WIDER"
     else:
         return right_w, "RIGHT_WIDER"
-
-
-# =========================
-# w 변화량 제한
-# =========================
-def rate_limit_w(prev_w, target_w, urgent=False):
-    limit = W_RATE_LIMIT_URGENT if urgent else W_RATE_LIMIT
-
-    delta = target_w - prev_w
-
-    if delta > limit:
-        delta = limit
-    elif delta < -limit:
-        delta = -limit
-
-    return prev_w + delta
 
 
 # =========================
@@ -387,9 +369,9 @@ def sector_min_distance(points, min_deg, max_deg):
 # w만 변경해서 회피
 #
 # 수정 내용:
-# - 전방 안전 시: 처음 방향으로 복귀
-# - 전방 장애물 감지 시: 회피 방향만 처음 로봇 앞 방향 쪽으로 선택
-# - 회피 중 target_w에 heading_w를 더하지 않음
+# - 회피 시작 거리 증가
+# - 회전 리미트 제거
+# - target_w를 w에 바로 적용
 # =========================
 def choose_avoidance_cmd(points, prev_w):
     front = sector_min_distance(
@@ -440,8 +422,6 @@ def choose_avoidance_cmd(points, prev_w):
     # -------------------------
     # 2. 전방에 장애물이 가까워지는 경우
     #    → 회피 시작
-    #    → 회피 방향은 처음 앞 방향에 가까워지는 쪽으로 선택
-    #    → 회피 중에는 heading_w를 더하지 않음
     # -------------------------
     elif front > FRONT_WARN_DIST:
         target_w, avoid_mode = choose_initial_front_avoid_w(
@@ -456,7 +436,6 @@ def choose_avoidance_cmd(points, prev_w):
     # -------------------------
     # 3. 전방이 위험한 경우
     #    → 강한 회피
-    #    → 회피 방향만 처음 앞 방향 기준으로 선택
     # -------------------------
     elif front > FRONT_DANGER_DIST:
         target_w, avoid_mode = choose_initial_front_avoid_w(
@@ -471,7 +450,6 @@ def choose_avoidance_cmd(points, prev_w):
     # -------------------------
     # 4. 전방이 매우 가까운 경우
     #    → 최대 회피
-    #    → 회피 방향만 처음 앞 방향 기준으로 선택
     # -------------------------
     else:
         target_w, avoid_mode = choose_initial_front_avoid_w(
@@ -483,8 +461,11 @@ def choose_avoidance_cmd(points, prev_w):
         mode = "EMERGENCY_" + avoid_mode
         urgent = True
 
-    # w가 갑자기 튀지 않도록 제한
-    w = rate_limit_w(prev_w, target_w, urgent)
+    # =========================
+    # 회전 리미트 제거
+    # target_w를 그대로 w로 사용
+    # =========================
+    w = target_w
 
     info = {
         "front": front,
@@ -528,8 +509,8 @@ def main():
     print("[INFO] Start LiDAR obstacle avoidance")
     print("[INFO] v is fixed at 0.18")
     print("[INFO] Avoidance is controlled only by w")
-    print("[INFO] During avoidance, no heading_w blend is added")
-    print("[INFO] Avoid direction is selected toward initial front direction")
+    print("[INFO] Front distances: SAFE=0.85, WARN=0.60, DANGER=0.40")
+    print("[INFO] W rate limit removed")
     print("[INFO] Press Ctrl+C to stop")
 
     robot_heading = 0.0
