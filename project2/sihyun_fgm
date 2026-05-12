@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 
 import serial
@@ -61,6 +60,32 @@ FGM_GOAL_WEIGHT_DANGER = 0.30
 FGM_STRAIGHT_WEIGHT = 0.70
 FGM_CLEARANCE_WEIGHT = 1.80
 FGM_EDGE_WEIGHT = 0.85
+
+
+# ============================================================
+# 추가 수정 부분:
+# 벽과 장애물 사이의 좁은 틈으로 파고드는 것 방지
+# 코드 기준: y > 0 왼쪽, y < 0 오른쪽
+# ============================================================
+
+SIDE_BLOCK_X_MIN = 0.05
+SIDE_BLOCK_X_MAX = 0.90
+SIDE_BLOCK_Y_MIN = 0.05
+SIDE_BLOCK_Y_MAX = 0.55
+
+# 이 거리 안쪽에 점이 많이 잡히면 해당 방향이 막힌 것으로 판단
+SIDE_BLOCKED_DIST = 0.38
+SIDE_BLOCK_MIN_POINTS = 8
+
+# 막힌 쪽 후보 감점
+SIDE_BLOCK_PENALTY = 2.80
+
+# 열린 쪽 후보 가점
+OPEN_SIDE_BIAS_WEIGHT = 1.20
+
+# 벽 옆 좁은 gap 감점
+NARROW_WALL_GAP_MIN_DEG = 22.0
+NARROW_WALL_GAP_PENALTY = 1.40
 
 
 def normalize_angle_deg(angle):
@@ -256,6 +281,51 @@ def compute_side_info(points):
     return info_left, info_right
 
 
+def compute_forward_side_block(points):
+    """
+    로봇 기준 앞쪽 좌/우 공간이 벽처럼 막혀 있는지 판단한다.
+
+    y > 0 : 왼쪽
+    y < 0 : 오른쪽
+
+    기존 compute_side_info()는 로봇 바로 옆만 보는데,
+    이 함수는 앞쪽까지 넓게 봐서 사진처럼 왼쪽 벽/장애물 쪽 좁은 틈으로
+    들어가는 것을 막기 위한 판단값을 만든다.
+    """
+    left_dist = MAX_LIDAR_DIST_M
+    right_dist = MAX_LIDAR_DIST_M
+
+    if len(points) == 0:
+        return False, False, left_dist, right_dist
+
+    zone = (
+        (points[:, 0] > SIDE_BLOCK_X_MIN)
+        & (points[:, 0] < SIDE_BLOCK_X_MAX)
+        & (np.abs(points[:, 1]) < SIDE_BLOCK_Y_MAX)
+    )
+
+    left_pts = points[zone & (points[:, 1] > SIDE_BLOCK_Y_MIN)]
+    right_pts = points[zone & (points[:, 1] < -SIDE_BLOCK_Y_MIN)]
+
+    if len(left_pts) > 0:
+        left_dist = float(np.min(left_pts[:, 1]))
+
+    if len(right_pts) > 0:
+        right_dist = float(np.min(np.abs(right_pts[:, 1])))
+
+    left_blocked = (
+        len(left_pts) >= SIDE_BLOCK_MIN_POINTS
+        and left_dist < SIDE_BLOCKED_DIST
+    )
+
+    right_blocked = (
+        len(right_pts) >= SIDE_BLOCK_MIN_POINTS
+        and right_dist < SIDE_BLOCKED_DIST
+    )
+
+    return left_blocked, right_blocked, left_dist, right_dist
+
+
 def scan_to_angle_ranges(scan):
     angles_grid = np.arange(
         FGM_MIN_ANGLE_DEG,
@@ -347,7 +417,16 @@ def filter_gaps_by_width(gaps):
     return [(start, end) for start, end in gaps if end - start >= min_bins]
 
 
-def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, front_factor):
+def choose_target_from_gaps(
+    angles_deg,
+    ranges,
+    gaps,
+    pose,
+    prev_target_angle,
+    front_factor,
+    left_blocked=False,
+    right_blocked=False,
+):
     if not gaps:
         return -1, (0, 0), -float("inf")
 
@@ -379,17 +458,68 @@ def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, f
         edge_score = np.clip(edge_steps / max(1.0, local_width * 0.5), 0.0, 1.0)
         clearance_score = np.clip(ranges[idxs] / CLEARANCE_CAP, 0.0, 1.0)
         straight_score = 1.0 - np.clip(np.abs(angle_rad) / max_target_angle, 0.0, 1.0)
+
         goal_score = 1.0 - np.clip(
             np.abs([angle_error_rad(a, goal_angle) for a in angle_rad]) / max_target_angle,
             0.0,
             1.0,
         )
+
         prev_score = 1.0 - np.clip(
             np.abs([angle_error_rad(a, prev_angle) for a in angle_rad]) / max_target_angle,
             0.0,
             1.0,
         )
+
         width_score = min(1.0, local_width * FGM_ANGLE_STEP_DEG / 60.0)
+        gap_width_deg = local_width * FGM_ANGLE_STEP_DEG
+
+        # ============================================================
+        # 추가 수정 부분:
+        # 막힌 쪽 후보 감점, 열린 쪽 후보 가점
+        # angle_rad > 0 : 왼쪽 방향
+        # angle_rad < 0 : 오른쪽 방향
+        # ============================================================
+
+        blocked_side_penalty = np.zeros_like(angle_rad, dtype=np.float32)
+        open_side_score = np.zeros_like(angle_rad, dtype=np.float32)
+        narrow_wall_gap_penalty = np.zeros_like(angle_rad, dtype=np.float32)
+
+        if left_blocked and not right_blocked:
+            left_turn = np.clip(angle_rad / max_target_angle, 0.0, 1.0)
+            right_turn = np.clip(-angle_rad / max_target_angle, 0.0, 1.0)
+
+            # 왼쪽이 막혔으면 왼쪽으로 향하는 후보 감점
+            blocked_side_penalty += left_turn
+
+            # 반대로 오른쪽으로 향하는 후보 가점
+            open_side_score += right_turn
+
+            # 왼쪽 벽 옆 좁은 틈은 추가 감점
+            if gap_width_deg < NARROW_WALL_GAP_MIN_DEG:
+                narrow_wall_gap_penalty += left_turn
+
+        elif right_blocked and not left_blocked:
+            right_turn = np.clip(-angle_rad / max_target_angle, 0.0, 1.0)
+            left_turn = np.clip(angle_rad / max_target_angle, 0.0, 1.0)
+
+            # 오른쪽이 막혔으면 오른쪽으로 향하는 후보 감점
+            blocked_side_penalty += right_turn
+
+            # 반대로 왼쪽으로 향하는 후보 가점
+            open_side_score += left_turn
+
+            # 오른쪽 벽 옆 좁은 틈은 추가 감점
+            if gap_width_deg < NARROW_WALL_GAP_MIN_DEG:
+                narrow_wall_gap_penalty += right_turn
+
+        elif left_blocked and right_blocked:
+            # 양쪽이 모두 막힌 경우에는 극단적인 좌/우 회전을 살짝 억제
+            blocked_side_penalty += 0.35 * np.clip(
+                np.abs(angle_rad) / max_target_angle,
+                0.0,
+                1.0,
+            )
 
         scores = (
             FGM_CLEARANCE_WEIGHT * clearance_score
@@ -398,6 +528,9 @@ def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, f
             + goal_weight * goal_score
             + FGM_PREV_TARGET_WEIGHT * prev_score
             + 0.25 * width_score
+            + OPEN_SIDE_BIAS_WEIGHT * open_side_score
+            - SIDE_BLOCK_PENALTY * blocked_side_penalty
+            - NARROW_WALL_GAP_PENALTY * narrow_wall_gap_penalty
         )
 
         local_best = int(np.argmax(scores))
@@ -452,6 +585,9 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
     front_factor = compute_front_factor(front_dist)
     info_left, info_right = compute_side_info(points)
 
+    # 추가: 앞쪽 좌우 막힘 판단
+    side_left_blocked, side_right_blocked, side_left_front, side_right_front = compute_forward_side_block(points)
+
     angles_deg, raw_ranges, counts = scan_to_angle_ranges(scan)
     smooth_ranges = smooth_ranges_conservative(raw_ranges)
     bubble_ranges, closest_idx, closest_dist, bubble_bins = apply_safety_bubble(
@@ -463,7 +599,14 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
     has_safe_gap = len(gaps) > 0
 
     target_idx, best_gap, best_score = choose_target_from_gaps(
-        angles_deg, bubble_ranges, gaps, pose, prev_target_angle, front_factor
+        angles_deg,
+        bubble_ranges,
+        gaps,
+        pose,
+        prev_target_angle,
+        front_factor,
+        side_left_blocked,
+        side_right_blocked,
     )
 
     if target_idx < 0:
@@ -492,6 +635,10 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
         "front_factor": front_factor,
         "left": info_left,
         "right": info_right,
+        "left_blocked": side_left_blocked,
+        "right_blocked": side_right_blocked,
+        "left_front": side_left_front,
+        "right_front": side_right_front,
         "points": len(points),
         "gaps": len(gaps),
         "gap_width": gap_width,
@@ -583,7 +730,9 @@ def main():
                     f"close={info['closest']:.2f}@{info['closest_angle']:.0f} "
                     f"bb={info['bubble_bins']} score={info['score']:.2f} "
                     f"pts={info['points']} coll={int(info['collision'])} "
-                    f"L={info['left']:.2f} R={info['right']:.2f}"
+                    f"L={info['left']:.2f} R={info['right']:.2f} "
+                    f"LB={int(info['left_blocked'])} RB={int(info['right_blocked'])} "
+                    f"LF={info['left_front']:.2f} RF={info['right_front']:.2f}"
                 )
                 last_log = time.time()
 
