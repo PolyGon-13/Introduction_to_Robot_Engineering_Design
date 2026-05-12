@@ -49,28 +49,8 @@ URGENT_FRONT_DIST = 0.30 # 위급 모드 진입 거리
 GOAL_X_M = 3.0
 GOAL_Y_M = 0.0
 GOAL_TOL_M = 0.15
-GOAL_HEADING_WEIGHT = 1.0
-GOAL_LATERAL_WEIGHT = 1.2
-GOAL_DISTANCE_WEIGHT = 0.4
 TURN_SOFT_LIMIT_RAD = math.radians(70.0)
 TURN_HARD_LIMIT_RAD = math.radians(80.0)
-TURN_LIMIT_WEIGHT = 28.0
-TURN_GROWTH_WEIGHT = 12.0
-
-clearance_weight = 3.0
-side_clearance_weight = 0.6
-
-collision_weight = 100.0 # 정면 충돌 페널티1 (충돌 직전)
-front_approach_weight = 5.0 # 정면 충돌 페널티2
-
-side_collision_weight = 18.0 # 측면 충돌 페널티1 (충돌 직전)
-side_near_weight = 8.0 # 측면 충돌 페널티2
-
-forward_weight = 1.0
-far_forward_weight = 2.2
-turn_weight = 0.25
-far_turn_weight = 0.55
-smooth_weight = 0.5
 
 
 # 각도(degree) -180° ~ +180° 범위 정규화
@@ -338,28 +318,18 @@ def compute_side_info(points):
 
 # 후보 평가 루프마다 공통으로 쓰이는 값들을 한 번만 계산해 묶음
 class PlanContext:
-    def __init__(self, points, front_dist, front_factor, info_left, info_right, current_goal_dist):
+    def __init__(self, points, front_dist, front_factor, info_left, info_right):
         self.points = points
         self.front_dist = front_dist
         self.front_factor = front_factor
         self.info_left = info_left
         self.info_right = info_right
-        self.current_goal_dist = current_goal_dist
 
 
 # (v,w)에 대해 cost항으로 점수 계산
-def evaluate_candidate(v, w, ctx, pose, prev_w):
+def evaluate_candidate(v, w, ctx, pose):
     traj = predict_trajectory(v, w) # 후보 경로
     front_clearance, side_clearance, body_clearance = trajectory_clearances(traj, ctx.points) # 정면/측면/전체 최단 거리
-
-    # 직진 보상 가중치
-    # 전방이 안전할수록(front_factor이 0에 가까워짐) 커짐
-    forward_w = forward_weight + (1.0 - ctx.front_factor) * far_forward_weight # 1.0 ~ 3.2
-
-    # 회전 보상 가중치
-    # 전방이 안전할수록(front_factor이 0에 가까워짐) 작아짐
-    turn_w = turn_weight + (1.0 - ctx.front_factor) * far_turn_weight # 0.25 ~ 0.80
-
 
     # 보상 함수 부분
     score = 0.0
@@ -367,38 +337,21 @@ def evaluate_candidate(v, w, ctx, pose, prev_w):
     # 예측 경로가 정면 장애물과 얼마나 멀리 떨어져 지나가는지에 대한 보상
     # 정면 장애물 거리가 CLEARANCE_CAP에 가까워질수록 보상 증가, 넘으면 최댓값 유지
     # front_clearance : 후보 v,w로 앞으로 PREDICT_TIME 동안 움직인다고 예측했을 때 경로상 정면 장애물과의 최소 거리
-    score += clearance_weight * min(front_clearance, CLEARANCE_CAP) # 0 ~ 1.8
-
-    # 예측 경로가 측면 장애물과의 여유거리가 클수록 보상
-    # 측면 장애물 거리가 CLEARANCE_CAP에 가까워질수록 보상 증가, 넘으면 최댓값 유지
-    # side_clearance : 정면 통로에 들어오지 않은 나머지
-    score += side_clearance_weight * min(side_clearance, CLEARANCE_CAP) # 0 ~ 0.36
+    score += 3.0 * min(front_clearance, CLEARANCE_CAP) # 0 ~ 1.8
 
     # 정면 충돌 페널티
     # 정면 장애물이 COLLISION_DIST 안으로 들어오면 "강한" 페널티
     if front_clearance < COLLISION_DIST:
-        score -= collision_weight * (COLLISION_DIST - front_clearance + 1.0) # -121 ~ 1.8
-    # 정면 장애물이 ACTIVE_FRONT_DIST 안으로 들어오면 페널티
-    elif front_clearance < ACTIVE_FRONT_DIST:
-        score -= front_approach_weight * (ACTIVE_FRONT_DIST - front_clearance) # -3 ~ 0
+        score -= 100.0 * (COLLISION_DIST - front_clearance + 1.0) # -121 ~ 1.8
 
     # 측면 충돌 페널티
     # 측면 장애물이 COLLISION_DIST 안으로 들어오면 페널티
     if side_clearance < COLLISION_DIST:
-        score -= side_collision_weight * (COLLISION_DIST - side_clearance + 1.0) # -21.78 ~ -18.0
-    # 측면 장애물이 COLLISION_DIST는 아니지만, 너무 가까울 때 주는 "약한" 페널티
-    elif side_clearance < (COLLISION_DIST + 0.1):
-        score -= side_near_weight * ((COLLISION_DIST + 0.1) - side_clearance) # -0.8 ~ 0
+        score -= 18.0 * (COLLISION_DIST - side_clearance + 1.0) # -21.78 ~ -18.0
     
     # 직진에 가까운 후보일수록 보상
     # MAX_ABS_W는 W_CANDIDATES 리스트의 최댓값
-    score += forward_w * (1.0 - abs(w) / MAX_ABS_W) # 0.0 ~ 3.2
-
-    # 회전량이 클수록 페널티
-    score -= turn_w * abs(w) # -0.72 ~ 0
-
-    # 회전 명령에서 너무 갑자기 회전하는 후보 페널티
-    score -= smooth_weight * abs(w - prev_w) # -0.9 ~ 0
+    score += (1.0 - ctx.front_factor) * (1.0 - abs(w) / MAX_ABS_W) # 0.0 ~ 1.0
 
     # w로 움직였을 때 최종 위치/방향이 목표점 기준으로 얼마나 좋은지 평가하기 위한 값 계산
     # predict_trajectory로 만든 예측 경로 (PREDICT_TIME초 움직인 뒤의 예상 위치/각도)
@@ -418,12 +371,6 @@ def evaluate_candidate(v, w, ctx, pose, prev_w):
     # 후보 실행 후 y위치가 목표 경로 y에서 얼마나 벗어났는지 계산
     lateral_err = candidate_y - GOAL_Y_M
 
-    # 후보 실행 후 예상 위치에서 목표점까지의 거리
-    candidate_goal_dist = math.hypot(GOAL_X_M - candidate_x, GOAL_Y_M - candidate_y)
-
-    # 목표점에 얼마나 가까워지는지 계산
-    goal_progress = ctx.current_goal_dist - candidate_goal_dist
-
     # 목표점 추종을 얼마나 강하게 반영할지 결정
     # 전방이 안전하면 강하게 추종, 위험하면 거의 무시
     goal_factor = 1.0 - ctx.front_factor
@@ -434,57 +381,43 @@ def evaluate_candidate(v, w, ctx, pose, prev_w):
     # 부드러운 회전 제한을 얼마나 초과했는지 계산 (TURN_SOFT_LIMIT_RAD만큼은 OK)
     theta_excess = max(0.0, theta_abs - TURN_SOFT_LIMIT_RAD)
 
-    # 현재 방향보다 후보 실행 후 방향이 얼마나 더 켜졌는지 계산
-    # 현재 A도, 후보 실행 후 B도면 A-B, 만약 0보다 작다면(기준선에서 멀어지는 방향의 회전이 아니라면), 0으로 설정
-    theta_growth = max(0.0, theta_abs - abs(pose.theta))
-
-    # 후보 경로가 목표점에 가까워지면 보상, 멀어지면 페널티
-    score += goal_factor * GOAL_DISTANCE_WEIGHT * goal_progress # -0.086 ~ 0.086
-
     # 후보 경로의 최종방향이 목표점을 잘 바라보지 못하면 페널티
-    score -= goal_factor * GOAL_HEADING_WEIGHT * abs(heading_err) # -3.14 ~ 0
+    score -= goal_factor * abs(heading_err) # -3.14 ~ 0
 
     # 후보 경로의 최종 위치가 목표 중심선에서 벗어나면 페널티
-    score -= goal_factor * GOAL_LATERAL_WEIGHT * abs(lateral_err) # -1.2 ~ 0
+    score -= goal_factor * 1.2 * abs(lateral_err) # -1.2 ~ 0
 
     # 후보 실행 후 로봇의 방향이 너무 많이 틀어졌을 때 페널티
-    score -= TURN_LIMIT_WEIGHT * theta_excess * theta_excess # -103.2 ~ 0
+    score -= 28.0 * theta_excess * theta_excess # -103.2 ~ 0
 
-    # 로봇 방향이 너무 틀어지는 것 방지 페널티
-    # TURN_SOFT_LIMIT_RAD 초과 틀어지면 페널티
-    if abs(pose.theta) > TURN_SOFT_LIMIT_RAD:
-        score -= TURN_GROWTH_WEIGHT * theta_growth # -23 ~ 0
     # TURN_HARD_LIMIT_RAD 초과 틀어지면 "강한" 페널티
     if theta_abs > TURN_HARD_LIMIT_RAD:
-        score -= collision_weight * (theta_abs - TURN_HARD_LIMIT_RAD + 1.0) # -260.6 ~ -100
+        score -= 100.0 * (theta_abs - TURN_HARD_LIMIT_RAD + 1.0) # -260.6 ~ -100
 
     return score, front_clearance, side_clearance, body_clearance, candidate_theta
 
 
 # all_collision 상황에서 비상 탈출용 점수
 # 정상 score 대신 clearance 위주의 단순 점수로 후보를 다시 고름
-def compute_emergency_score(w, clearance, side_clearance, candidate_theta, prev_w, pose, info_left, info_right):
-    score = clearance + 0.18 * side_clearance + 0.03 * abs(w) - 0.02 * abs(w - prev_w)
+def compute_emergency_score(w, clearance, side_clearance, candidate_theta, pose, info_left, info_right):
+    score = clearance + side_clearance
 
     theta_abs = abs(candidate_theta)
     theta_excess = max(0.0, theta_abs - TURN_SOFT_LIMIT_RAD)
-    theta_growth = max(0.0, theta_abs - abs(pose.theta))
-    score -= 0.20 * theta_excess
-    if abs(pose.theta) > TURN_SOFT_LIMIT_RAD:
-        score -= 0.12 * theta_growth
+    score -= theta_excess
 
-    near_thresh = 0.17
+    near_thresh = ROBOT_RADIUS
     if w < 0 and info_right < near_thresh:
         closeness = (near_thresh - info_right) / near_thresh
-        score -= 0.5 * closeness * abs(w)
+        score -= closeness * abs(w)
     if w > 0 and info_left < near_thresh:
         closeness = (near_thresh - info_left) / near_thresh
-        score -= 0.7 * closeness * abs(w)
+        score -= closeness * abs(w)
     if w == 0.0:
         nearest = min(info_left, info_right)
         if nearest < near_thresh:
             closeness = (near_thresh - nearest) / near_thresh
-            score -= 0.7 * closeness
+            score -= closeness
     return score
 
 
@@ -524,7 +457,6 @@ def choose_best_cmd(scan, prev_w, cmd_v, pose):
         front_factor=front_factor,
         info_left=info_left,
         info_right=info_right,
-        current_goal_dist=pose.goal_distance(),
     )
 
     best_w = 0.0
@@ -541,14 +473,14 @@ def choose_best_cmd(scan, prev_w, cmd_v, pose):
 
     for w in W_CANDIDATES:
         score, clearance, side_clearance, body_clearance, candidate_theta = (
-            evaluate_candidate(cmd_v, w, ctx, pose, prev_w)
+            evaluate_candidate(cmd_v, w, ctx, pose)
         )
         collision = clearance < COLLISION_DIST
         if not collision:
             all_collision = False
 
         clear_score = compute_emergency_score(
-            w, clearance, side_clearance, candidate_theta, prev_w, pose, info_left, info_right
+            w, clearance, side_clearance, candidate_theta, pose, info_left, info_right
         )
         if clear_score > best_clear_score:
             best_clear_score = clear_score
@@ -565,7 +497,7 @@ def choose_best_cmd(scan, prev_w, cmd_v, pose):
     if all_collision:
         best_w = best_clear_w
         best_score, best_clearance, best_side_clearance, best_body_clearance, best_theta = (
-            evaluate_candidate(cmd_v, best_w, ctx, pose, prev_w)
+            evaluate_candidate(cmd_v, best_w, ctx, pose)
         )
 
     raw_best_w = best_w
