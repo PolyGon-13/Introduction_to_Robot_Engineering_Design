@@ -152,7 +152,6 @@ def choose_initial_based_recovery_dir(theta, prev_w=0.0):
     """
     처음 방향 INITIAL_HEADING_RAD 기준으로 현재 로봇이 어느 쪽으로 휘었는지 판단한다.
 
-    이전 요청 반영:
     theta > 0  : 처음 방향 기준 왼쪽으로 휘어 있음 -> 오른쪽 Recovery 회전
     theta < 0  : 처음 방향 기준 오른쪽으로 휘어 있음 -> 왼쪽 Recovery 회전
 
@@ -162,13 +161,15 @@ def choose_initial_based_recovery_dir(theta, prev_w=0.0):
     """
     heading_from_initial = normalize_angle_rad(theta - INITIAL_HEADING_RAD)
 
-    # 기존 방향과 반대로 설정
+    # 왼쪽으로 휘어 있으면 오른쪽 회전
     if heading_from_initial > RECOVERY_INITIAL_DEADBAND_RAD:
         return -1.0
+
+    # 오른쪽으로 휘어 있으면 왼쪽 회전
     if heading_from_initial < -RECOVERY_INITIAL_DEADBAND_RAD:
         return +1.0
 
-    # 거의 정면이면 이전 회전 방향의 반대로 설정
+    # 거의 정면이면 이전 회전 방향의 반대로 회전
     if prev_w > 0.0:
         return -1.0
     if prev_w < 0.0:
