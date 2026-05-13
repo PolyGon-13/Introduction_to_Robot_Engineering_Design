@@ -73,6 +73,8 @@ BLOCKED_GAP_MARGIN_DEG = 8.0
 BLOCKED_GAP_MIN_HALF_DEG = 12.0
 BLOCKED_GAP_MAX_HALF_DEG = 35.0
 BLOCKED_GAP_RELEASE_ROT_DEG = 55.0
+BLOCKED_GAP_TURN_W = 0.55
+BLOCKED_GAP_TURN_DEADBAND_DEG = 3.0
 
 
 def normalize_angle_deg(angle):
@@ -501,6 +503,22 @@ def blocked_gap_debug(blocked_gap, pose_theta):
     return 1, rel_angle, rot_angle
 
 
+def blocked_gap_escape_w(blocked_gap, pose_theta, last_w):
+    if blocked_gap is None:
+        return 0.0
+
+    rel_angle = angle_error_rad(blocked_gap["center"], pose_theta)
+    deadband = math.radians(BLOCKED_GAP_TURN_DEADBAND_DEG)
+    if abs(rel_angle) <= deadband:
+        if abs(last_w) > 0.05:
+            turn_dir = -math.copysign(1.0, last_w)
+        else:
+            turn_dir = 1.0
+    else:
+        turn_dir = -math.copysign(1.0, rel_angle)
+    return float(turn_dir * BLOCKED_GAP_TURN_W)
+
+
 def choose_target_from_gaps(
     angles_deg,
     ranges,
@@ -735,6 +753,7 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose, blocked_gap=None):
         "blocked_gap_active": blocked_active,
         "blocked_gap_angle": blocked_angle,
         "blocked_gap_rot": blocked_rot,
+        "blocked_turn": False,
     }
 
 
@@ -828,6 +847,15 @@ def main():
                             info["gap_width"],
                         )
 
+            if blocked_gap is not None and not info["has_safe_gap"]:
+                v = 0.0
+                w = blocked_gap_escape_w(blocked_gap, pose.theta, last_w)
+                target_angle = 0.0
+                info["raw_w"] = w
+                info["target_deg"] = 0.0
+                info["target_dist"] = 0.0
+                info["blocked_turn"] = True
+
             if attempted_gap is not None and not (info["collision"] and v <= 0.01):
                 last_attempted_gap = attempted_gap
 
@@ -866,6 +894,7 @@ def main():
                     f"bg={info['blocked_gap_active']} "
                     f"ba={info['blocked_gap_angle']:.0f} "
                     f"br={info['blocked_gap_rot']:.0f} "
+                    f"bt={int(info['blocked_turn'])} "
                     f"L={info['left']:.2f} R={info['right']:.2f}"
                 )
                 last_log = time.time()
