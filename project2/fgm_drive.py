@@ -65,6 +65,9 @@ SIDE_GAP_BLOCK_DIST = 0.14
 SIDE_GAP_PENALTY_WEIGHT = 4.0
 SIDE_GAP_BLOCK_ANGLE_DEG = 3.0
 SIDE_STRAIGHT_PENALTY_WEIGHT = 1.0
+GAP_WIDTH_MARGIN = 0.04
+GAP_WIDTH_MIN_M = 2.0 * ROBOT_RADIUS + GAP_WIDTH_MARGIN
+GAP_WIDTH_PENALTY_WEIGHT = 5.0
 
 
 def normalize_angle_deg(angle):
@@ -406,6 +409,37 @@ def side_gap_penalty(angle_rad, left_dist, right_dist):
     return penalty, hard_block
 
 
+def gap_physical_width(angles_deg, ranges, start, end):
+    if end <= start:
+        return 0.0
+
+    right_idx = start
+    left_idx = end - 1
+    right_angle = math.radians(float(angles_deg[right_idx]))
+    left_angle = math.radians(float(angles_deg[left_idx]))
+    right_dist = float(ranges[right_idx])
+    left_dist = float(ranges[left_idx])
+
+    right_x = right_dist * math.cos(right_angle)
+    right_y = right_dist * math.sin(right_angle)
+    left_x = left_dist * math.cos(left_angle)
+    left_y = left_dist * math.sin(left_angle)
+
+    return math.hypot(left_x - right_x, left_y - right_y)
+
+
+def gap_width_penalty(width_m):
+    if width_m >= GAP_WIDTH_MIN_M:
+        return 0.0, False
+
+    pressure = np.clip(
+        (GAP_WIDTH_MIN_M - width_m) / max(1e-6, GAP_WIDTH_MIN_M),
+        0.0,
+        1.0,
+    )
+    return float(GAP_WIDTH_PENALTY_WEIGHT * pressure), width_m < ROBOT_RADIUS
+
+
 def choose_target_from_gaps(
     angles_deg,
     ranges,
@@ -442,6 +476,10 @@ def choose_target_from_gaps(
         idxs = idxs[targetable]
         angle_rad = angle_rad[targetable]
         local_width = max(1, end - start)
+        physical_width = gap_physical_width(angles_deg, ranges, start, end)
+        physical_width_penalty, physical_width_block = gap_width_penalty(
+            physical_width
+        )
 
         edge_steps = np.minimum(idxs - start + 1, end - idxs)
         edge_score = np.clip(edge_steps / max(1.0, local_width * 0.5), 0.0, 1.0)
@@ -472,7 +510,10 @@ def choose_target_from_gaps(
             + FGM_PREV_TARGET_WEIGHT * prev_score
             + 0.25 * width_score
             - side_penalty
+            - physical_width_penalty
         )
+        if physical_width_block:
+            scores[:] = -np.inf
         scores = np.where(side_hard_block, -np.inf, scores)
         if not np.isfinite(scores).any():
             continue
@@ -579,6 +620,13 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
     gap_width = (best_gap[1] - best_gap[0]) * FGM_ANGLE_STEP_DEG
     gap_left = float(angles_deg[best_gap[1] - 1]) if best_gap[1] > best_gap[0] else 0.0
     gap_right = float(angles_deg[best_gap[0]]) if best_gap[1] > best_gap[0] else 0.0
+    gap_width_m = gap_physical_width(
+        angles_deg,
+        bubble_ranges,
+        best_gap[0],
+        best_gap[1],
+    )
+    selected_width_penalty, selected_width_block = gap_width_penalty(gap_width_m)
     closest_angle = float(angles_deg[closest_idx]) if closest_idx >= 0 else 0.0
 
     return v, w, target_angle, {
@@ -592,6 +640,7 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
         "points": len(points),
         "gaps": len(gaps),
         "gap_width": gap_width,
+        "gap_width_m": gap_width_m,
         "gap_right": gap_right,
         "gap_left": gap_left,
         "closest": closest_dist,
@@ -602,6 +651,8 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
         "has_safe_gap": has_safe_gap,
         "side_penalty": float(selected_side_penalty[0]),
         "side_block": bool(selected_side_block[0]),
+        "width_penalty": selected_width_penalty,
+        "width_block": selected_width_block,
     }
 
 
@@ -677,12 +728,14 @@ def main():
                     f"tgt={info['target_deg']:.1f} td={info['target_dist']:.2f} "
                     f"front={info['front']:.2f} ff={info['front_factor']:.2f} "
                     f"gap={info['gap_width']:.0f} "
+                    f"gw={info['gap_width_m']:.2f} "
                     f"gr={info['gap_right']:.0f} gl={info['gap_left']:.0f} "
                     f"gaps={info['gaps']} safe={int(info['has_safe_gap'])} "
                     f"close={info['closest']:.2f}@{info['closest_angle']:.0f} "
                     f"bb={info['bubble_bins']} score={info['score']:.2f} "
                     f"pts={info['points']} coll={int(info['collision'])} "
                     f"sp={info['side_penalty']:.2f} sb={int(info['side_block'])} "
+                    f"wp={info['width_penalty']:.2f} wb={int(info['width_block'])} "
                     f"L={info['left']:.2f} R={info['right']:.2f}"
                 )
                 last_log = time.time()
