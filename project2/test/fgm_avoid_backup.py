@@ -7,7 +7,6 @@ import threading
 import numpy as np
 
 
-
 LIDAR_PORT = "/dev/ttyUSB0"
 LIDAR_BAUD = 460800
 ARDU_PORT = "/dev/ttyS0"
@@ -57,12 +56,21 @@ RECOVERY_TURN_ENABLE = True
 # Recovery 제자리 회전 w값
 RECOVERY_TURN_W = 0.90
 
-# 기존 180도보다 더 많이 돌도록 200도 설정
-RECOVERY_TURN_ANGLE_RAD = math.radians(200.0)
+# Recovery는 이제 고정 180/200도 회전이 아니라,
+# 최소 각도만큼 회전한 뒤 벽이 잡히면 바로 벽 따라가기로 넘어간다.
+RECOVERY_MIN_TURN_RAD = math.radians(70.0)      # 최소 이 각도만큼은 회전
+RECOVERY_MAX_TURN_RAD = math.radians(220.0)     # 벽을 못 찾을 때 최대 회전 제한
 
-RECOVERY_TURN_TOL_RAD = math.radians(8.0)
+# 기존 변수명 호환용. 이제 고정 회전 목표각이 아니라 최대 제한값 개념으로만 사용.
+RECOVERY_TURN_ANGLE_RAD = RECOVERY_MAX_TURN_RAD
+
 RECOVERY_TURN_TIMEOUT_S = 15.0
 RECOVERY_INITIAL_DEADBAND_RAD = math.radians(2.0)
+
+# Recovery 중 벽 따라가기 시작 조건
+RECOVERY_WALL_START_DIST = 0.30       # 따라갈 쪽 90도 벽이 이 거리 안에 잡히면 벽 발견
+RECOVERY_WALL_START_COUNT_N = 2       # 연속 몇 번 벽이 잡혀야 인정할지
+RECOVERY_FRONT_START_DIST = 0.12      # 정면 거리가 이보다 작으면 아직 벽 따라가기 시작 안 함
 # ============================================================
 
 # ============================================================
@@ -144,7 +152,7 @@ def choose_initial_based_recovery_dir(theta, prev_w=0.0):
     """
     처음 방향 INITIAL_HEADING_RAD 기준으로 현재 로봇이 어느 쪽으로 휘었는지 판단한다.
 
-    수정 후:
+    이전 요청 반영:
     theta > 0  : 처음 방향 기준 왼쪽으로 휘어 있음 -> 오른쪽 Recovery 회전
     theta < 0  : 처음 방향 기준 오른쪽으로 휘어 있음 -> 왼쪽 Recovery 회전
 
@@ -154,19 +162,19 @@ def choose_initial_based_recovery_dir(theta, prev_w=0.0):
     """
     heading_from_initial = normalize_angle_rad(theta - INITIAL_HEADING_RAD)
 
-    # 기존 방향과 반대로 변경
+    # 기존 방향과 반대로 설정
     if heading_from_initial > RECOVERY_INITIAL_DEADBAND_RAD:
         return -1.0
     if heading_from_initial < -RECOVERY_INITIAL_DEADBAND_RAD:
         return +1.0
 
-    # 거의 정면이면 이전 회전 방향의 반대로 변경
+    # 거의 정면이면 이전 회전 방향의 반대로 설정
     if prev_w > 0.0:
         return -1.0
     if prev_w < 0.0:
         return +1.0
 
-    # 기본값도 기존 왼쪽(+1.0)에서 오른쪽(-1.0)으로 변경
+    # 기본값: 오른쪽 회전
     return -1.0
 
 
@@ -793,8 +801,17 @@ def main():
     # ============================================================
     recovery_turn_active = False
     recovery_turn_dir = 0.0
-    recovery_target_theta = 0.0
     recovery_start_time = 0.0
+    recovery_wall_seen_count = 0
+
+    # 실제 회전 누적량.
+    # pose.theta는 -180~180도로 wrap되기 때문에,
+    # 180도 이상 회전 판단은 theta 차이로 하면 안 되고 w*dt 누적으로 계산한다.
+    recovery_accum_turn = 0.0
+
+    recovery_turned_deg_log = 0.0
+    recovery_wall_dist_log = MAX_LIDAR_DIST_M
+    recovery_front_start_log = MAX_LIDAR_DIST_M
 
     wall_follow_active = False
     wall_follow_side = +1.0        # +1.0 왼쪽 벽, -1.0 오른쪽 벽
@@ -811,6 +828,10 @@ def main():
             now = time.time()
             dt = max(0.0, min(0.20, now - last_pose_time))
             last_pose_time = now
+
+            # Recovery 중에는 이전 루프에서 실제로 보낸 w값으로 회전량을 누적
+            if recovery_turn_active:
+                recovery_accum_turn += abs(last_w) * dt
 
             if pose.goal_distance() <= GOAL_TOL_M:
                 stop()
@@ -844,13 +865,16 @@ def main():
                     scan, last_w, last_target_angle, pose
                 )
 
-            recovery_remaining_deg = 0.0
             recovery_mode_name = "FGM"
             returned_from_wall_this_loop = False
 
             wall_dist_log = MAX_LIDAR_DIST_M
             wall_front_log = MAX_LIDAR_DIST_M
             wall_valid_log = False
+
+            recovery_turned_deg_log = math.degrees(recovery_accum_turn)
+            recovery_wall_dist_log = MAX_LIDAR_DIST_M
+            recovery_front_start_log = MAX_LIDAR_DIST_M
 
             # ------------------------------------------------------------
             # Recovery 회전이 끝난 뒤:
@@ -914,56 +938,88 @@ def main():
                 # 아직 recovery 중이 아니고, 안전한 gap이 없으면 recovery 시작
                 if (not recovery_turn_active) and (not info["has_safe_gap"]):
                     recovery_turn_dir = choose_initial_based_recovery_dir(pose.theta, last_w)
-                    recovery_target_theta = normalize_angle_rad(
-                        pose.theta + recovery_turn_dir * RECOVERY_TURN_ANGLE_RAD
-                    )
                     recovery_start_time = time.time()
+                    recovery_wall_seen_count = 0
+                    recovery_accum_turn = 0.0
                     recovery_turn_active = True
 
                     if recovery_turn_dir > 0.0:
                         print(
                             "[RECOVERY] No safe gap. "
-                            "Initial 기준 왼쪽으로 휘어 있음 -> LEFT recovery turn start."
+                            "Opposite rule -> LEFT recovery turn start."
                         )
                     else:
                         print(
                             "[RECOVERY] No safe gap. "
-                            "Initial 기준 오른쪽으로 휘어 있음 -> RIGHT recovery turn start."
+                            "Opposite rule -> RIGHT recovery turn start."
                         )
 
                 # recovery 중이면 FGM 명령을 무시하고 제자리 회전 명령으로 덮어쓰기
                 if recovery_turn_active:
-                    err_to_target = angle_error_rad(recovery_target_theta, pose.theta)
-                    recovery_remaining_deg = abs(math.degrees(err_to_target))
                     recovery_timeout = (time.time() - recovery_start_time) > RECOVERY_TURN_TIMEOUT_S
+                    recovery_max_turn_reached = recovery_accum_turn >= RECOVERY_MAX_TURN_RAD
 
-                    if recovery_remaining_deg <= math.degrees(RECOVERY_TURN_TOL_RAD) or recovery_timeout:
-                        # Recovery 회전 완료 -> 바로 FGM으로 복귀하지 않고 벽 따라가기 시작
+                    # 현재 회전 방향 쪽 90도 벽 거리 확인
+                    recovery_wall_dist = side_wall_distance_from_scan(scan, recovery_turn_dir)
+
+                    # 벽 따라가기 시작 전 정면 여유 확인
+                    recovery_points_all = lidar_points_to_xy_all(scan)
+                    recovery_front_dist = wall_follow_front_distance(recovery_points_all)
+
+                    recovery_turned_deg_log = math.degrees(recovery_accum_turn)
+                    recovery_wall_dist_log = recovery_wall_dist
+                    recovery_front_start_log = recovery_front_dist
+
+                    wall_ready = recovery_wall_dist < RECOVERY_WALL_START_DIST
+                    front_ok = recovery_front_dist > RECOVERY_FRONT_START_DIST
+                    min_turn_ok = recovery_accum_turn >= RECOVERY_MIN_TURN_RAD
+
+                    if min_turn_ok and wall_ready and front_ok:
+                        recovery_wall_seen_count += 1
+                    else:
+                        recovery_wall_seen_count = 0
+
+                    recovery_ready_to_wall_follow = (
+                        recovery_wall_seen_count >= RECOVERY_WALL_START_COUNT_N
+                    )
+
+                    if recovery_ready_to_wall_follow or recovery_max_turn_reached or recovery_timeout:
+                        # 고정 180/200도까지 무조건 도는 것이 아니라,
+                        # 최소 회전 후 벽이 잡히고 정면이 괜찮으면 바로 벽 따라가기 시작
                         recovery_turn_active = False
                         wall_follow_active = True
                         wall_follow_side = recovery_turn_dir
                         wall_follow_start_time = time.time()
                         wall_prev_dist = None
                         wall_open_count = 0
+                        recovery_wall_seen_count = 0
 
                         v = 0.0
                         w = 0.0
                         target_angle = 0.0
 
                         if wall_follow_side > 0.0:
-                            recovery_mode_name = "RECOVERY_DONE_TO_LEFT_WALL"
+                            recovery_mode_name = "RECOVERY_TO_LEFT_WALL"
                         else:
-                            recovery_mode_name = "RECOVERY_DONE_TO_RIGHT_WALL"
+                            recovery_mode_name = "RECOVERY_TO_RIGHT_WALL"
 
-                        if recovery_timeout:
+                        if recovery_ready_to_wall_follow:
                             print(
-                                "[RECOVERY] recovery turn timeout. "
-                                "Start wall following anyway."
+                                f"[RECOVERY] wall found after {recovery_turned_deg_log:.1f}deg. "
+                                f"wall90={recovery_wall_dist:.2f} "
+                                f"front={recovery_front_dist:.2f}. "
+                                "Start wall following."
+                            )
+                        elif recovery_max_turn_reached:
+                            print(
+                                f"[RECOVERY] max turn reached. "
+                                f"turned={recovery_turned_deg_log:.1f}deg. "
+                                "Start wall following."
                             )
                         else:
                             print(
-                                "[RECOVERY] recovery turn complete. "
-                                "Start wall following."
+                                "[RECOVERY] recovery turn timeout. "
+                                "Start wall following anyway."
                             )
 
                     else:
@@ -996,17 +1052,37 @@ def main():
 
             if time.time() - last_log > 0.25:
                 if recovery_turn_active:
+                    if info is not None:
+                        front_log = info["front"]
+                        gaps_log = info["gaps"]
+                        safe_log = int(info["has_safe_gap"])
+                        close_log = info["closest"]
+                        close_angle_log = info["closest_angle"]
+                        left_log = info["left"]
+                        right_log = info["right"]
+                    else:
+                        front_log = MAX_LIDAR_DIST_M
+                        gaps_log = 0
+                        safe_log = 0
+                        close_log = MAX_LIDAR_DIST_M
+                        close_angle_log = 0.0
+                        left_log = 1.0
+                        right_log = 1.0
+
                     print(
                         f"[{recovery_mode_name}] x={pose.x:.2f} y={pose.y:.2f} "
                         f"th={math.degrees(pose.theta):.1f}deg "
                         f"v={v:.2f} w={w:.2f} "
-                        f"remain={recovery_remaining_deg:.1f}deg "
-                        f"target_th={math.degrees(recovery_target_theta):.1f}deg "
-                        f"front={info['front']:.2f} "
-                        f"gaps={info['gaps']} safe={int(info['has_safe_gap'])} "
-                        f"close={info['closest']:.2f}@{info['closest_angle']:.0f} "
-                        f"L={info['left']:.2f} R={info['right']:.2f}"
+                        f"turned={recovery_turned_deg_log:.1f}deg "
+                        f"wall90={recovery_wall_dist_log:.2f} "
+                        f"wall_front={recovery_front_start_log:.2f} "
+                        f"seen_cnt={recovery_wall_seen_count} "
+                        f"front={front_log:.2f} "
+                        f"gaps={gaps_log} safe={safe_log} "
+                        f"close={close_log:.2f}@{close_angle_log:.0f} "
+                        f"L={left_log:.2f} R={right_log:.2f}"
                     )
+
                 elif wall_follow_active:
                     if wall_follow_side > 0.0:
                         wall_name = "left_wall_90"
@@ -1023,6 +1099,7 @@ def main():
                         f"open_cnt={wall_open_count} "
                         f"FGM=OFF"
                     )
+
                 elif info is not None:
                     print(
                         f"[FGM] x={pose.x:.2f} y={pose.y:.2f} "
@@ -1038,6 +1115,7 @@ def main():
                         f"pts={info['points']} coll={int(info['collision'])} "
                         f"L={info['left']:.2f} R={info['right']:.2f}"
                     )
+
                 last_log = time.time()
 
             time.sleep(LOOP_DT_S)
