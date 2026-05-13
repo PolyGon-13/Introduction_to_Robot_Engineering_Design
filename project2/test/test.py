@@ -849,7 +849,7 @@ def choose_wall_follow_cmd(scan, prev_w, follow_side):
         target_w = follow_side * WALL_SEARCH_W
 
     if front_dist < WALL_FRONT_HARD_STOP_DIST:
-        target_v = 0.0
+        target_v = WALL_SLOW_V
 
         if follow_side > 0.0:
             target_w = max(target_w, WALL_FRONT_KEEP_TURN_W)
