@@ -58,8 +58,8 @@ RECOVERY_TURN_W = 0.90
 
 # Recovery는 이제 고정 180/200도 회전이 아니라,
 # 최소 각도만큼 회전한 뒤 벽이 잡히면 바로 벽 따라가기로 넘어간다.
-RECOVERY_MIN_TURN_RAD = math.radians(55.0)
-RECOVERY_MAX_TURN_RAD = math.radians(150.0)
+RECOVERY_MIN_TURN_RAD = math.radians(120.0)
+RECOVERY_MAX_TURN_RAD = math.radians(200.0)
 
 # 기존 변수명 호환용. 이제 고정 회전 목표각이 아니라 최대 제한값 개념으로만 사용.
 RECOVERY_TURN_ANGLE_RAD = RECOVERY_MAX_TURN_RAD
