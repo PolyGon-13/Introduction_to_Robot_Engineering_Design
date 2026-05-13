@@ -45,7 +45,6 @@ OBSTACLE_MAX_DIST_M = 2.5
 OBSTACLE_MIN_QUALITY = 1
 
 # 장애물 주변을 몇 칸 더 1로 확장할지
-# 1이면 감지된 각도 좌우 1도까지 같이 1 처리
 OBSTACLE_EXPAND_BINS = 1
 
 
@@ -58,11 +57,11 @@ OBSTACLE_EXPAND_BINS = 1
 FRONT_MIN_ANGLE_DEG = -20.0
 FRONT_MAX_ANGLE_DEG = +20.0
 
-LEFT_MIN_ANGLE_DEG = +20.0
-LEFT_MAX_ANGLE_DEG = +90.0
-
 RIGHT_MIN_ANGLE_DEG = -90.0
 RIGHT_MAX_ANGLE_DEG = -20.0
+
+LEFT_MIN_ANGLE_DEG = +20.0
+LEFT_MAX_ANGLE_DEG = +90.0
 
 # 정면 구간에서 1이 이 개수 이상이면 정면 장애물로 판단
 FRONT_BLOCK_COUNT = 3
@@ -72,23 +71,39 @@ FRONT_BLOCK_COUNT = 3
 # 모터 제어 설정
 # ============================================================
 FORWARD_V = 0.15       # 평상시 전진 속도
-AVOID_V = 0.08         # 장애물 회피 중 전진 속도
+AVOID_V = 0.08         # 정면 장애물 회피 중 전진 속도
 
 # 좌우 장애물 개수 차이에 곱할 비례 게인
-# 값이 클수록 회전이 강해짐
 AVOID_W_KP = 0.025
 
 # 회피 중 최대 회전속도 제한
 MAX_AVOID_W = 0.70
 
-# 정면이 막혔는데 w가 너무 작아서 직진하는 문제 방지용 최소 회전
+# 정면이 막혔는데 w가 너무 작아서 거의 직진하는 문제 방지
 MIN_AVOID_W = 0.18
 
-# 양쪽이 비슷하게 막혔을 때 기본 회전 방향
+# diff가 0일 때 기본 회전 방향
 # +1.0 = 왼쪽 회전
 # -1.0 = 오른쪽 회전
 DEFAULT_TURN_DIR = +1.0
 
+
+# ============================================================
+# 정면은 비었지만 좌우 장애물 차이가 큰 경우 보정
+# ============================================================
+SIDE_BIAS_ENABLE = True
+
+# 좌우 장애물 개수 차이가 이 값 이상이면 약하게 보정
+SIDE_BIAS_DIFF_THRESHOLD = 15
+
+# 정면이 비었을 때 보정 회전은 너무 세지 않게 제한
+SIDE_BIAS_W_SCALE = 0.5
+SIDE_BIAS_MAX_W = 0.35
+
+
+# ============================================================
+# 루프 설정
+# ============================================================
 LOOP_DT_S = 0.05
 LOG_PERIOD_S = 0.10
 
@@ -208,15 +223,15 @@ class RPLidarC1:
 # ============================================================
 def scan_to_obstacle_bits(scan):
     """
-    출력:
-    obstacle_string:
-        예) 000000000000111111111000000000
+    라이다 scan 데이터를 0/1 문자열로 변환한다.
 
-    bits:
-        numpy array, 0 또는 1
+    - 0: 해당 각도 방향에 장애물 없음
+    - 1: 해당 각도 방향에 장애물 있음
 
-    angles_grid:
-        각 bit가 의미하는 각도 배열
+    각도 기준:
+    -90도 = 오른쪽
+      0도 = 정면
+    +90도 = 왼쪽
     """
 
     angles_grid = np.arange(
@@ -291,18 +306,22 @@ def count_bits_in_angle_range(bits, angles_grid, min_angle, max_angle):
 # ============================================================
 def choose_motor_cmd(bits, angles_grid):
     """
-    정면에 장애물이 없으면 직진.
+    정면에 장애물이 없으면 기본적으로 직진한다.
+
+    단, 정면은 비었어도 좌우 장애물 개수 차이가 크면
+    벽이나 장애물 쪽으로 붙지 않도록 약하게 보정 회전한다.
 
     정면에 장애물이 있으면:
-    오른쪽 장애물 개수 - 왼쪽 장애물 개수 = diff
+    diff = right_count - left_count
 
     diff > 0:
-        오른쪽에 장애물이 더 많음 → 왼쪽 회전 → +w
+        오른쪽 장애물이 더 많음 → 왼쪽 회전 → +w
 
     diff < 0:
-        왼쪽에 장애물이 더 많음 → 오른쪽 회전 → -w
+        왼쪽 장애물이 더 많음 → 오른쪽 회전 → -w
 
-    diff 크기가 클수록 w도 커짐.
+    diff = 0:
+        좌우가 비슷함 → DEFAULT_TURN_DIR 방향으로 최소 회전
     """
 
     front_count = count_bits_in_angle_range(
@@ -312,13 +331,6 @@ def choose_motor_cmd(bits, angles_grid):
         FRONT_MAX_ANGLE_DEG,
     )
 
-    left_count = count_bits_in_angle_range(
-        bits,
-        angles_grid,
-        LEFT_MIN_ANGLE_DEG,
-        LEFT_MAX_ANGLE_DEG,
-    )
-
     right_count = count_bits_in_angle_range(
         bits,
         angles_grid,
@@ -326,30 +338,57 @@ def choose_motor_cmd(bits, angles_grid):
         RIGHT_MAX_ANGLE_DEG,
     )
 
+    left_count = count_bits_in_angle_range(
+        bits,
+        angles_grid,
+        LEFT_MIN_ANGLE_DEG,
+        LEFT_MAX_ANGLE_DEG,
+    )
+
+    diff = right_count - left_count
     front_blocked = front_count >= FRONT_BLOCK_COUNT
 
-    # 정면이 안 막혔으면 직진
+    # ------------------------------------------------------------
+    # 1. 정면이 안 막힌 경우
+    # ------------------------------------------------------------
     if not front_blocked:
         v = FORWARD_V
-        w = 0.0
-        mode = "FORWARD"
-        diff = right_count - left_count
 
+        # 정면은 비었지만 좌우 차이가 큰 경우 약하게 보정
+        if SIDE_BIAS_ENABLE and abs(diff) >= SIDE_BIAS_DIFF_THRESHOLD:
+            w = AVOID_W_KP * diff * SIDE_BIAS_W_SCALE
+            w = float(np.clip(w, -SIDE_BIAS_MAX_W, SIDE_BIAS_MAX_W))
+
+            if w > 0:
+                mode = "SIDE_BIAS_LEFT"
+            elif w < 0:
+                mode = "SIDE_BIAS_RIGHT"
+            else:
+                mode = "FORWARD"
+
+        else:
+            w = 0.0
+            mode = "FORWARD"
+
+    # ------------------------------------------------------------
+    # 2. 정면이 막힌 경우
+    # ------------------------------------------------------------
     else:
         v = AVOID_V
 
-        # 핵심 비례 제어
-        # 오른쪽 장애물이 더 많으면 +w
-        # 왼쪽 장애물이 더 많으면 -w
-        diff = right_count - left_count
+        # 좌우 장애물 개수 차이에 비례해서 회전
         w = AVOID_W_KP * diff
-
-        # 최대 회전속도 제한
         w = float(np.clip(w, -MAX_AVOID_W, MAX_AVOID_W))
 
-        # 정면이 막혔는데 좌우 차이가 너무 작으면 기본 방향으로 최소 회전
+        # 핵심 수정:
+        # 최소 회전값을 넣을 때도 diff 방향을 유지한다.
         if abs(w) < MIN_AVOID_W:
-            w = DEFAULT_TURN_DIR * MIN_AVOID_W
+            if diff > 0:
+                w = +MIN_AVOID_W
+            elif diff < 0:
+                w = -MIN_AVOID_W
+            else:
+                w = DEFAULT_TURN_DIR * MIN_AVOID_W
 
         if w > 0:
             mode = "AVOID_LEFT_PROP"
