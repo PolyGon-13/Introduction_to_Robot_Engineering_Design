@@ -7,7 +7,6 @@ import threading
 import numpy as np
 
 
-
 LIDAR_PORT = "/dev/ttyUSB0"
 LIDAR_BAUD = 460800
 ARDU_PORT = "/dev/ttyS0"
@@ -28,8 +27,18 @@ LOOP_DT_S = 0.05
 BASE_V = 0.18
 MIN_V = 0.15
 
-# 전체 회전속도 최대 제한값
-MAX_ABS_W = 0.90
+# ============================================================
+# 회전속도 최대값 분리
+# ============================================================
+# FGM 장애물 회피 주행 중 최대 회전속도
+FGM_MAX_W = 0.65
+
+# Recovery 제자리 회전 최대 회전속도
+RECOVERY_MAX_W = 0.90
+
+# 벽 따라가기 중 최대 회전속도
+WALL_MAX_W = 0.35
+# ============================================================
 
 ROBOT_RADIUS = 0.16
 COLLISION_DIST = ROBOT_RADIUS + 0.05
@@ -91,9 +100,6 @@ WALL_SLOW_V = 0.06
 
 # 벽 거리 오차 보정 게인
 WALL_KP = 2.80
-
-# 벽 따라가기 최대 회전속도
-WALL_MAX_W = 0.65
 
 # 벽을 못 봤을 때 벽 쪽으로 찾는 회전값
 WALL_SEARCH_W = 0.28
@@ -456,6 +462,7 @@ def choose_wall_follow_cmd(scan, prev_w, follow_side):
     else:
         target_v = WALL_FOLLOW_V
 
+    # 벽 따라가기 회전속도는 WALL_MAX_W로 제한
     target_w = float(np.clip(target_w, -WALL_MAX_W, WALL_MAX_W))
     w = rate_limit_w(prev_w, target_w, urgent=True)
 
@@ -740,7 +747,10 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
     target_angle = math.radians(float(angles_deg[target_idx]))
     target_angle = float(np.clip(target_angle, -TURN_HARD_LIMIT_RAD, TURN_HARD_LIMIT_RAD))
     target_dist = float(smooth_ranges[target_idx])
-    raw_w = float(np.clip(FGM_TURN_GAIN * target_angle, -MAX_ABS_W, MAX_ABS_W))
+
+    # FGM 회전속도는 FGM_MAX_W로 제한
+    raw_w = float(np.clip(FGM_TURN_GAIN * target_angle, -FGM_MAX_W, FGM_MAX_W))
+
     urgent = front_dist < URGENT_FRONT_DIST or not has_safe_gap
     w = rate_limit_w(prev_w, raw_w, urgent=urgent)
     v = choose_speed(target_dist, target_angle, has_safe_gap)
@@ -1050,7 +1060,10 @@ def main():
                         # 제자리 Recovery 회전
                         v = 0.0
                         target_w = recovery_turn_dir * RECOVERY_TURN_W
-                        target_w = float(np.clip(target_w, -MAX_ABS_W, MAX_ABS_W))
+
+                        # Recovery 회전속도는 RECOVERY_MAX_W로 제한
+                        target_w = float(np.clip(target_w, -RECOVERY_MAX_W, RECOVERY_MAX_W))
+
                         w = rate_limit_w(last_w, target_w, urgent=True)
                         target_angle = 0.0
 
