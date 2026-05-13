@@ -34,10 +34,10 @@ MIN_V = 0.15
 FGM_MAX_W = 0.65
 
 # Recovery 제자리 회전 최대 회전속도
-RECOVERY_MAX_W = 0.90
+RECOVERY_MAX_W = 1.00
 
 # 벽 따라가기 중 최대 회전속도
-WALL_MAX_W = 0.35
+WALL_MAX_W = 0.65
 # ============================================================
 
 ROBOT_RADIUS = 0.16
