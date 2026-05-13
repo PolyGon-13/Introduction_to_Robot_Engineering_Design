@@ -1081,9 +1081,6 @@ def main():
                             "Start RIGHT recovery turn. Follow LEFT wall."
                         )
 
-                if attempted_gap is not None and not narrow_wall_trigger:
-                    last_attempted_gap = attempted_gap
-
             # ------------------------------------------------------------
             # Recovery 회전 중: 텍스트 2의 벽 인식 조건 그대로 사용한다.
             # ------------------------------------------------------------
