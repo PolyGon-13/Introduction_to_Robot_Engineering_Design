@@ -755,9 +755,6 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
     urgent = front_dist < URGENT_FRONT_DIST or not has_safe_gap
     w = rate_limit_w(prev_w, raw_w, urgent=urgent)
     v = choose_speed(target_dist, target_angle, has_safe_gap)
-    # 충돌 위험이면 FGM이라도 전진 금지
-    if target_dist < COLLISION_DIST or closest_dist < COLLISION_DIST:
-        v = 0.0
 
     # 정면이 너무 가까워도 전진 금지
     if front_dist < FRONT_DANGER_DIST:
