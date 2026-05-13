@@ -12,7 +12,7 @@ LIDAR_BAUD = 460800
 ARDU_PORT = "/dev/ttyS0"
 ARDU_BAUD = 9600
 
-ANGLE_OFFSET_DEG = 1.54
+ANGLE_OFFSET_DEG = +1.54
 DIST_OFFSET_MM = 0.0
 LIDAR_ANGLE_SIGN = -1.0
 
@@ -26,11 +26,19 @@ LOOP_DT_S = 0.05
 
 BASE_V = 0.18
 MIN_V = 0.15
-MAX_ABS_W = 0.70
 
-# Recovery / Wall follow 전용 최대 회전속도
+# ============================================================
+# 회전속도 최대값 분리
+# ============================================================
+# FGM 장애물 회피 주행 중 최대 회전속도
+FGM_MAX_W = 0.65
+
+# Recovery 제자리 회전 최대 회전속도
 RECOVERY_MAX_W = 1.00
+
+# 벽 따라가기 중 최대 회전속도
 WALL_MAX_W = 0.65
+# ============================================================
 
 ROBOT_RADIUS = 0.16
 COLLISION_DIST = ROBOT_RADIUS + 0.05
@@ -40,31 +48,36 @@ ACTIVE_FRONT_DIST = 0.30
 FRONT_DANGER_DIST = 0.19
 
 W_CMD_RATE_LIMIT = 0.30
-W_CMD_RATE_LIMIT_URGENT = 0.40
+W_CMD_RATE_LIMIT_URGENT = 0.90
 URGENT_FRONT_DIST = 0.30
 
-GOAL_X_M = 5.0
+GOAL_X_M = 3.0
 GOAL_Y_M = 0.0
 GOAL_TOL_M = 0.15
 TURN_SOFT_LIMIT_RAD = math.radians(70.0)
-TURN_HARD_LIMIT_RAD = math.radians(88.0)
-CUM_TURN_SOFT_LIMIT_RAD = math.radians(70.0)
-CUM_TURN_HARD_LIMIT_RAD = math.radians(88.0)
-CUM_TURN_SOFT_PENALTY_WEIGHT = 8.0
-CUM_TURN_HARD_PENALTY_WEIGHT = 50.0
+TURN_HARD_LIMIT_RAD = math.radians(80.0)
 
 # ============================================================
-# 좁은길/막힌 gap 감지 후 Recovery 회전 설정
+# 안전한 gap이 없을 때 처음 방향 기준 Recovery 회전 설정
 # ============================================================
 INITIAL_HEADING_RAD = 0.0
 RECOVERY_TURN_ENABLE = True
+
+# Recovery 제자리 회전 w값
 RECOVERY_TURN_W = 0.90
 
+# Recovery는 이제 고정 180/200도 회전이 아니라,
+# 최소 각도만큼 회전한 뒤 벽이 잡히면 바로 벽 따라가기로 넘어간다.
 RECOVERY_MIN_TURN_RAD = math.radians(120.0)
 RECOVERY_MAX_TURN_RAD = math.radians(200.0)
+
+# 기존 변수명 호환용. 이제 고정 회전 목표각이 아니라 최대 제한값 개념으로만 사용.
+RECOVERY_TURN_ANGLE_RAD = RECOVERY_MAX_TURN_RAD
+
 RECOVERY_TURN_TIMEOUT_S = 15.0
 RECOVERY_INITIAL_DEADBAND_RAD = math.radians(2.0)
 
+# Recovery 중 벽 따라가기 시작 조건
 RECOVERY_WALL_START_DIST = 0.30
 RECOVERY_WALL_START_COUNT_N = 2
 RECOVERY_FRONT_START_DIST = 0.05
@@ -72,30 +85,43 @@ RECOVERY_FRONT_START_DIST = 0.05
 
 # ============================================================
 # Recovery 회전 후 벽 따라가기 설정
+# 수정 후:
+# 왼쪽으로 휘어 있음 -> 오른쪽 회전 -> 왼쪽 벽 추종
+# 오른쪽으로 휘어 있음 -> 왼쪽 회전 -> 오른쪽 벽 추종
 # ============================================================
 WALL_FOLLOW_ENABLE = True
 
+# 벽과 유지할 목표 거리
 WALL_TARGET_DIST = 0.22
+
+# 벽 따라갈 때 전진 속도
 WALL_FOLLOW_V = 0.10
 WALL_SLOW_V = 0.06
 
+# 벽 거리 오차 보정 게인
 WALL_KP = 2.80
+
+# 벽을 못 봤을 때 벽 쪽으로 찾는 회전값
 WALL_SEARCH_W = 0.28
 
+# 보정값이 너무 작아서 직진하는 것처럼 보이는 문제 방지용 최소 회전값
 WALL_MIN_TURN_ERR = 0.025
 WALL_MIN_TURN_W = 0.16
 
+# 라이다 기준 왼쪽/오른쪽 90도만 보고 벽 거리 계산
 LEFT_WALL_ANGLE_CENTER_DEG = 90.0
 RIGHT_WALL_ANGLE_CENTER_DEG = -90.0
 WALL_ANGLE_HALF_WIDTH_DEG = 1.0
 WALL_MIN_POINTS = 2
 
+# 벽 따라가기 중 정면 판단은 기존 FGM front보다 좁게 본다
 WALL_FRONT_Y_HALF = 0.16
 WALL_FRONT_CHECK_DIST = 0.30
 WALL_FRONT_SLOW_DIST = 0.14
 WALL_FRONT_HARD_STOP_DIST = 0.08
 WALL_FRONT_KEEP_TURN_W = 0.18
 
+# 벽이 갑자기 멀어졌을 때 FGM 복귀 판단
 WALL_MIN_FOLLOW_TIME_S = 0.80
 WALL_JUMP_DIST = 0.10
 WALL_LOST_DIST = 0.30
@@ -871,7 +897,7 @@ def choose_fgm_cmd(
     target_angle = math.radians(float(angles_deg[target_idx]))
     target_angle = float(np.clip(target_angle, -TURN_HARD_LIMIT_RAD, TURN_HARD_LIMIT_RAD))
     target_dist = float(smooth_ranges[target_idx])
-    raw_w = float(np.clip(FGM_TURN_GAIN * target_angle, -MAX_ABS_W, MAX_ABS_W))
+    raw_w = float(np.clip(FGM_TURN_GAIN * target_angle, -FGM_MAX_W, FGM_MAX_W))
     urgent = front_dist < URGENT_FRONT_DIST or not has_safe_gap
     w = rate_limit_w(prev_w, raw_w, urgent=urgent)
     v = choose_speed(target_dist, target_angle, has_safe_gap)
