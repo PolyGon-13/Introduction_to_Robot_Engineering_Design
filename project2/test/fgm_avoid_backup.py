@@ -7,6 +7,7 @@ import threading
 import numpy as np
 
 
+
 LIDAR_PORT = "/dev/ttyUSB0"
 LIDAR_BAUD = 460800
 ARDU_PORT = "/dev/ttyS0"
