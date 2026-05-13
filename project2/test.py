@@ -1051,6 +1051,7 @@ def main():
     last_attempted_gap = None
     last_log = 0.0
     last_pose_time = time.time()
+    accumulated_turn_rad = 0.0
 
     # ============================================================
     # 텍스트 1의 FGM/좁은길 인식은 그대로 사용하고,
@@ -1097,6 +1098,7 @@ def main():
                 if time.time() - last_scan_ok <= SCAN_HOLD_S:
                     send_vw(last_v, last_w)
                     pose.update(last_v, last_w, dt)
+                    accumulated_turn_rad += last_w * dt
                 else:
                     send_vw(0.0, 0.0)
                     pose.update(0.0, 0.0, dt)
@@ -1359,6 +1361,7 @@ def main():
 
             send_vw(v, w)
             pose.update(v, w, dt)
+            accumulated_turn_rad += w * dt
             last_v, last_w = v, w
 
             if (not recovery_turn_active) and (not wall_follow_active):
@@ -1373,6 +1376,7 @@ def main():
 
             gd = pose.goal_distance()
             he = goal_heading_error(pose.x, pose.y, pose.theta)
+            accumulated_turn_deg_log = math.degrees(accumulated_turn_rad)
             if gd <= GOAL_TOL_M:
                 stop()
                 print("[INFO] Goal reached. Stopping.")
@@ -1407,6 +1411,7 @@ def main():
                         f"[{recovery_mode_name}] x={pose.x:.2f} y={pose.y:.2f} "
                         f"th={math.degrees(pose.theta):.1f}deg "
                         f"v={v:.2f} w={w:.2f} "
+                        f"ct={accumulated_turn_deg_log:.1f}deg "
                         f"turned={recovery_turned_deg_log:.1f}deg "
                         f"wall90={recovery_wall_dist_log:.2f} "
                         f"wall_front={recovery_front_start_log:.2f} "
@@ -1428,6 +1433,7 @@ def main():
                         f"[{recovery_mode_name}] x={pose.x:.2f} y={pose.y:.2f} "
                         f"th={math.degrees(pose.theta):.1f}deg "
                         f"v={v:.2f} w={w:.2f} "
+                        f"ct={accumulated_turn_deg_log:.1f}deg "
                         f"{wall_name}={wall_dist_log:.2f} "
                         f"wall_front={wall_front_log:.2f} "
                         f"valid={int(wall_valid_log)} "
@@ -1440,6 +1446,7 @@ def main():
                         f"[FGM] x={pose.x:.2f} y={pose.y:.2f} "
                         f"th={pose.theta:.2f} gd={gd:.2f} he={he:.2f} "
                         f"v={v:.2f} w={w:.2f} raw={info['raw_w']:.2f} "
+                        f"ct={accumulated_turn_deg_log:.1f}deg "
                         f"tgt={info['target_deg']:.1f} td={info['target_dist']:.2f} "
                         f"front={info['front']:.2f} ff={info['front_factor']:.2f} "
                         f"gap={info['gap_width']:.0f} "
