@@ -54,11 +54,11 @@ CUM_TURN_SOFT_PENALTY_WEIGHT = 8.0
 CUM_TURN_HARD_PENALTY_WEIGHT = 50.0
 
 # ============================================================
-# 좁은길/막힌 gap 감지 후 Recovery 회전 설정
+# 좁은길/막힘 감지 후 Recovery 회전 설정
 # ============================================================
 INITIAL_HEADING_RAD = 0.0
 RECOVERY_TURN_ENABLE = True
-RECOVERY_TURN_W = 0.90
+RECOVERY_TURN_W = 1.00
 
 RECOVERY_MIN_TURN_RAD = math.radians(120.0)
 RECOVERY_MAX_TURN_RAD = math.radians(200.0)
@@ -76,8 +76,8 @@ RECOVERY_FRONT_START_DIST = 0.05
 WALL_FOLLOW_ENABLE = True
 
 WALL_TARGET_DIST = 0.22
-WALL_FOLLOW_V = 0.15
-WALL_SLOW_V = 0.10
+WALL_FOLLOW_V = 0.10
+WALL_SLOW_V = 0.06
 
 WALL_KP = 2.80
 WALL_SEARCH_W = 0.28
@@ -118,7 +118,7 @@ FGM_STRAIGHT_WEIGHT = 0.70
 FGM_CLEARANCE_WEIGHT = 1.80
 FGM_EDGE_WEIGHT = 0.85
 
-# 기존 Recovery/blocked-gap 로그 및 상태관리 호환용 상수
+# 기존 Recovery 로그 호환용 상수
 # 텍스트 2 FGM 경로 선택에는 사용하지 않는다.
 SIDE_GAP_WARN_DIST = COLLISION_DIST + 0.06
 SIDE_GAP_BLOCK_DIST = 0.14
@@ -129,14 +129,6 @@ NEAR_COLLISION_STRAIGHT_BLOCK_DIST = COLLISION_DIST
 NEAR_COLLISION_STRAIGHT_BLOCK_ANGLE_DEG = 12.0
 NEAR_COLLISION_STRAIGHT_WARN_ANGLE_DEG = 25.0
 NEAR_COLLISION_STRAIGHT_PENALTY_WEIGHT = 4.0
-BLOCKED_GAP_MARGIN_DEG = 8.0
-BLOCKED_GAP_MIN_HALF_DEG = 12.0
-BLOCKED_GAP_MAX_HALF_DEG = 35.0
-BLOCKED_GAP_RELEASE_ROT_DEG = 55.0
-BLOCKED_GAP_RELEASE_CLOSE_DIST = COLLISION_DIST + 0.02
-BLOCKED_GAP_RELEASE_SIDE_DIST = SIDE_GAP_BLOCK_DIST + 0.04
-BLOCKED_GAP_TURN_W = 0.55
-BLOCKED_GAP_TURN_DEADBAND_DEG = 3.0
 
 
 
@@ -630,94 +622,6 @@ def near_collision_straight_penalty(angle_rad, closest_dist):
     return penalty, hard_block
 
 
-def make_blocked_gap_candidate(pose, target_angle, gap_width_deg):
-    half_width_deg = float(
-        np.clip(
-            0.5 * max(gap_width_deg, FGM_MIN_GAP_WIDTH_DEG) + BLOCKED_GAP_MARGIN_DEG,
-            BLOCKED_GAP_MIN_HALF_DEG,
-            BLOCKED_GAP_MAX_HALF_DEG,
-        )
-    )
-    return {
-        "center": normalize_angle_rad(pose.theta + target_angle),
-        "half_width": math.radians(half_width_deg),
-        "theta_at_block": pose.theta,
-    }
-
-
-def blocked_gap_rotation(blocked_gap, pose_theta):
-    if blocked_gap is None:
-        return 0.0
-    return abs(angle_error_rad(pose_theta, blocked_gap["theta_at_block"]))
-
-
-def refresh_blocked_gap(blocked_gap, pose_theta):
-    if blocked_gap is None:
-        return None
-    if blocked_gap_rotation(blocked_gap, pose_theta) >= math.radians(
-        BLOCKED_GAP_RELEASE_ROT_DEG
-    ):
-        return None
-    return blocked_gap
-
-
-def blocked_gap_recovered(blocked_gap, pose_theta, info):
-    if blocked_gap is None:
-        return False
-
-    if blocked_gap_rotation(blocked_gap, pose_theta) < math.radians(
-        BLOCKED_GAP_RELEASE_ROT_DEG
-    ):
-        return False
-
-    side_clear = min(info["left"], info["right"])
-    if info["closest"] < BLOCKED_GAP_RELEASE_CLOSE_DIST:
-        return False
-    if side_clear < BLOCKED_GAP_RELEASE_SIDE_DIST:
-        return False
-    if info["target_dist"] < COLLISION_DIST:
-        return False
-
-    return True
-
-
-def blocked_gap_hard_block(angle_rad, pose, blocked_gap):
-    hard_block = np.zeros_like(angle_rad, dtype=bool)
-    if blocked_gap is None:
-        return hard_block
-
-    candidate_world = pose.theta + angle_rad
-    error = np.arctan2(
-        np.sin(candidate_world - blocked_gap["center"]),
-        np.cos(candidate_world - blocked_gap["center"]),
-    )
-    return np.abs(error) <= blocked_gap["half_width"]
-
-
-def blocked_gap_debug(blocked_gap, pose_theta):
-    if blocked_gap is None:
-        return 0, 0.0, 0.0
-    rel_angle = math.degrees(angle_error_rad(blocked_gap["center"], pose_theta))
-    rot_angle = math.degrees(blocked_gap_rotation(blocked_gap, pose_theta))
-    return 1, rel_angle, rot_angle
-
-
-def blocked_gap_escape_w(blocked_gap, pose_theta, last_w):
-    if blocked_gap is None:
-        return 0.0
-
-    rel_angle = angle_error_rad(blocked_gap["center"], pose_theta)
-    deadband = math.radians(BLOCKED_GAP_TURN_DEADBAND_DEG)
-    if abs(rel_angle) <= deadband:
-        if abs(last_w) > 0.05:
-            turn_dir = -math.copysign(1.0, last_w)
-        else:
-            turn_dir = 1.0
-    else:
-        turn_dir = -math.copysign(1.0, rel_angle)
-    return float(turn_dir * BLOCKED_GAP_TURN_W)
-
-
 def cumulative_turn_penalty(angle_rad, accumulated_turn_rad):
     projected_turn = accumulated_turn_rad + angle_rad
     abs_accumulated = abs(accumulated_turn_rad)
@@ -841,8 +745,6 @@ def choose_fgm_cmd(
     prev_w,
     prev_target_angle,
     pose,
-    blocked_gap=None,
-    accumulated_turn_rad=0.0,
 ):
     points = lidar_points_to_xy(scan)
     front_dist = front_distance(points)
@@ -908,10 +810,6 @@ def choose_fgm_cmd(
         "near_block": False,
         "turn_penalty": 0.0,
         "projected_turn_deg": math.degrees(target_angle),
-        "blocked_gap_active": 0,
-        "blocked_gap_angle": 0.0,
-        "blocked_gap_rot": 0.0,
-        "blocked_turn": False,
     }
 
 
@@ -1014,15 +912,13 @@ def main():
     last_scan_ok = 0.0
     last_v, last_w = BASE_V, 0.0
     last_target_angle = 0.0
-    blocked_gap = None
-    last_attempted_gap = None
     last_log = 0.0
     last_pose_time = time.time()
     accumulated_turn_rad = 0.0
 
     # ============================================================
     # 텍스트 1의 FGM/좁은길 인식은 그대로 사용하고,
-    # 좁은길/막힌 gap으로 판단되는 순간 텍스트 2의 Recovery + Wall follow로 넘긴다.
+    # 좁은길/막힘으로 판단되는 순간 텍스트 2의 Recovery + Wall follow로 넘긴다.
     # ============================================================
     recovery_turn_active = False
     recovery_turn_dir = 0.0
@@ -1078,7 +974,6 @@ def main():
             w = 0.0
             target_angle = 0.0
             info = None
-            attempted_gap = None
             recovery_mode_name = "FGM"
             returned_from_wall_this_loop = False
 
@@ -1121,13 +1016,11 @@ def main():
                     )
 
                     v, w, target_angle, info = choose_fgm_cmd(
-                        scan,
-                        last_w,
-                        last_target_angle,
-                        pose,
-                        blocked_gap,
-                        accumulated_turn_rad,
-                    )
+                    scan,
+                    last_w,
+                    last_target_angle,
+                    pose,
+                )
                 else:
                     v = wall_v
                     w = wall_w
@@ -1149,40 +1042,9 @@ def main():
                     last_w,
                     last_target_angle,
                     pose,
-                    blocked_gap,
-                    accumulated_turn_rad,
                 )
 
-                if info["has_safe_gap"]:
-                    attempted_gap = make_blocked_gap_candidate(
-                        pose,
-                        target_angle,
-                        info["gap_width"],
-                    )
-
-                if blocked_gap is not None and blocked_gap_recovered(
-                    blocked_gap,
-                    pose.theta,
-                    info,
-                ):
-                    blocked_gap = None
-                    v, w, target_angle, info = choose_fgm_cmd(
-                        scan,
-                        last_w,
-                        last_target_angle,
-                        pose,
-                        blocked_gap,
-                        accumulated_turn_rad,
-                    )
-                    if info["has_safe_gap"]:
-                        attempted_gap = make_blocked_gap_candidate(
-                            pose,
-                            target_angle,
-                            info["gap_width"],
-                        )
-
-                # 텍스트 1 기준 좁은길/막힌 gap 인식 조건.
-                # 기존 코드는 여기서 blocked_gap_escape_w()로 제자리 회전했지만,
+                # 텍스트 1 기준 좁은길/막힘 인식 조건.
                 # 이제는 텍스트 2의 Recovery + Wall follow 코드로 넘긴다.
                 blocked_now = info["collision"] and v <= 0.01
                 no_safe_gap_now = not info["has_safe_gap"]
@@ -1193,11 +1055,6 @@ def main():
                     and (not recovery_turn_active)
                     and narrow_wall_trigger
                 ):
-                    gap_to_block = attempted_gap if attempted_gap is not None else last_attempted_gap
-                    if gap_to_block is not None:
-                        blocked_gap = dict(gap_to_block)
-                        blocked_gap["theta_at_block"] = pose.theta
-
                     recovery_turn_dir = choose_initial_based_recovery_dir(
                         pose.theta,
                         last_w,
@@ -1209,9 +1066,9 @@ def main():
                     recovery_turn_active = True
 
                     if blocked_now:
-                        trigger_name = "blocked/narrow gap"
+                        trigger_name = "blocked/narrow path"
                     else:
-                        trigger_name = "no safe gap"
+                        trigger_name = "no safe path"
 
                     if recovery_turn_dir > 0.0:
                         print(
@@ -1326,8 +1183,6 @@ def main():
                     else:
                         recovery_mode_name = "RECOVERY_RIGHT_TURN"
 
-                    if info is not None:
-                        info["blocked_turn"] = True
 
             send_vw(v, w)
             pose.update(v, w, dt)
@@ -1336,13 +1191,6 @@ def main():
 
             if (not recovery_turn_active) and (not wall_follow_active):
                 last_target_angle = target_angle
-
-            if info is not None:
-                (
-                    info["blocked_gap_active"],
-                    info["blocked_gap_angle"],
-                    info["blocked_gap_rot"],
-                ) = blocked_gap_debug(blocked_gap, pose.theta)
 
             gd = pose.goal_distance()
             he = goal_heading_error(pose.x, pose.y, pose.theta)
@@ -1362,9 +1210,6 @@ def main():
                         close_angle_log = info["closest_angle"]
                         left_log = info["left"]
                         right_log = info["right"]
-                        bg_log = info["blocked_gap_active"]
-                        ba_log = info["blocked_gap_angle"]
-                        br_log = info["blocked_gap_rot"]
                     else:
                         front_log = MAX_LIDAR_DIST_M
                         gaps_log = 0
@@ -1373,9 +1218,6 @@ def main():
                         close_angle_log = 0.0
                         left_log = 1.0
                         right_log = 1.0
-                        bg_log = 0
-                        ba_log = 0.0
-                        br_log = 0.0
 
                     print(
                         f"[{recovery_mode_name}] x={pose.x:.2f} y={pose.y:.2f} "
@@ -1388,9 +1230,7 @@ def main():
                         f"seen_cnt={recovery_wall_seen_count} "
                         f"front={front_log:.2f} "
                         f"gaps={gaps_log} safe={safe_log} "
-                        f"close={close_log:.2f}@{close_angle_log:.0f} "
-                        f"bg={bg_log} ba={ba_log:.0f} br={br_log:.0f} "
-                        f"L={left_log:.2f} R={right_log:.2f}"
+                        f"close={close_log:.2f}@{close_angle_log:.0f} "                        f"L={left_log:.2f} R={right_log:.2f}"
                     )
 
                 elif wall_follow_active:
@@ -1428,12 +1268,7 @@ def main():
                         f"bb={info['bubble_bins']} score={info['score']:.2f} "
                         f"pts={info['points']} coll={int(info['collision'])} "
                         f"sp={info['side_penalty']:.2f} sb={int(info['side_block'])} "
-                        f"np={info['near_penalty']:.2f} nb={int(info['near_block'])} "
-                        f"bg={info['blocked_gap_active']} "
-                        f"ba={info['blocked_gap_angle']:.0f} "
-                        f"br={info['blocked_gap_rot']:.0f} "
-                        f"bt={int(info['blocked_turn'])} "
-                        f"L={info['left']:.2f} R={info['right']:.2f}"
+                        f"np={info['near_penalty']:.2f} nb={int(info['near_block'])} "                        f"L={info['left']:.2f} R={info['right']:.2f}"
                     )
 
                 last_log = time.time()
