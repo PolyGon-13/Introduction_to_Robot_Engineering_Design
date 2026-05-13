@@ -24,8 +24,8 @@ MAX_EVAL_POINTS = 720
 SCAN_HOLD_S = 0.30
 LOOP_DT_S = 0.05
 
-BASE_V = 0.20
-MIN_V = 0.18
+BASE_V = 0.18
+MIN_V = 0.15
 
 # 전체 회전속도 최대 제한값
 MAX_ABS_W = 0.90
