@@ -7,6 +7,7 @@ import threading
 import numpy as np
 
 
+
 LIDAR_PORT = "/dev/ttyUSB0"
 LIDAR_BAUD = 460800
 ARDU_PORT = "/dev/ttyS0"
@@ -37,7 +38,7 @@ FRONT_CORRIDOR_HALF = COLLISION_DIST + 0.30
 ACTIVE_FRONT_DIST = 0.30
 FRONT_DANGER_DIST = 0.19
 
-W_CMD_RATE_LIMIT = 0.25
+W_CMD_RATE_LIMIT = 0.30
 W_CMD_RATE_LIMIT_URGENT = 0.90
 URGENT_FRONT_DIST = 0.30
 
@@ -57,7 +58,7 @@ RECOVERY_TURN_ENABLE = True
 RECOVERY_TURN_W = 0.90
 
 # 기존 180도보다 더 많이 돌도록 200도 설정
-RECOVERY_TURN_ANGLE_RAD = math.radians(180.0)
+RECOVERY_TURN_ANGLE_RAD = math.radians(200.0)
 
 RECOVERY_TURN_TOL_RAD = math.radians(8.0)
 RECOVERY_TURN_TIMEOUT_S = 15.0
@@ -71,14 +72,14 @@ RECOVERY_INITIAL_DEADBAND_RAD = math.radians(2.0)
 WALL_FOLLOW_ENABLE = True
 
 # 벽과 유지할 목표 거리
-WALL_TARGET_DIST = 0.15
+WALL_TARGET_DIST = 0.22
 
 # 벽 따라갈 때 전진 속도
 WALL_FOLLOW_V = 0.10
 WALL_SLOW_V = 0.06
 
 # 벽 거리 오차 보정 게인
-WALL_KP = 6.2
+WALL_KP = 2.80
 
 # 벽 따라가기 최대 회전속도
 WALL_MAX_W = 0.65
@@ -91,9 +92,9 @@ WALL_MIN_TURN_ERR = 0.025
 WALL_MIN_TURN_W = 0.16
 
 # 라이다 기준 왼쪽/오른쪽 90도만 보고 벽 거리 계산
-LEFT_WALL_ANGLE_CENTER_DEG = 80.0
-RIGHT_WALL_ANGLE_CENTER_DEG = -80.0
-WALL_ANGLE_HALF_WIDTH_DEG = 1.0
+LEFT_WALL_ANGLE_CENTER_DEG = 90.0
+RIGHT_WALL_ANGLE_CENTER_DEG = -90.0
+WALL_ANGLE_HALF_WIDTH_DEG = 5.0
 WALL_MIN_POINTS = 2
 
 # 벽 따라가기 중 정면 판단은 기존 FGM front보다 좁게 본다
@@ -143,8 +144,9 @@ def choose_initial_based_recovery_dir(theta, prev_w=0.0):
     """
     처음 방향 INITIAL_HEADING_RAD 기준으로 현재 로봇이 어느 쪽으로 휘었는지 판단한다.
 
-    theta > 0  : 처음 방향 기준 왼쪽으로 휘어 있음 -> 왼쪽 Recovery 회전
-    theta < 0  : 처음 방향 기준 오른쪽으로 휘어 있음 -> 오른쪽 Recovery 회전
+    수정 후:
+    theta > 0  : 처음 방향 기준 왼쪽으로 휘어 있음 -> 오른쪽 Recovery 회전
+    theta < 0  : 처음 방향 기준 오른쪽으로 휘어 있음 -> 왼쪽 Recovery 회전
 
     반환값:
     +1.0 : 왼쪽 회전
@@ -152,17 +154,20 @@ def choose_initial_based_recovery_dir(theta, prev_w=0.0):
     """
     heading_from_initial = normalize_angle_rad(theta - INITIAL_HEADING_RAD)
 
+    # 기존 방향과 반대로 변경
     if heading_from_initial > RECOVERY_INITIAL_DEADBAND_RAD:
-        return +1.0
+        return -1.0
     if heading_from_initial < -RECOVERY_INITIAL_DEADBAND_RAD:
-        return -1.0
-
-    if prev_w > 0.0:
         return +1.0
-    if prev_w < 0.0:
-        return -1.0
 
-    return +1.0
+    # 거의 정면이면 이전 회전 방향의 반대로 변경
+    if prev_w > 0.0:
+        return -1.0
+    if prev_w < 0.0:
+        return +1.0
+
+    # 기본값도 기존 왼쪽(+1.0)에서 오른쪽(-1.0)으로 변경
+    return -1.0
 
 
 class RobotPose:
