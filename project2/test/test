@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 
 import serial
@@ -36,7 +35,7 @@ OBSTACLE_LOG_STEP_DEG = 1.0
 # 이 거리 안에 라이다 점이 있으면 장애물 1로 판단
 OBSTACLE_DETECT_DIST_M = 0.45
 
-# 라이다 노이즈 제거용 최소 거리
+# 너무 가까운 노이즈 제거
 OBSTACLE_MIN_DIST_M = 0.05
 
 # 라이다 최대 거리
@@ -70,19 +69,30 @@ FRONT_BLOCK_COUNT = 3
 
 
 # ============================================================
-# 모터 명령 설정
+# 모터 제어 설정
 # ============================================================
 FORWARD_V = 0.15       # 평상시 전진 속도
 AVOID_V = 0.08         # 장애물 회피 중 전진 속도
-AVOID_W = 0.55         # 장애물 회피 회전 속도
 
-# 양수 w = 왼쪽 회전, 음수 w = 오른쪽 회전 기준
-# 만약 실제 로봇이 반대로 돌면 AVOID_W 부호 처리만 바꾸면 됨
-DEFAULT_TURN_DIR = +1.0    # 양쪽 비슷하게 막혔을 때 기본 왼쪽 회전
+# 좌우 장애물 개수 차이에 곱할 비례 게인
+# 값이 클수록 회전이 강해짐
+AVOID_W_KP = 0.025
+
+# 회피 중 최대 회전속도 제한
+MAX_AVOID_W = 0.70
+
+# 정면이 막혔는데 w가 너무 작아서 직진하는 문제 방지용 최소 회전
+MIN_AVOID_W = 0.18
+
+# 양쪽이 비슷하게 막혔을 때 기본 회전 방향
+# +1.0 = 왼쪽 회전
+# -1.0 = 오른쪽 회전
+DEFAULT_TURN_DIR = +1.0
 
 LOOP_DT_S = 0.05
 LOG_PERIOD_S = 0.10
 
+# 라이다 scan이 끊겼을 때 이 시간 이상 지나면 정지
 SCAN_HOLD_S = 0.30
 
 
@@ -186,7 +196,11 @@ class RPLidarC1:
             pass
 
         time.sleep(0.1)
-        self.ser.close()
+
+        try:
+            self.ser.close()
+        except Exception:
+            pass
 
 
 # ============================================================
@@ -273,12 +287,22 @@ def count_bits_in_angle_range(bits, angles_grid, min_angle, max_angle):
 
 
 # ============================================================
-# 0/1 장애물 배열 기반 단순 회피 제어
+# 0/1 장애물 배열 기반 비례 회피 제어
 # ============================================================
 def choose_motor_cmd(bits, angles_grid):
     """
-    정면에 장애물이 없으면 직진
-    정면에 장애물이 있으면 왼쪽/오른쪽 중 1이 적은 방향으로 회전
+    정면에 장애물이 없으면 직진.
+
+    정면에 장애물이 있으면:
+    오른쪽 장애물 개수 - 왼쪽 장애물 개수 = diff
+
+    diff > 0:
+        오른쪽에 장애물이 더 많음 → 왼쪽 회전 → +w
+
+    diff < 0:
+        왼쪽에 장애물이 더 많음 → 오른쪽 회전 → -w
+
+    diff 크기가 클수록 w도 커짐.
     """
 
     front_count = count_bits_in_angle_range(
@@ -304,37 +328,41 @@ def choose_motor_cmd(bits, angles_grid):
 
     front_blocked = front_count >= FRONT_BLOCK_COUNT
 
+    # 정면이 안 막혔으면 직진
     if not front_blocked:
         v = FORWARD_V
         w = 0.0
         mode = "FORWARD"
+        diff = right_count - left_count
 
     else:
         v = AVOID_V
 
-        # 왼쪽이 더 비어 있으면 왼쪽 회전
-        if left_count < right_count:
-            w = +AVOID_W
-            mode = "AVOID_LEFT"
+        # 핵심 비례 제어
+        # 오른쪽 장애물이 더 많으면 +w
+        # 왼쪽 장애물이 더 많으면 -w
+        diff = right_count - left_count
+        w = AVOID_W_KP * diff
 
-        # 오른쪽이 더 비어 있으면 오른쪽 회전
-        elif right_count < left_count:
-            w = -AVOID_W
-            mode = "AVOID_RIGHT"
+        # 최대 회전속도 제한
+        w = float(np.clip(w, -MAX_AVOID_W, MAX_AVOID_W))
 
-        # 양쪽 비슷하면 기본 방향으로 회전
+        # 정면이 막혔는데 좌우 차이가 너무 작으면 기본 방향으로 최소 회전
+        if abs(w) < MIN_AVOID_W:
+            w = DEFAULT_TURN_DIR * MIN_AVOID_W
+
+        if w > 0:
+            mode = "AVOID_LEFT_PROP"
+        elif w < 0:
+            mode = "AVOID_RIGHT_PROP"
         else:
-            w = DEFAULT_TURN_DIR * AVOID_W
-
-            if DEFAULT_TURN_DIR > 0:
-                mode = "AVOID_LEFT_DEFAULT"
-            else:
-                mode = "AVOID_RIGHT_DEFAULT"
+            mode = "AVOID_NONE"
 
     info = {
         "front_count": front_count,
         "left_count": left_count,
         "right_count": right_count,
+        "diff": diff,
         "front_blocked": front_blocked,
         "mode": mode,
     }
@@ -347,7 +375,7 @@ def choose_motor_cmd(bits, angles_grid):
 # ============================================================
 def send_vw(ardu, v, w):
     """
-    Arduino로 속도 명령 전송
+    Arduino로 속도 명령 전송.
 
     형식:
     V0.150,0.000
@@ -358,7 +386,7 @@ def send_vw(ardu, v, w):
 
 def stop_motor(ardu):
     """
-    Arduino 정지 명령
+    Arduino 정지 명령.
     """
     ardu.write(b"S\n")
 
@@ -384,14 +412,18 @@ def main():
 
         print("[INFO] Ready.")
         print("[INFO] Press Enter to start.")
-        input()
+
+        try:
+            input()
+        except EOFError:
+            print("[WARN] Could not read input. Starting immediately.")
 
         print("[INFO] Go!!")
         print("[INFO] Log format: 0 = no obstacle, 1 = obstacle")
         print("[INFO] -90deg = right, 0deg = front, +90deg = left")
         print("[INFO] Press Ctrl+C to stop.")
 
-        last_scan_ok_time = 0.0
+        last_scan_ok_time = time.time()
         last_log_time = 0.0
 
         while True:
@@ -415,19 +447,16 @@ def main():
 
             send_vw(ardu, v, w)
 
-            # 사용자가 원한 0/1 형식 로그 출력
             if now - last_log_time >= LOG_PERIOD_S:
-                print(obstacle_string)
-
-                # 디버그가 필요하면 아래 주석 해제
-                # print(
-                #     f"{obstacle_string} "
-                #     f"mode={info['mode']} "
-                #     f"v={v:.2f} w={w:.2f} "
-                #     f"F={info['front_count']} "
-                #     f"L={info['left_count']} "
-                #     f"R={info['right_count']}"
-                # )
+                print(
+                    f"{obstacle_string} "
+                    f"mode={info['mode']} "
+                    f"v={v:.2f} w={w:.2f} "
+                    f"F={info['front_count']} "
+                    f"L={info['left_count']} "
+                    f"R={info['right_count']} "
+                    f"diff={info['diff']}"
+                )
 
                 last_log_time = now
 
