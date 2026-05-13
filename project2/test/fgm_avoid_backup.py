@@ -12,7 +12,7 @@ LIDAR_BAUD = 460800
 ARDU_PORT = "/dev/ttyS0"
 ARDU_BAUD = 9600
 
-ANGLE_OFFSET_DEG = 1.54
+ANGLE_OFFSET_DEG = +1.54
 DIST_OFFSET_MM = 0.0
 LIDAR_ANGLE_SIGN = -1.0
 
@@ -36,7 +36,6 @@ CLEARANCE_CAP = 0.6
 FRONT_CORRIDOR_HALF = COLLISION_DIST + 0.30
 ACTIVE_FRONT_DIST = 0.30
 FRONT_DANGER_DIST = 0.19
-FRONT45_CLOSE_DIST = COLLISION_DIST
 
 W_CMD_RATE_LIMIT = 0.25
 W_CMD_RATE_LIMIT_URGENT = 0.90
@@ -712,10 +711,6 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
     gaps = filter_gaps_by_width(find_free_gaps(free_mask))
     has_safe_gap = len(gaps) > 0
 
-    lo45 = int(round((-45.0 - FGM_MIN_ANGLE_DEG) / FGM_ANGLE_STEP_DEG))
-    hi45 = int(round((+45.0 - FGM_MIN_ANGLE_DEG) / FGM_ANGLE_STEP_DEG)) + 1
-    front45_close = bool(np.any(smooth_ranges[lo45:hi45] < FRONT45_CLOSE_DIST))
-
     target_idx, best_gap, best_score = choose_target_from_gaps(
         angles_deg, bubble_ranges, gaps, pose, prev_target_angle, front_factor
     )
@@ -757,7 +752,6 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
         "collision": target_dist < COLLISION_DIST or closest_dist < COLLISION_DIST,
         "raw_w": raw_w,
         "has_safe_gap": has_safe_gap,
-        "front45_close": front45_close,
     }
 
 
@@ -912,8 +906,8 @@ def main():
                 and RECOVERY_TURN_ENABLE
                 and (info is not None)
             ):
-                # 아직 recovery 중이 아니고, 안전한 gap이 없거나 ±45° 내 장애물이 너무 가까우면 recovery 시작
-                if (not recovery_turn_active) and (not info["has_safe_gap"] and info["front45_close"]):
+                # 아직 recovery 중이 아니고, 안전한 gap이 없으면 recovery 시작
+                if (not recovery_turn_active) and (not info["has_safe_gap"]):
                     recovery_turn_dir = choose_initial_based_recovery_dir(pose.theta, last_w)
                     recovery_target_theta = normalize_angle_rad(
                         pose.theta + recovery_turn_dir * RECOVERY_TURN_ANGLE_RAD
