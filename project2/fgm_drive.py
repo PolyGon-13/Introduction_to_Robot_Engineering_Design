@@ -60,6 +60,11 @@ FGM_GOAL_WEIGHT_DANGER = 0.30
 FGM_STRAIGHT_WEIGHT = 0.70
 FGM_CLEARANCE_WEIGHT = 1.80
 FGM_EDGE_WEIGHT = 0.85
+SIDE_GAP_WARN_DIST = COLLISION_DIST + 0.06
+SIDE_GAP_BLOCK_DIST = 0.14
+SIDE_GAP_PENALTY_WEIGHT = 4.0
+SIDE_GAP_BLOCK_ANGLE_DEG = 3.0
+SIDE_STRAIGHT_PENALTY_WEIGHT = 1.0
 
 
 def normalize_angle_deg(angle):
@@ -346,7 +351,71 @@ def filter_gaps_by_width(gaps):
     return [(start, end) for start, end in gaps if end - start >= min_bins]
 
 
-def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, front_factor):
+def side_gap_penalty(angle_rad, left_dist, right_dist):
+    penalty = np.zeros_like(angle_rad, dtype=np.float32)
+    hard_block = np.zeros_like(angle_rad, dtype=bool)
+    block_angle_rad = math.radians(SIDE_GAP_BLOCK_ANGLE_DEG)
+    straight_mask = np.abs(angle_rad) <= block_angle_rad
+
+    if left_dist < SIDE_GAP_WARN_DIST:
+        pressure = float(
+            np.clip(
+                (SIDE_GAP_WARN_DIST - left_dist)
+                / max(1e-6, SIDE_GAP_WARN_DIST - SIDE_GAP_BLOCK_DIST),
+                0.0,
+                1.0,
+            )
+        )
+        left_side = angle_rad > block_angle_rad
+        penalty += np.where(
+            left_side,
+            SIDE_GAP_PENALTY_WEIGHT * pressure,
+            0.0,
+        )
+        penalty += np.where(
+            straight_mask,
+            SIDE_STRAIGHT_PENALTY_WEIGHT * pressure,
+            0.0,
+        )
+        if left_dist <= SIDE_GAP_BLOCK_DIST:
+            hard_block |= left_side
+
+    if right_dist < SIDE_GAP_WARN_DIST:
+        pressure = float(
+            np.clip(
+                (SIDE_GAP_WARN_DIST - right_dist)
+                / max(1e-6, SIDE_GAP_WARN_DIST - SIDE_GAP_BLOCK_DIST),
+                0.0,
+                1.0,
+            )
+        )
+        right_side = angle_rad < -block_angle_rad
+        penalty += np.where(
+            right_side,
+            SIDE_GAP_PENALTY_WEIGHT * pressure,
+            0.0,
+        )
+        penalty += np.where(
+            straight_mask,
+            SIDE_STRAIGHT_PENALTY_WEIGHT * pressure,
+            0.0,
+        )
+        if right_dist <= SIDE_GAP_BLOCK_DIST:
+            hard_block |= right_side
+
+    return penalty, hard_block
+
+
+def choose_target_from_gaps(
+    angles_deg,
+    ranges,
+    gaps,
+    pose,
+    prev_target_angle,
+    front_factor,
+    left_dist,
+    right_dist,
+):
     if not gaps:
         return -1, (0, 0), -float("inf")
 
@@ -389,6 +458,11 @@ def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, f
             1.0,
         )
         width_score = min(1.0, local_width * FGM_ANGLE_STEP_DEG / 60.0)
+        side_penalty, side_hard_block = side_gap_penalty(
+            angle_rad,
+            left_dist,
+            right_dist,
+        )
 
         scores = (
             FGM_CLEARANCE_WEIGHT * clearance_score
@@ -397,7 +471,11 @@ def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, f
             + goal_weight * goal_score
             + FGM_PREV_TARGET_WEIGHT * prev_score
             + 0.25 * width_score
+            - side_penalty
         )
+        scores = np.where(side_hard_block, -np.inf, scores)
+        if not np.isfinite(scores).any():
+            continue
 
         local_best = int(np.argmax(scores))
         score = float(scores[local_best])
@@ -409,8 +487,11 @@ def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, f
     return best_idx, best_gap, best_score
 
 
-def choose_fallback_target(angles_deg, ranges):
+def choose_fallback_target(angles_deg, ranges, left_dist, right_dist):
     usable = ranges > MIN_LIDAR_DIST_M
+    angle_rad = np.deg2rad(angles_deg)
+    _, side_hard_block = side_gap_penalty(angle_rad, left_dist, right_dist)
+    usable = usable & ~side_hard_block
     if not usable.any():
         return len(ranges) // 2
     usable_ranges = np.where(usable, ranges, -np.inf)
@@ -462,16 +543,33 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
     has_safe_gap = len(gaps) > 0
 
     target_idx, best_gap, best_score = choose_target_from_gaps(
-        angles_deg, bubble_ranges, gaps, pose, prev_target_angle, front_factor
+        angles_deg,
+        bubble_ranges,
+        gaps,
+        pose,
+        prev_target_angle,
+        front_factor,
+        info_left,
+        info_right,
     )
 
     if target_idx < 0:
-        target_idx = choose_fallback_target(angles_deg, smooth_ranges)
+        target_idx = choose_fallback_target(
+            angles_deg,
+            smooth_ranges,
+            info_left,
+            info_right,
+        )
         best_gap = (target_idx, target_idx + 1)
         best_score = 0.0
 
     target_angle = math.radians(float(angles_deg[target_idx]))
     target_angle = float(np.clip(target_angle, -TURN_HARD_LIMIT_RAD, TURN_HARD_LIMIT_RAD))
+    selected_side_penalty, selected_side_block = side_gap_penalty(
+        np.array([target_angle], dtype=np.float32),
+        info_left,
+        info_right,
+    )
     target_dist = float(smooth_ranges[target_idx])
     raw_w = float(np.clip(FGM_TURN_GAIN * target_angle, -MAX_ABS_W, MAX_ABS_W))
     urgent = front_dist < URGENT_FRONT_DIST or not has_safe_gap
@@ -502,6 +600,8 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
         "collision": target_dist < COLLISION_DIST or closest_dist < COLLISION_DIST,
         "raw_w": raw_w,
         "has_safe_gap": has_safe_gap,
+        "side_penalty": float(selected_side_penalty[0]),
+        "side_block": bool(selected_side_block[0]),
     }
 
 
@@ -582,6 +682,7 @@ def main():
                     f"close={info['closest']:.2f}@{info['closest_angle']:.0f} "
                     f"bb={info['bubble_bins']} score={info['score']:.2f} "
                     f"pts={info['points']} coll={int(info['collision'])} "
+                    f"sp={info['side_penalty']:.2f} sb={int(info['side_block'])} "
                     f"L={info['left']:.2f} R={info['right']:.2f}"
                 )
                 last_log = time.time()
