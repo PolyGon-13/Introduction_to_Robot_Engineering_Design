@@ -709,6 +709,13 @@ def choose_speed(target_dist, target_angle, has_safe_gap):
     return float(np.clip(v, 0.0, BASE_V))
 
 
+def should_start_recovery(info, v):
+    if info is None:
+        return False
+    blocked_like_fgm_drive = info["collision"] and v <= 0.01
+    return (not info["has_safe_gap"]) or blocked_like_fgm_drive
+
+
 def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
     points = lidar_points_to_xy(scan)
     front_dist = front_distance(points)
@@ -920,8 +927,8 @@ def main():
                 and RECOVERY_TURN_ENABLE
                 and (info is not None)
             ):
-                # 아직 recovery 중이 아니고, 안전한 gap이 없으면 recovery 시작
-                if (not recovery_turn_active) and (not info["has_safe_gap"]):
+                # 아직 recovery 중이 아니고, 안전한 gap이 없거나 FGM 기준 막힌 구간이면 recovery 시작
+                if (not recovery_turn_active) and should_start_recovery(info, v):
                     recovery_turn_dir = choose_initial_based_recovery_dir(pose.theta, last_w)
                     recovery_target_theta = normalize_angle_rad(
                         pose.theta + recovery_turn_dir * RECOVERY_TURN_ANGLE_RAD
@@ -931,12 +938,12 @@ def main():
 
                     if recovery_turn_dir > 0.0:
                         print(
-                            "[RECOVERY] No safe gap. "
+                            "[RECOVERY] No safe gap or blocked FGM path. "
                             "Initial 기준 왼쪽으로 휘어 있음 -> LEFT recovery turn start."
                         )
                     else:
                         print(
-                            "[RECOVERY] No safe gap. "
+                            "[RECOVERY] No safe gap or blocked FGM path. "
                             "Initial 기준 오른쪽으로 휘어 있음 -> RIGHT recovery turn start."
                         )
 
