@@ -58,8 +58,8 @@ RECOVERY_TURN_W = 0.90
 
 # Recovery는 이제 고정 180/200도 회전이 아니라,
 # 최소 각도만큼 회전한 뒤 벽이 잡히면 바로 벽 따라가기로 넘어간다.
-RECOVERY_MIN_TURN_RAD = math.radians(55.0)      # 70도 → 55도
-RECOVERY_MAX_TURN_RAD = math.radians(150.0)     # 220도 → 150도
+RECOVERY_MIN_TURN_RAD = math.radians(55.0)
+RECOVERY_MAX_TURN_RAD = math.radians(150.0)
 
 # 기존 변수명 호환용. 이제 고정 회전 목표각이 아니라 최대 제한값 개념으로만 사용.
 RECOVERY_TURN_ANGLE_RAD = RECOVERY_MAX_TURN_RAD
@@ -68,14 +68,16 @@ RECOVERY_TURN_TIMEOUT_S = 15.0
 RECOVERY_INITIAL_DEADBAND_RAD = math.radians(2.0)
 
 # Recovery 중 벽 따라가기 시작 조건
-RECOVERY_WALL_START_DIST = 0.30       # 따라갈 쪽 90도 벽이 이 거리 안에 잡히면 벽 발견
-RECOVERY_WALL_START_COUNT_N = 2       # 연속 몇 번 벽이 잡혀야 인정할지
-RECOVERY_FRONT_START_DIST = 0.05      # 정면 거리가 이보다 작으면 아직 벽 따라가기 시작 안 함
+RECOVERY_WALL_START_DIST = 0.30
+RECOVERY_WALL_START_COUNT_N = 2
+RECOVERY_FRONT_START_DIST = 0.05
 # ============================================================
 
 # ============================================================
 # Recovery 회전 후 벽 따라가기 설정
-# 왼쪽 회전이면 왼쪽 벽 추종, 오른쪽 회전이면 오른쪽 벽 추종
+# 수정 후:
+# 왼쪽으로 휘어 있음 -> 오른쪽 회전 -> 왼쪽 벽 추종
+# 오른쪽으로 휘어 있음 -> 왼쪽 회전 -> 오른쪽 벽 추종
 # ============================================================
 WALL_FOLLOW_ENABLE = True
 
@@ -102,7 +104,7 @@ WALL_MIN_TURN_W = 0.16
 # 라이다 기준 왼쪽/오른쪽 90도만 보고 벽 거리 계산
 LEFT_WALL_ANGLE_CENTER_DEG = 90.0
 RIGHT_WALL_ANGLE_CENTER_DEG = -90.0
-WALL_ANGLE_HALF_WIDTH_DEG = 5.0
+WALL_ANGLE_HALF_WIDTH_DEG = 1.0
 WALL_MIN_POINTS = 2
 
 # 벽 따라가기 중 정면 판단은 기존 FGM front보다 좁게 본다
@@ -802,6 +804,13 @@ def main():
     # ============================================================
     recovery_turn_active = False
     recovery_turn_dir = 0.0
+
+    # 회전 후 따라갈 벽 방향
+    # recovery_turn_dir의 반대 방향으로 설정됨
+    # 오른쪽 회전(-1.0) -> 왼쪽 벽(+1.0)
+    # 왼쪽 회전(+1.0) -> 오른쪽 벽(-1.0)
+    recovery_follow_side = +1.0
+
     recovery_start_time = 0.0
     recovery_wall_seen_count = 0
 
@@ -939,6 +948,13 @@ def main():
                 # 아직 recovery 중이 아니고, 안전한 gap이 없으면 recovery 시작
                 if (not recovery_turn_active) and (not info["has_safe_gap"]):
                     recovery_turn_dir = choose_initial_based_recovery_dir(pose.theta, last_w)
+
+                    # 핵심 수정:
+                    # 회전 방향과 반대쪽 벽을 보도록 설정
+                    # 왼쪽으로 휘어 있음 -> 오른쪽 회전(-1.0) -> 왼쪽 벽(+1.0)
+                    # 오른쪽으로 휘어 있음 -> 왼쪽 회전(+1.0) -> 오른쪽 벽(-1.0)
+                    recovery_follow_side = -recovery_turn_dir
+
                     recovery_start_time = time.time()
                     recovery_wall_seen_count = 0
                     recovery_accum_turn = 0.0
@@ -947,12 +963,14 @@ def main():
                     if recovery_turn_dir > 0.0:
                         print(
                             "[RECOVERY] No safe gap. "
-                            "Opposite rule -> LEFT recovery turn start."
+                            "Opposite rule -> LEFT recovery turn start. "
+                            "Follow RIGHT wall."
                         )
                     else:
                         print(
                             "[RECOVERY] No safe gap. "
-                            "Opposite rule -> RIGHT recovery turn start."
+                            "Opposite rule -> RIGHT recovery turn start. "
+                            "Follow LEFT wall."
                         )
 
                 # recovery 중이면 FGM 명령을 무시하고 제자리 회전 명령으로 덮어쓰기
@@ -960,8 +978,8 @@ def main():
                     recovery_timeout = (time.time() - recovery_start_time) > RECOVERY_TURN_TIMEOUT_S
                     recovery_max_turn_reached = recovery_accum_turn >= RECOVERY_MAX_TURN_RAD
 
-                    # 현재 회전 방향 쪽 90도 벽 거리 확인
-                    recovery_wall_dist = side_wall_distance_from_scan(scan, recovery_turn_dir)
+                    # 현재 회전 방향이 아니라, 회전 후 따라갈 벽 방향을 확인
+                    recovery_wall_dist = side_wall_distance_from_scan(scan, recovery_follow_side)
 
                     # 벽 따라가기 시작 전 정면 여유 확인
                     recovery_points_all = lidar_points_to_xy_all(scan)
@@ -986,10 +1004,14 @@ def main():
 
                     if recovery_ready_to_wall_follow or recovery_max_turn_reached or recovery_timeout:
                         # 고정 180/200도까지 무조건 도는 것이 아니라,
-                        # 최소 회전 후 벽이 잡히고 정면이 괜찮으면 바로 벽 따라가기 시작
+                        # 최소 회전 후 따라갈 벽이 잡히고 정면이 괜찮으면 바로 벽 따라가기 시작
                         recovery_turn_active = False
                         wall_follow_active = True
-                        wall_follow_side = recovery_turn_dir
+
+                        # 핵심 수정:
+                        # 회전 방향이 아니라, 회전 후 따라갈 벽 방향으로 벽 추종
+                        wall_follow_side = recovery_follow_side
+
                         wall_follow_start_time = time.time()
                         wall_prev_dist = None
                         wall_open_count = 0
