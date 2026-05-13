@@ -44,6 +44,10 @@ GOAL_Y_M = 0.0
 GOAL_TOL_M = 0.15
 TURN_SOFT_LIMIT_RAD = math.radians(70.0)
 TURN_HARD_LIMIT_RAD = math.radians(80.0)
+YAW_SOFT_LIMIT_RAD = math.radians(70.0)
+YAW_HARD_LIMIT_RAD = math.radians(90.0)
+YAW_PREDICT_WEIGHT = 0.60
+YAW_LIMIT_WEIGHT = 3.5
 
 FGM_MIN_ANGLE_DEG = -90.0
 FGM_MAX_ANGLE_DEG = 90.0
@@ -72,7 +76,8 @@ RECOVERY_TURN_W = 0.55
 RECOVERY_TURN_MIN_S = 0.60
 RECOVERY_TURN_MAX_S = 2.30
 RECOVERY_TURN_EXIT_FRONT = 0.24
-RECOVERY_FOLLOW_S = 1.30
+RECOVERY_FOLLOW_MIN_S = 0.45
+RECOVERY_FOLLOW_TIMEOUT_S = 6.00
 RECOVERY_FOLLOW_V = 0.09
 RECOVERY_FOLLOW_DIST = 0.20
 RECOVERY_FOLLOW_KP = 2.0
@@ -80,6 +85,9 @@ RECOVERY_FOLLOW_MAX_W = 0.40
 RECOVERY_FOLLOW_FRONT_DANGER = 0.22
 RECOVERY_FOLLOW_FRONT_W = 0.35
 RECOVERY_COOLDOWN_S = 0.80
+RECOVERY_EXIT_GAP_MIN_WIDTH_DEG = 14.0
+RECOVERY_EXIT_GAP_MIN_DIST = 0.40
+RECOVERY_EXIT_GAP_MIN_ANGLE_DEG = 8.0
 
 
 def normalize_angle_deg(angle):
@@ -376,6 +384,69 @@ def sector_min_distance(angles_deg, ranges, min_deg, max_deg):
     return float(np.min(sector))
 
 
+def yaw_limit_terms(theta, angle_rad):
+    predicted_yaw = theta + YAW_PREDICT_WEIGHT * angle_rad
+    yaw_abs_now = abs(theta)
+    worsening = np.abs(predicted_yaw) > yaw_abs_now
+    same_turn_side = (
+        ((theta > 0.0) & (angle_rad > 0.0))
+        | ((theta < 0.0) & (angle_rad < 0.0))
+    )
+    excess = np.maximum(0.0, np.abs(predicted_yaw) - YAW_SOFT_LIMIT_RAD)
+    penalty = np.clip(
+        excess / max(1e-6, YAW_HARD_LIMIT_RAD - YAW_SOFT_LIMIT_RAD),
+        0.0,
+        1.0,
+    )
+    penalty = np.where(worsening | same_turn_side, penalty, 0.0)
+    hard_block = (
+        ((theta >= YAW_HARD_LIMIT_RAD) & (angle_rad > 0.0))
+        | ((theta <= -YAW_HARD_LIMIT_RAD) & (angle_rad < 0.0))
+        | (
+            (np.abs(predicted_yaw) > YAW_HARD_LIMIT_RAD)
+            & (np.abs(predicted_yaw) > yaw_abs_now)
+        )
+    )
+    return penalty, hard_block, predicted_yaw
+
+
+def clamp_w_to_yaw_limit(theta, w, dt):
+    dt = max(float(dt), 1e-3)
+    min_w = (-YAW_HARD_LIMIT_RAD - theta) / dt
+    max_w = (YAW_HARD_LIMIT_RAD - theta) / dt
+    return float(np.clip(w, min_w, max_w))
+
+
+def recovery_side_gap_available(angles_deg, ranges, gaps, side):
+    if side == 0:
+        return False
+
+    min_bins = max(
+        1,
+        int(math.ceil(RECOVERY_EXIT_GAP_MIN_WIDTH_DEG / FGM_ANGLE_STEP_DEG)),
+    )
+    for start, end in gaps:
+        if end - start < min_bins:
+            continue
+
+        gap_angles = angles_deg[start:end]
+        gap_ranges = ranges[start:end]
+        if len(gap_angles) == 0:
+            continue
+
+        if side > 0:
+            side_mask = gap_angles >= RECOVERY_EXIT_GAP_MIN_ANGLE_DEG
+        else:
+            side_mask = gap_angles <= -RECOVERY_EXIT_GAP_MIN_ANGLE_DEG
+
+        if not side_mask.any():
+            continue
+        if float(np.max(gap_ranges[side_mask])) >= RECOVERY_EXIT_GAP_MIN_DIST:
+            return True
+
+    return False
+
+
 def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, front_factor):
     if not gaps:
         return -1, (0, 0), -float("inf")
@@ -419,6 +490,7 @@ def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, f
             1.0,
         )
         width_score = min(1.0, local_width * FGM_ANGLE_STEP_DEG / 60.0)
+        yaw_penalty, yaw_hard_block, _ = yaw_limit_terms(pose.theta, angle_rad)
 
         scores = (
             FGM_CLEARANCE_WEIGHT * clearance_score
@@ -427,7 +499,11 @@ def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, f
             + goal_weight * goal_score
             + FGM_PREV_TARGET_WEIGHT * prev_score
             + 0.25 * width_score
+            - YAW_LIMIT_WEIGHT * yaw_penalty
         )
+        scores = np.where(yaw_hard_block, -np.inf, scores)
+        if not np.isfinite(scores).any():
+            continue
 
         local_best = int(np.argmax(scores))
         score = float(scores[local_best])
@@ -439,8 +515,11 @@ def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, f
     return best_idx, best_gap, best_score
 
 
-def choose_fallback_target(angles_deg, ranges):
+def choose_fallback_target(angles_deg, ranges, pose):
     usable = ranges > MIN_LIDAR_DIST_M
+    angle_rad = np.deg2rad(angles_deg)
+    _, yaw_hard_block, _ = yaw_limit_terms(pose.theta, angle_rad)
+    usable = usable & ~yaw_hard_block
     if not usable.any():
         return len(ranges) // 2
     usable_ranges = np.where(usable, ranges, -np.inf)
@@ -513,18 +592,28 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
     free_mask = bubble_ranges >= FGM_FREE_DIST
     gaps = filter_gaps_by_width(find_free_gaps(free_mask))
     has_safe_gap = len(gaps) > 0
+    recovery_left_gap = recovery_side_gap_available(
+        angles_deg, bubble_ranges, gaps, 1
+    )
+    recovery_right_gap = recovery_side_gap_available(
+        angles_deg, bubble_ranges, gaps, -1
+    )
 
     target_idx, best_gap, best_score = choose_target_from_gaps(
         angles_deg, bubble_ranges, gaps, pose, prev_target_angle, front_factor
     )
 
     if target_idx < 0:
-        target_idx = choose_fallback_target(angles_deg, smooth_ranges)
+        target_idx = choose_fallback_target(angles_deg, smooth_ranges, pose)
         best_gap = (target_idx, target_idx + 1)
         best_score = 0.0
 
     target_angle = math.radians(float(angles_deg[target_idx]))
     target_angle = float(np.clip(target_angle, -TURN_HARD_LIMIT_RAD, TURN_HARD_LIMIT_RAD))
+    yaw_penalty, yaw_hard_block, yaw_pred = yaw_limit_terms(
+        pose.theta,
+        np.array([target_angle], dtype=np.float32),
+    )
     target_dist = float(smooth_ranges[target_idx])
     raw_w = float(np.clip(FGM_TURN_GAIN * target_angle, -MAX_ABS_W, MAX_ABS_W))
     urgent = front_dist < URGENT_FRONT_DIST or not has_safe_gap
@@ -555,10 +644,15 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
         "recovery_front": recovery_front,
         "recovery_left": recovery_left,
         "recovery_right": recovery_right,
+        "recovery_left_gap": recovery_left_gap,
+        "recovery_right_gap": recovery_right_gap,
         "boxed_in": boxed_in,
         "collision": target_dist < COLLISION_DIST or closest_dist < COLLISION_DIST,
         "raw_w": raw_w,
         "has_safe_gap": has_safe_gap,
+        "yaw_pred": math.degrees(float(yaw_pred[0])),
+        "yaw_penalty": float(yaw_penalty[0]),
+        "yaw_hard_block": bool(yaw_hard_block[0]),
     }
 
 
@@ -670,10 +764,19 @@ def main():
 
             if recovery_phase == "follow":
                 follow_elapsed = now - recovery_follow_start_time
-                if follow_elapsed >= RECOVERY_FOLLOW_S:
+                follow_exit_gap = (
+                    info["recovery_left_gap"]
+                    if recovery_follow_side > 0
+                    else info["recovery_right_gap"]
+                )
+                follow_timed_out = follow_elapsed >= RECOVERY_FOLLOW_TIMEOUT_S
+                if (
+                    follow_elapsed >= RECOVERY_FOLLOW_MIN_S
+                    and follow_exit_gap
+                ) or follow_timed_out:
                     recovery_phase = "none"
                     recovery_cooldown_until = now + RECOVERY_COOLDOWN_S
-                    recovery_mode = "exit"
+                    recovery_mode = "exit" if follow_exit_gap else "timeout"
                     entry_turn_side = 0
                     recovery_turn_side = 0
                     recovery_follow_side = 0
@@ -705,6 +808,11 @@ def main():
                 recovery_follow_side if recovery_phase == "follow" else 0
             )
             info["entry_turn_side"] = entry_turn_side
+            w_before_yaw_limit = w
+            w = clamp_w_to_yaw_limit(pose.theta, w, dt)
+            info["yaw_limited"] = abs(w - w_before_yaw_limit) > 1e-6
+            info["yaw_deg"] = math.degrees(pose.theta)
+            info["yaw_next"] = math.degrees(pose.theta + w * max(dt, 1e-3))
 
             send_vw(v, w)
             pose.update(v, w, dt)
