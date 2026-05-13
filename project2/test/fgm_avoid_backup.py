@@ -49,7 +49,7 @@ ACTIVE_FRONT_DIST = 0.30
 FRONT_DANGER_DIST = 0.19
 
 W_CMD_RATE_LIMIT = 0.30
-W_CMD_RATE_LIMIT_URGENT = 0.90
+W_CMD_RATE_LIMIT_URGENT = 0.30
 URGENT_FRONT_DIST = 0.30
 
 GOAL_X_M = 3.0
@@ -123,7 +123,7 @@ WALL_FRONT_HARD_STOP_DIST = 0.08
 WALL_FRONT_KEEP_TURN_W = 0.18
 
 # 벽이 갑자기 멀어졌을 때 FGM 복귀 판단
-WALL_MIN_FOLLOW_TIME_S = 0.80
+WALL_MIN_FOLLOW_TIME_S = 0.50
 WALL_JUMP_DIST = 0.10
 WALL_LOST_DIST = 0.30
 WALL_OPEN_COUNT_N = 3
@@ -135,7 +135,7 @@ FGM_ANGLE_STEP_DEG = 1.0
 FGM_SMOOTH_WINDOW = 5
 FGM_SAFETY_MARGIN = 0.08
 FGM_BUBBLE_RADIUS = ROBOT_RADIUS + FGM_SAFETY_MARGIN
-FGM_FREE_DIST = COLLISION_DIST + 0.04
+FGM_FREE_DIST = COLLISION_DIST + 0.09
 FGM_MIN_GAP_WIDTH_DEG = 8.0
 FGM_TURN_GAIN = 1.05
 FGM_PREV_TARGET_WEIGHT = 0.45
@@ -755,6 +755,13 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
     urgent = front_dist < URGENT_FRONT_DIST or not has_safe_gap
     w = rate_limit_w(prev_w, raw_w, urgent=urgent)
     v = choose_speed(target_dist, target_angle, has_safe_gap)
+    # 충돌 위험이면 FGM이라도 전진 금지
+    if target_dist < COLLISION_DIST or closest_dist < COLLISION_DIST:
+        v = 0.0
+
+    # 정면이 너무 가까워도 전진 금지
+    if front_dist < FRONT_DANGER_DIST:
+        v = 0.0
 
     gap_width = (best_gap[1] - best_gap[0]) * FGM_ANGLE_STEP_DEG
     gap_left = float(angles_deg[best_gap[1] - 1]) if best_gap[1] > best_gap[0] else 0.0
