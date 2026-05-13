@@ -65,13 +65,6 @@ SIDE_GAP_BLOCK_DIST = 0.14
 SIDE_GAP_PENALTY_WEIGHT = 4.0
 SIDE_GAP_BLOCK_ANGLE_DEG = 3.0
 SIDE_STRAIGHT_PENALTY_WEIGHT = 1.0
-GAP_WIDTH_MARGIN = 0.04
-GAP_WIDTH_MIN_M = 2.0 * ROBOT_RADIUS + GAP_WIDTH_MARGIN
-GAP_WIDTH_PENALTY_WEIGHT = 5.0
-CANDIDATE_CORRIDOR_LOOKAHEAD = 0.45
-CANDIDATE_CORRIDOR_HALF_WIDTH = ROBOT_RADIUS + 0.03
-CANDIDATE_CORRIDOR_HARD_DIST = COLLISION_DIST + 0.10
-CANDIDATE_CORRIDOR_PENALTY_WEIGHT = 6.0
 
 
 def normalize_angle_deg(angle):
@@ -413,79 +406,10 @@ def side_gap_penalty(angle_rad, left_dist, right_dist):
     return penalty, hard_block
 
 
-def gap_physical_width(angles_deg, ranges, start, end):
-    if end <= start:
-        return 0.0
-
-    right_idx = start
-    left_idx = end - 1
-    right_angle = math.radians(float(angles_deg[right_idx]))
-    left_angle = math.radians(float(angles_deg[left_idx]))
-    right_dist = float(ranges[right_idx])
-    left_dist = float(ranges[left_idx])
-
-    right_x = right_dist * math.cos(right_angle)
-    right_y = right_dist * math.sin(right_angle)
-    left_x = left_dist * math.cos(left_angle)
-    left_y = left_dist * math.sin(left_angle)
-
-    return math.hypot(left_x - right_x, left_y - right_y)
-
-
-def gap_width_penalty(width_m):
-    if width_m >= GAP_WIDTH_MIN_M:
-        return 0.0, False
-
-    pressure = np.clip(
-        (GAP_WIDTH_MIN_M - width_m) / max(1e-6, GAP_WIDTH_MIN_M),
-        0.0,
-        1.0,
-    )
-    return float(GAP_WIDTH_PENALTY_WEIGHT * pressure), width_m < ROBOT_RADIUS
-
-
-def candidate_corridor_penalty(angle_rad, points):
-    penalty = np.zeros_like(angle_rad, dtype=np.float32)
-    hard_block = np.zeros_like(angle_rad, dtype=bool)
-
-    if len(points) == 0:
-        return penalty, hard_block
-
-    px = points[:, 0]
-    py = points[:, 1]
-
-    for i, angle in enumerate(angle_rad):
-        c = math.cos(float(angle))
-        s = math.sin(float(angle))
-        forward = px * c + py * s
-        lateral = -px * s + py * c
-        in_corridor = (
-            (forward > 0.03)
-            & (forward < CANDIDATE_CORRIDOR_LOOKAHEAD)
-            & (np.abs(lateral) < CANDIDATE_CORRIDOR_HALF_WIDTH)
-        )
-        if not in_corridor.any():
-            continue
-
-        nearest = float(np.min(forward[in_corridor]))
-        pressure = np.clip(
-            (CANDIDATE_CORRIDOR_LOOKAHEAD - nearest)
-            / max(1e-6, CANDIDATE_CORRIDOR_LOOKAHEAD),
-            0.0,
-            1.0,
-        )
-        penalty[i] = CANDIDATE_CORRIDOR_PENALTY_WEIGHT * pressure
-        if nearest <= CANDIDATE_CORRIDOR_HARD_DIST:
-            hard_block[i] = True
-
-    return penalty, hard_block
-
-
 def choose_target_from_gaps(
     angles_deg,
     ranges,
     gaps,
-    points,
     pose,
     prev_target_angle,
     front_factor,
@@ -518,10 +442,6 @@ def choose_target_from_gaps(
         idxs = idxs[targetable]
         angle_rad = angle_rad[targetable]
         local_width = max(1, end - start)
-        physical_width = gap_physical_width(angles_deg, ranges, start, end)
-        physical_width_penalty, physical_width_block = gap_width_penalty(
-            physical_width
-        )
 
         edge_steps = np.minimum(idxs - start + 1, end - idxs)
         edge_score = np.clip(edge_steps / max(1.0, local_width * 0.5), 0.0, 1.0)
@@ -543,10 +463,6 @@ def choose_target_from_gaps(
             left_dist,
             right_dist,
         )
-        corridor_penalty, corridor_hard_block = candidate_corridor_penalty(
-            angle_rad,
-            points,
-        )
 
         scores = (
             FGM_CLEARANCE_WEIGHT * clearance_score
@@ -556,13 +472,8 @@ def choose_target_from_gaps(
             + FGM_PREV_TARGET_WEIGHT * prev_score
             + 0.25 * width_score
             - side_penalty
-            - physical_width_penalty
-            - corridor_penalty
         )
-        if physical_width_block:
-            scores[:] = -np.inf
         scores = np.where(side_hard_block, -np.inf, scores)
-        scores = np.where(corridor_hard_block, -np.inf, scores)
         if not np.isfinite(scores).any():
             continue
 
@@ -576,13 +487,11 @@ def choose_target_from_gaps(
     return best_idx, best_gap, best_score
 
 
-def choose_fallback_target(angles_deg, ranges, points, left_dist, right_dist):
+def choose_fallback_target(angles_deg, ranges, left_dist, right_dist):
     usable = ranges > MIN_LIDAR_DIST_M
     angle_rad = np.deg2rad(angles_deg)
     _, side_hard_block = side_gap_penalty(angle_rad, left_dist, right_dist)
-    _, corridor_hard_block = candidate_corridor_penalty(angle_rad, points)
     usable = usable & ~side_hard_block
-    usable = usable & ~corridor_hard_block
     if not usable.any():
         return len(ranges) // 2
     usable_ranges = np.where(usable, ranges, -np.inf)
@@ -637,7 +546,6 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
         angles_deg,
         bubble_ranges,
         gaps,
-        points,
         pose,
         prev_target_angle,
         front_factor,
@@ -646,11 +554,9 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
     )
 
     if target_idx < 0:
-        has_safe_gap = False
         target_idx = choose_fallback_target(
             angles_deg,
             smooth_ranges,
-            points,
             info_left,
             info_right,
         )
@@ -664,10 +570,6 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
         info_left,
         info_right,
     )
-    selected_corridor_penalty, selected_corridor_block = candidate_corridor_penalty(
-        np.array([target_angle], dtype=np.float32),
-        points,
-    )
     target_dist = float(smooth_ranges[target_idx])
     raw_w = float(np.clip(FGM_TURN_GAIN * target_angle, -MAX_ABS_W, MAX_ABS_W))
     urgent = front_dist < URGENT_FRONT_DIST or not has_safe_gap
@@ -677,13 +579,6 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
     gap_width = (best_gap[1] - best_gap[0]) * FGM_ANGLE_STEP_DEG
     gap_left = float(angles_deg[best_gap[1] - 1]) if best_gap[1] > best_gap[0] else 0.0
     gap_right = float(angles_deg[best_gap[0]]) if best_gap[1] > best_gap[0] else 0.0
-    gap_width_m = gap_physical_width(
-        angles_deg,
-        bubble_ranges,
-        best_gap[0],
-        best_gap[1],
-    )
-    selected_width_penalty, selected_width_block = gap_width_penalty(gap_width_m)
     closest_angle = float(angles_deg[closest_idx]) if closest_idx >= 0 else 0.0
 
     return v, w, target_angle, {
@@ -697,7 +592,6 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
         "points": len(points),
         "gaps": len(gaps),
         "gap_width": gap_width,
-        "gap_width_m": gap_width_m,
         "gap_right": gap_right,
         "gap_left": gap_left,
         "closest": closest_dist,
@@ -708,10 +602,6 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
         "has_safe_gap": has_safe_gap,
         "side_penalty": float(selected_side_penalty[0]),
         "side_block": bool(selected_side_block[0]),
-        "width_penalty": selected_width_penalty,
-        "width_block": selected_width_block,
-        "corridor_penalty": float(selected_corridor_penalty[0]),
-        "corridor_block": bool(selected_corridor_block[0]),
     }
 
 
@@ -787,15 +677,12 @@ def main():
                     f"tgt={info['target_deg']:.1f} td={info['target_dist']:.2f} "
                     f"front={info['front']:.2f} ff={info['front_factor']:.2f} "
                     f"gap={info['gap_width']:.0f} "
-                    f"gw={info['gap_width_m']:.2f} "
                     f"gr={info['gap_right']:.0f} gl={info['gap_left']:.0f} "
                     f"gaps={info['gaps']} safe={int(info['has_safe_gap'])} "
                     f"close={info['closest']:.2f}@{info['closest_angle']:.0f} "
                     f"bb={info['bubble_bins']} score={info['score']:.2f} "
                     f"pts={info['points']} coll={int(info['collision'])} "
                     f"sp={info['side_penalty']:.2f} sb={int(info['side_block'])} "
-                    f"wp={info['width_penalty']:.2f} wb={int(info['width_block'])} "
-                    f"cp={info['corridor_penalty']:.2f} cb={int(info['corridor_block'])} "
                     f"L={info['left']:.2f} R={info['right']:.2f}"
                 )
                 last_log = time.time()
