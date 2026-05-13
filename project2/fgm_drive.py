@@ -69,6 +69,10 @@ NEAR_COLLISION_STRAIGHT_BLOCK_DIST = COLLISION_DIST
 NEAR_COLLISION_STRAIGHT_BLOCK_ANGLE_DEG = 12.0
 NEAR_COLLISION_STRAIGHT_WARN_ANGLE_DEG = 25.0
 NEAR_COLLISION_STRAIGHT_PENALTY_WEIGHT = 4.0
+BLOCKED_GAP_MARGIN_DEG = 8.0
+BLOCKED_GAP_MIN_HALF_DEG = 12.0
+BLOCKED_GAP_MAX_HALF_DEG = 35.0
+BLOCKED_GAP_RELEASE_ROT_DEG = 55.0
 
 
 def normalize_angle_deg(angle):
@@ -445,6 +449,58 @@ def near_collision_straight_penalty(angle_rad, closest_dist):
     return penalty, hard_block
 
 
+def make_blocked_gap_candidate(pose, target_angle, gap_width_deg):
+    half_width_deg = float(
+        np.clip(
+            0.5 * max(gap_width_deg, FGM_MIN_GAP_WIDTH_DEG) + BLOCKED_GAP_MARGIN_DEG,
+            BLOCKED_GAP_MIN_HALF_DEG,
+            BLOCKED_GAP_MAX_HALF_DEG,
+        )
+    )
+    return {
+        "center": normalize_angle_rad(pose.theta + target_angle),
+        "half_width": math.radians(half_width_deg),
+        "theta_at_block": pose.theta,
+    }
+
+
+def blocked_gap_rotation(blocked_gap, pose_theta):
+    if blocked_gap is None:
+        return 0.0
+    return abs(angle_error_rad(pose_theta, blocked_gap["theta_at_block"]))
+
+
+def refresh_blocked_gap(blocked_gap, pose_theta):
+    if blocked_gap is None:
+        return None
+    if blocked_gap_rotation(blocked_gap, pose_theta) >= math.radians(
+        BLOCKED_GAP_RELEASE_ROT_DEG
+    ):
+        return None
+    return blocked_gap
+
+
+def blocked_gap_hard_block(angle_rad, pose, blocked_gap):
+    hard_block = np.zeros_like(angle_rad, dtype=bool)
+    if blocked_gap is None:
+        return hard_block
+
+    candidate_world = pose.theta + angle_rad
+    error = np.arctan2(
+        np.sin(candidate_world - blocked_gap["center"]),
+        np.cos(candidate_world - blocked_gap["center"]),
+    )
+    return np.abs(error) <= blocked_gap["half_width"]
+
+
+def blocked_gap_debug(blocked_gap, pose_theta):
+    if blocked_gap is None:
+        return 0, 0.0, 0.0
+    rel_angle = math.degrees(angle_error_rad(blocked_gap["center"], pose_theta))
+    rot_angle = math.degrees(blocked_gap_rotation(blocked_gap, pose_theta))
+    return 1, rel_angle, rot_angle
+
+
 def choose_target_from_gaps(
     angles_deg,
     ranges,
@@ -455,6 +511,7 @@ def choose_target_from_gaps(
     left_dist,
     right_dist,
     closest_dist,
+    blocked_gap,
 ):
     if not gaps:
         return -1, (0, 0), -float("inf")
@@ -507,6 +564,7 @@ def choose_target_from_gaps(
             angle_rad,
             closest_dist,
         )
+        blocked_hard_block = blocked_gap_hard_block(angle_rad, pose, blocked_gap)
 
         scores = (
             FGM_CLEARANCE_WEIGHT * clearance_score
@@ -520,6 +578,7 @@ def choose_target_from_gaps(
         )
         scores = np.where(side_hard_block, -np.inf, scores)
         scores = np.where(near_hard_block, -np.inf, scores)
+        scores = np.where(blocked_hard_block, -np.inf, scores)
         if not np.isfinite(scores).any():
             continue
 
@@ -533,13 +592,23 @@ def choose_target_from_gaps(
     return best_idx, best_gap, best_score
 
 
-def choose_fallback_target(angles_deg, ranges, left_dist, right_dist, closest_dist):
+def choose_fallback_target(
+    angles_deg,
+    ranges,
+    pose,
+    left_dist,
+    right_dist,
+    closest_dist,
+    blocked_gap,
+):
     usable = ranges > MIN_LIDAR_DIST_M
     angle_rad = np.deg2rad(angles_deg)
     _, side_hard_block = side_gap_penalty(angle_rad, left_dist, right_dist)
     _, near_hard_block = near_collision_straight_penalty(angle_rad, closest_dist)
+    blocked_hard_block = blocked_gap_hard_block(angle_rad, pose, blocked_gap)
     usable = usable & ~side_hard_block
     usable = usable & ~near_hard_block
+    usable = usable & ~blocked_hard_block
     if not usable.any():
         return len(ranges) // 2
     usable_ranges = np.where(usable, ranges, -np.inf)
@@ -574,7 +643,7 @@ def choose_speed(target_dist, target_angle, has_safe_gap):
     return float(np.clip(v, 0.0, BASE_V))
 
 
-def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
+def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose, blocked_gap=None):
     points = lidar_points_to_xy(scan)
     front_dist = front_distance(points)
     front_factor = compute_front_factor(front_dist)
@@ -600,6 +669,7 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
         info_left,
         info_right,
         closest_dist,
+        blocked_gap,
     )
 
     if target_idx < 0:
@@ -607,9 +677,11 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
         target_idx = choose_fallback_target(
             angles_deg,
             smooth_ranges,
+            pose,
             info_left,
             info_right,
             closest_dist,
+            blocked_gap,
         )
         best_gap = (target_idx, target_idx + 1)
         best_score = 0.0
@@ -635,6 +707,7 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
     gap_left = float(angles_deg[best_gap[1] - 1]) if best_gap[1] > best_gap[0] else 0.0
     gap_right = float(angles_deg[best_gap[0]]) if best_gap[1] > best_gap[0] else 0.0
     closest_angle = float(angles_deg[closest_idx]) if closest_idx >= 0 else 0.0
+    blocked_active, blocked_angle, blocked_rot = blocked_gap_debug(blocked_gap, pose.theta)
 
     return v, w, target_angle, {
         "score": best_score,
@@ -659,6 +732,9 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
         "side_block": bool(selected_side_block[0]),
         "near_penalty": float(selected_near_penalty[0]),
         "near_block": bool(selected_near_block[0]),
+        "blocked_gap_active": blocked_active,
+        "blocked_gap_angle": blocked_angle,
+        "blocked_gap_rot": blocked_rot,
     }
 
 
@@ -687,6 +763,8 @@ def main():
     last_scan_ok = 0.0
     last_v, last_w = BASE_V, 0.0
     last_target_angle = 0.0
+    blocked_gap = None
+    last_attempted_gap = None
     last_log = 0.0
     last_pose_time = time.time()
 
@@ -713,11 +791,55 @@ def main():
                 continue
 
             last_scan_ok = time.time()
-            v, w, target_angle, info = choose_fgm_cmd(scan, last_w, last_target_angle, pose)
+            blocked_gap = refresh_blocked_gap(blocked_gap, pose.theta)
+            v, w, target_angle, info = choose_fgm_cmd(
+                scan,
+                last_w,
+                last_target_angle,
+                pose,
+                blocked_gap,
+            )
+            attempted_gap = None
+            if info["has_safe_gap"]:
+                attempted_gap = make_blocked_gap_candidate(
+                    pose,
+                    target_angle,
+                    info["gap_width"],
+                )
+
+            blocked_now = info["collision"] and v <= 0.01
+            if blocked_now and blocked_gap is None:
+                gap_to_block = attempted_gap if attempted_gap is not None else last_attempted_gap
+                if gap_to_block is not None:
+                    blocked_gap = dict(gap_to_block)
+                    blocked_gap["theta_at_block"] = pose.theta
+                    v, w, target_angle, info = choose_fgm_cmd(
+                        scan,
+                        last_w,
+                        last_target_angle,
+                        pose,
+                        blocked_gap,
+                    )
+                    attempted_gap = None
+                    if info["has_safe_gap"]:
+                        attempted_gap = make_blocked_gap_candidate(
+                            pose,
+                            target_angle,
+                            info["gap_width"],
+                        )
+
+            if attempted_gap is not None and not (info["collision"] and v <= 0.01):
+                last_attempted_gap = attempted_gap
+
             send_vw(v, w)
             pose.update(v, w, dt)
             last_v, last_w = v, w
             last_target_angle = target_angle
+            (
+                info["blocked_gap_active"],
+                info["blocked_gap_angle"],
+                info["blocked_gap_rot"],
+            ) = blocked_gap_debug(blocked_gap, pose.theta)
 
             gd = pose.goal_distance()
             he = goal_heading_error(pose.x, pose.y, pose.theta)
@@ -741,6 +863,9 @@ def main():
                     f"pts={info['points']} coll={int(info['collision'])} "
                     f"sp={info['side_penalty']:.2f} sb={int(info['side_block'])} "
                     f"np={info['near_penalty']:.2f} nb={int(info['near_block'])} "
+                    f"bg={info['blocked_gap_active']} "
+                    f"ba={info['blocked_gap_angle']:.0f} "
+                    f"br={info['blocked_gap_rot']:.0f} "
                     f"L={info['left']:.2f} R={info['right']:.2f}"
                 )
                 last_log = time.time()
