@@ -32,7 +32,7 @@ MAX_ABS_W = 0.70
 RECOVERY_MAX_W = 1.00
 WALL_MAX_W = 0.65
 
-ROBOT_RADIUS = 0.12
+ROBOT_RADIUS = 0.16
 COLLISION_DIST = ROBOT_RADIUS + 0.05
 CLEARANCE_CAP = 0.6
 FRONT_CORRIDOR_HALF = COLLISION_DIST + 0.30
@@ -47,7 +47,7 @@ GOAL_X_M = 5.0
 GOAL_Y_M = 0.0
 GOAL_TOL_M = 0.15
 TURN_SOFT_LIMIT_RAD = math.radians(70.0)
-TURN_HARD_LIMIT_RAD = math.radians(88.0)
+TURN_HARD_LIMIT_RAD = math.radians(80.0)
 CUM_TURN_SOFT_LIMIT_RAD = math.radians(70.0)
 CUM_TURN_HARD_LIMIT_RAD = math.radians(88.0)
 CUM_TURN_SOFT_PENALTY_WEIGHT = 8.0
@@ -102,8 +102,8 @@ WALL_LOST_DIST = 0.30
 WALL_OPEN_COUNT_N = 3
 # ============================================================
 
-FGM_MIN_ANGLE_DEG = -100.0
-FGM_MAX_ANGLE_DEG = 100.0
+FGM_MIN_ANGLE_DEG = -90.0
+FGM_MAX_ANGLE_DEG = 90.0
 FGM_ANGLE_STEP_DEG = 1.0
 FGM_SMOOTH_WINDOW = 5
 FGM_SAFETY_MARGIN = 0.08
@@ -117,6 +117,9 @@ FGM_GOAL_WEIGHT_DANGER = 0.30
 FGM_STRAIGHT_WEIGHT = 0.70
 FGM_CLEARANCE_WEIGHT = 1.80
 FGM_EDGE_WEIGHT = 0.85
+
+# 기존 Recovery/blocked-gap 로그 및 상태관리 호환용 상수
+# 텍스트 2 FGM 경로 선택에는 사용하지 않는다.
 SIDE_GAP_WARN_DIST = COLLISION_DIST + 0.06
 SIDE_GAP_BLOCK_DIST = 0.14
 SIDE_GAP_PENALTY_WEIGHT = 4.0
@@ -134,6 +137,7 @@ BLOCKED_GAP_RELEASE_CLOSE_DIST = COLLISION_DIST + 0.02
 BLOCKED_GAP_RELEASE_SIDE_DIST = SIDE_GAP_BLOCK_DIST + 0.04
 BLOCKED_GAP_TURN_W = 0.55
 BLOCKED_GAP_TURN_DEADBAND_DEG = 3.0
+
 
 
 def normalize_angle_deg(angle):
@@ -733,19 +737,7 @@ def cumulative_turn_penalty(angle_rad, accumulated_turn_rad):
     return penalty.astype(np.float32), projected_turn
 
 
-def choose_target_from_gaps(
-    angles_deg,
-    ranges,
-    gaps,
-    pose,
-    prev_target_angle,
-    front_factor,
-    left_dist,
-    right_dist,
-    closest_dist,
-    blocked_gap,
-    accumulated_turn_rad,
-):
+def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, front_factor):
     if not gaps:
         return -1, (0, 0), -float("inf")
 
@@ -788,17 +780,6 @@ def choose_target_from_gaps(
             1.0,
         )
         width_score = min(1.0, local_width * FGM_ANGLE_STEP_DEG / 60.0)
-        side_penalty, side_hard_block = side_gap_penalty(
-            angle_rad,
-            left_dist,
-            right_dist,
-        )
-        near_penalty, near_hard_block = near_collision_straight_penalty(
-            angle_rad,
-            closest_dist,
-        )
-        turn_penalty, _ = cumulative_turn_penalty(angle_rad, accumulated_turn_rad)
-        blocked_hard_block = blocked_gap_hard_block(angle_rad, pose, blocked_gap)
 
         scores = (
             FGM_CLEARANCE_WEIGHT * clearance_score
@@ -807,15 +788,7 @@ def choose_target_from_gaps(
             + goal_weight * goal_score
             + FGM_PREV_TARGET_WEIGHT * prev_score
             + 0.25 * width_score
-            - side_penalty
-            - near_penalty
-            - turn_penalty
         )
-        scores = np.where(side_hard_block, -np.inf, scores)
-        scores = np.where(near_hard_block, -np.inf, scores)
-        scores = np.where(blocked_hard_block, -np.inf, scores)
-        if not np.isfinite(scores).any():
-            continue
 
         local_best = int(np.argmax(scores))
         score = float(scores[local_best])
@@ -827,28 +800,11 @@ def choose_target_from_gaps(
     return best_idx, best_gap, best_score
 
 
-def choose_fallback_target(
-    angles_deg,
-    ranges,
-    pose,
-    left_dist,
-    right_dist,
-    closest_dist,
-    blocked_gap,
-    accumulated_turn_rad,
-):
+def choose_fallback_target(angles_deg, ranges):
     usable = ranges > MIN_LIDAR_DIST_M
-    angle_rad = np.deg2rad(angles_deg)
-    _, side_hard_block = side_gap_penalty(angle_rad, left_dist, right_dist)
-    _, near_hard_block = near_collision_straight_penalty(angle_rad, closest_dist)
-    turn_penalty, _ = cumulative_turn_penalty(angle_rad, accumulated_turn_rad)
-    blocked_hard_block = blocked_gap_hard_block(angle_rad, pose, blocked_gap)
-    usable = usable & ~side_hard_block
-    usable = usable & ~near_hard_block
-    usable = usable & ~blocked_hard_block
     if not usable.any():
         return len(ranges) // 2
-    usable_ranges = np.where(usable, ranges - turn_penalty, -np.inf)
+    usable_ranges = np.where(usable, ranges, -np.inf)
     return int(np.argmax(usable_ranges))
 
 
@@ -904,49 +860,16 @@ def choose_fgm_cmd(
     has_safe_gap = len(gaps) > 0
 
     target_idx, best_gap, best_score = choose_target_from_gaps(
-        angles_deg,
-        bubble_ranges,
-        gaps,
-        pose,
-        prev_target_angle,
-        front_factor,
-        info_left,
-        info_right,
-        closest_dist,
-        blocked_gap,
-        accumulated_turn_rad,
+        angles_deg, bubble_ranges, gaps, pose, prev_target_angle, front_factor
     )
 
     if target_idx < 0:
-        has_safe_gap = False
-        target_idx = choose_fallback_target(
-            angles_deg,
-            smooth_ranges,
-            pose,
-            info_left,
-            info_right,
-            closest_dist,
-            blocked_gap,
-            accumulated_turn_rad,
-        )
+        target_idx = choose_fallback_target(angles_deg, smooth_ranges)
         best_gap = (target_idx, target_idx + 1)
         best_score = 0.0
 
     target_angle = math.radians(float(angles_deg[target_idx]))
     target_angle = float(np.clip(target_angle, -TURN_HARD_LIMIT_RAD, TURN_HARD_LIMIT_RAD))
-    selected_side_penalty, selected_side_block = side_gap_penalty(
-        np.array([target_angle], dtype=np.float32),
-        info_left,
-        info_right,
-    )
-    selected_near_penalty, selected_near_block = near_collision_straight_penalty(
-        np.array([target_angle], dtype=np.float32),
-        closest_dist,
-    )
-    selected_turn_penalty, selected_projected_turn = cumulative_turn_penalty(
-        np.array([target_angle], dtype=np.float32),
-        accumulated_turn_rad,
-    )
     target_dist = float(smooth_ranges[target_idx])
     raw_w = float(np.clip(FGM_TURN_GAIN * target_angle, -MAX_ABS_W, MAX_ABS_W))
     urgent = front_dist < URGENT_FRONT_DIST or not has_safe_gap
@@ -957,7 +880,6 @@ def choose_fgm_cmd(
     gap_left = float(angles_deg[best_gap[1] - 1]) if best_gap[1] > best_gap[0] else 0.0
     gap_right = float(angles_deg[best_gap[0]]) if best_gap[1] > best_gap[0] else 0.0
     closest_angle = float(angles_deg[closest_idx]) if closest_idx >= 0 else 0.0
-    blocked_active, blocked_angle, blocked_rot = blocked_gap_debug(blocked_gap, pose.theta)
 
     return v, w, target_angle, {
         "score": best_score,
@@ -978,15 +900,17 @@ def choose_fgm_cmd(
         "collision": target_dist < COLLISION_DIST or closest_dist < COLLISION_DIST,
         "raw_w": raw_w,
         "has_safe_gap": has_safe_gap,
-        "side_penalty": float(selected_side_penalty[0]),
-        "side_block": bool(selected_side_block[0]),
-        "near_penalty": float(selected_near_penalty[0]),
-        "near_block": bool(selected_near_block[0]),
-        "turn_penalty": float(selected_turn_penalty[0]),
-        "projected_turn_deg": math.degrees(float(selected_projected_turn[0])),
-        "blocked_gap_active": blocked_active,
-        "blocked_gap_angle": blocked_angle,
-        "blocked_gap_rot": blocked_rot,
+        # 아래 값들은 텍스트 1의 기존 로그 출력부 호환용이다.
+        # 텍스트 2 FGM 알고리즘의 경로 선택/속도 계산에는 사용하지 않는다.
+        "side_penalty": 0.0,
+        "side_block": False,
+        "near_penalty": 0.0,
+        "near_block": False,
+        "turn_penalty": 0.0,
+        "projected_turn_deg": math.degrees(target_angle),
+        "blocked_gap_active": 0,
+        "blocked_gap_angle": 0.0,
+        "blocked_gap_rot": 0.0,
         "blocked_turn": False,
     }
 
