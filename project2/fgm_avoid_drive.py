@@ -12,7 +12,7 @@ LIDAR_BAUD = 460800
 ARDU_PORT = "/dev/ttyS0"
 ARDU_BAUD = 9600
 
-ANGLE_OFFSET_DEG = 1.54
+ANGLE_OFFSET_DEG = +1.54
 DIST_OFFSET_MM = 0.0
 LIDAR_ANGLE_SIGN = -1.0
 
@@ -36,7 +36,6 @@ CLEARANCE_CAP = 0.6
 FRONT_CORRIDOR_HALF = COLLISION_DIST + 0.30
 ACTIVE_FRONT_DIST = 0.30
 FRONT_DANGER_DIST = 0.19
-FRONT45_CLOSE_DIST = COLLISION_DIST
 
 W_CMD_RATE_LIMIT = 0.25
 W_CMD_RATE_LIMIT_URGENT = 0.90
@@ -126,6 +125,8 @@ FGM_GOAL_WEIGHT_DANGER = 0.30
 FGM_STRAIGHT_WEIGHT = 0.70
 FGM_CLEARANCE_WEIGHT = 1.80
 FGM_EDGE_WEIGHT = 0.85
+FGM_HEADING_SOFT_GAIN = 28.0
+FGM_HEADING_HARD_GAIN = 100.0
 
 
 def normalize_angle_deg(angle):
@@ -641,6 +642,17 @@ def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, f
         )
         width_score = min(1.0, local_width * FGM_ANGLE_STEP_DEG / 60.0)
 
+        candidate_theta = np.arctan2(
+            np.sin(pose.theta + angle_rad), np.cos(pose.theta + angle_rad)
+        )
+        theta_abs = np.abs(candidate_theta)
+        theta_excess = np.maximum(0.0, theta_abs - TURN_SOFT_LIMIT_RAD)
+        heading_penalty = FGM_HEADING_SOFT_GAIN * theta_excess ** 2
+        hard_mask = theta_abs > TURN_HARD_LIMIT_RAD
+        heading_penalty[hard_mask] += FGM_HEADING_HARD_GAIN * (
+            theta_abs[hard_mask] - TURN_HARD_LIMIT_RAD + 1.0
+        )
+
         scores = (
             FGM_CLEARANCE_WEIGHT * clearance_score
             + FGM_EDGE_WEIGHT * edge_score
@@ -648,6 +660,7 @@ def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, f
             + goal_weight * goal_score
             + FGM_PREV_TARGET_WEIGHT * prev_score
             + 0.25 * width_score
+            - heading_penalty
         )
 
         local_best = int(np.argmax(scores))
@@ -712,10 +725,6 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
     gaps = filter_gaps_by_width(find_free_gaps(free_mask))
     has_safe_gap = len(gaps) > 0
 
-    lo45 = int(round((-45.0 - FGM_MIN_ANGLE_DEG) / FGM_ANGLE_STEP_DEG))
-    hi45 = int(round((+45.0 - FGM_MIN_ANGLE_DEG) / FGM_ANGLE_STEP_DEG)) + 1
-    front45_close = bool(np.any(smooth_ranges[lo45:hi45] < FRONT45_CLOSE_DIST))
-
     target_idx, best_gap, best_score = choose_target_from_gaps(
         angles_deg, bubble_ranges, gaps, pose, prev_target_angle, front_factor
     )
@@ -757,7 +766,6 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
         "collision": target_dist < COLLISION_DIST or closest_dist < COLLISION_DIST,
         "raw_w": raw_w,
         "has_safe_gap": has_safe_gap,
-        "front45_close": front45_close,
     }
 
 
@@ -912,8 +920,8 @@ def main():
                 and RECOVERY_TURN_ENABLE
                 and (info is not None)
             ):
-                # 아직 recovery 중이 아니고, 안전한 gap이 없거나 ±45° 내 장애물이 너무 가까우면 recovery 시작
-                if (not recovery_turn_active) and (not info["has_safe_gap"] and info["front45_close"]):
+                # 아직 recovery 중이 아니고, 안전한 gap이 없으면 recovery 시작
+                if (not recovery_turn_active) and (not info["has_safe_gap"]):
                     recovery_turn_dir = choose_initial_based_recovery_dir(pose.theta, last_w)
                     recovery_target_theta = normalize_angle_rad(
                         pose.theta + recovery_turn_dir * RECOVERY_TURN_ANGLE_RAD
