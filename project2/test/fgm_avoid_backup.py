@@ -58,8 +58,8 @@ RECOVERY_TURN_W = 0.90
 
 # Recovery는 이제 고정 180/200도 회전이 아니라,
 # 최소 각도만큼 회전한 뒤 벽이 잡히면 바로 벽 따라가기로 넘어간다.
-RECOVERY_MIN_TURN_RAD = math.radians(70.0)      # 최소 이 각도만큼은 회전
-RECOVERY_MAX_TURN_RAD = math.radians(220.0)     # 벽을 못 찾을 때 최대 회전 제한
+RECOVERY_MIN_TURN_RAD = math.radians(55.0)      # 70도 → 55도
+RECOVERY_MAX_TURN_RAD = math.radians(150.0)     # 220도 → 150도
 
 # 기존 변수명 호환용. 이제 고정 회전 목표각이 아니라 최대 제한값 개념으로만 사용.
 RECOVERY_TURN_ANGLE_RAD = RECOVERY_MAX_TURN_RAD
@@ -70,7 +70,7 @@ RECOVERY_INITIAL_DEADBAND_RAD = math.radians(2.0)
 # Recovery 중 벽 따라가기 시작 조건
 RECOVERY_WALL_START_DIST = 0.30       # 따라갈 쪽 90도 벽이 이 거리 안에 잡히면 벽 발견
 RECOVERY_WALL_START_COUNT_N = 2       # 연속 몇 번 벽이 잡혀야 인정할지
-RECOVERY_FRONT_START_DIST = 0.12      # 정면 거리가 이보다 작으면 아직 벽 따라가기 시작 안 함
+RECOVERY_FRONT_START_DIST = 0.05      # 정면 거리가 이보다 작으면 아직 벽 따라가기 시작 안 함
 # ============================================================
 
 # ============================================================
@@ -971,8 +971,8 @@ def main():
                     recovery_wall_dist_log = recovery_wall_dist
                     recovery_front_start_log = recovery_front_dist
 
-                    wall_ready = recovery_wall_dist < RECOVERY_WALL_START_DIST
-                    front_ok = recovery_front_dist > RECOVERY_FRONT_START_DIST
+                    wall_ready = recovery_wall_dist <= RECOVERY_WALL_START_DIST
+                    front_ok = recovery_front_dist >= RECOVERY_FRONT_START_DIST
                     min_turn_ok = recovery_accum_turn >= RECOVERY_MIN_TURN_RAD
 
                     if min_turn_ok and wall_ready and front_ok:
