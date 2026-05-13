@@ -447,6 +447,10 @@ def choose_wall_follow_cmd(scan, prev_w, follow_side):
         # 벽을 못 보면 해당 벽 방향으로 적극적으로 붙어서 다시 찾음
         target_w = follow_side * WALL_SEARCH_W
 
+    # 정면이 정말 가까울 때만 멈춤
+    if front_dist < WALL_FRONT_HARD_STOP_DIST:
+        target_v = 0.0
+
         # 여기서도 반대 방향으로 크게 돌지 않고, 벽 추종 방향 유지
         if follow_side > 0.0:
             target_w = max(target_w, WALL_FRONT_KEEP_TURN_W)
