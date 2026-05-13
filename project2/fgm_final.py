@@ -134,6 +134,7 @@ BLOCKED_GAP_RELEASE_CLOSE_DIST = COLLISION_DIST + 0.02
 BLOCKED_GAP_RELEASE_SIDE_DIST = SIDE_GAP_BLOCK_DIST + 0.04
 BLOCKED_GAP_TURN_W = 0.55
 BLOCKED_GAP_TURN_DEADBAND_DEG = 3.0
+NARROW_TRIGGER_COUNT_N = 2
 
 
 def normalize_angle_deg(angle):
@@ -1092,6 +1093,7 @@ def main():
     last_target_angle = 0.0
     blocked_gap = None
     last_attempted_gap = None
+    narrow_trigger_count = 0
     last_log = 0.0
     last_pose_time = time.time()
     accumulated_turn_rad = 0.0
@@ -1260,17 +1262,23 @@ def main():
                 # 텍스트 1 기준 좁은길/막힌 gap 인식 조건.
                 # 기존 코드는 여기서 blocked_gap_escape_w()로 제자리 회전했지만,
                 # 이제는 텍스트 2의 Recovery + Wall follow 코드로 넘긴다.
-                blocked_now = info["collision"] and v <= 0.01
+                blocked_now = info["target_dist"] < COLLISION_DIST and v <= 0.01
                 no_safe_gap_now = not info["has_safe_gap"]
                 narrow_wall_trigger = (blocked_now or no_safe_gap_now)
+                if narrow_wall_trigger:
+                    narrow_trigger_count += 1
+                else:
+                    narrow_trigger_count = 0
+
+                confirmed_narrow_wall = narrow_trigger_count >= NARROW_TRIGGER_COUNT_N
 
                 if (
                     RECOVERY_TURN_ENABLE
                     and (not recovery_turn_active)
-                    and narrow_wall_trigger
+                    and confirmed_narrow_wall
                 ):
                     gap_to_block = attempted_gap if attempted_gap is not None else last_attempted_gap
-                    if gap_to_block is not None:
+                    if blocked_now and gap_to_block is not None:
                         blocked_gap = dict(gap_to_block)
                         blocked_gap["theta_at_block"] = pose.theta
 
@@ -1283,6 +1291,7 @@ def main():
                     recovery_wall_seen_count = 0
                     recovery_accum_turn = 0.0
                     recovery_turn_active = True
+                    narrow_trigger_count = 0
 
                     if blocked_now:
                         trigger_name = "blocked/narrow gap"
