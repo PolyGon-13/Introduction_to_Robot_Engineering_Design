@@ -73,6 +73,8 @@ BLOCKED_GAP_MARGIN_DEG = 8.0
 BLOCKED_GAP_MIN_HALF_DEG = 12.0
 BLOCKED_GAP_MAX_HALF_DEG = 35.0
 BLOCKED_GAP_RELEASE_ROT_DEG = 55.0
+BLOCKED_GAP_RELEASE_CLOSE_DIST = COLLISION_DIST + 0.02
+BLOCKED_GAP_RELEASE_SIDE_DIST = SIDE_GAP_BLOCK_DIST + 0.04
 BLOCKED_GAP_TURN_W = 0.55
 BLOCKED_GAP_TURN_DEADBAND_DEG = 3.0
 
@@ -482,6 +484,26 @@ def refresh_blocked_gap(blocked_gap, pose_theta):
     return blocked_gap
 
 
+def blocked_gap_recovered(blocked_gap, pose_theta, info):
+    if blocked_gap is None:
+        return False
+
+    if blocked_gap_rotation(blocked_gap, pose_theta) < math.radians(
+        BLOCKED_GAP_RELEASE_ROT_DEG
+    ):
+        return False
+
+    side_clear = min(info["left"], info["right"])
+    if info["closest"] < BLOCKED_GAP_RELEASE_CLOSE_DIST:
+        return False
+    if side_clear < BLOCKED_GAP_RELEASE_SIDE_DIST:
+        return False
+    if info["target_dist"] < COLLISION_DIST:
+        return False
+
+    return True
+
+
 def blocked_gap_hard_block(angle_rad, pose, blocked_gap):
     hard_block = np.zeros_like(angle_rad, dtype=bool)
     if blocked_gap is None:
@@ -810,7 +832,6 @@ def main():
                 continue
 
             last_scan_ok = time.time()
-            blocked_gap = refresh_blocked_gap(blocked_gap, pose.theta)
             v, w, target_angle, info = choose_fgm_cmd(
                 scan,
                 last_w,
@@ -847,14 +868,31 @@ def main():
                             info["gap_width"],
                         )
 
-            if blocked_gap is not None and not info["has_safe_gap"]:
-                v = 0.0
-                w = blocked_gap_escape_w(blocked_gap, pose.theta, last_w)
-                target_angle = 0.0
-                info["raw_w"] = w
-                info["target_deg"] = 0.0
-                info["target_dist"] = 0.0
-                info["blocked_turn"] = True
+            if blocked_gap is not None:
+                if blocked_gap_recovered(blocked_gap, pose.theta, info):
+                    blocked_gap = None
+                    v, w, target_angle, info = choose_fgm_cmd(
+                        scan,
+                        last_w,
+                        last_target_angle,
+                        pose,
+                        blocked_gap,
+                    )
+                    attempted_gap = None
+                    if info["has_safe_gap"]:
+                        attempted_gap = make_blocked_gap_candidate(
+                            pose,
+                            target_angle,
+                            info["gap_width"],
+                        )
+                else:
+                    v = 0.0
+                    w = blocked_gap_escape_w(blocked_gap, pose.theta, last_w)
+                    target_angle = 0.0
+                    info["raw_w"] = w
+                    info["target_deg"] = 0.0
+                    info["target_dist"] = 0.0
+                    info["blocked_turn"] = True
 
             if attempted_gap is not None and not (info["collision"] and v <= 0.01):
                 last_attempted_gap = attempted_gap
