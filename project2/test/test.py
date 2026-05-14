@@ -695,9 +695,9 @@ def cumulative_turn_penalty(angle_rad, accumulated_turn_rad):
     return penalty.astype(np.float32), projected_turn
 
 
-def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, front_factor, accumulated_turn_rad):
+def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, front_factor, accumulated_turn_rad, left_dist=MAX_LIDAR_DIST_M, right_dist=MAX_LIDAR_DIST_M):
     if not gaps:
-        return -1, (0, 0), -float("inf")
+        return -1, (0, 0), -float("inf"), 0.0, False
 
     goal_angle = goal_heading_error(pose.x, pose.y, pose.theta)
     goal_angle = float(np.clip(goal_angle, -TURN_HARD_LIMIT_RAD, TURN_HARD_LIMIT_RAD))
@@ -706,6 +706,8 @@ def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, f
     best_idx = -1
     best_gap = (0, 0)
     best_score = -float("inf")
+    best_side_penalty = 0.0
+    best_side_block = False
     max_target_angle = TURN_HARD_LIMIT_RAD
     goal_weight = (
         FGM_GOAL_WEIGHT_SAFE * (1.0 - front_factor)
@@ -739,6 +741,7 @@ def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, f
         )
         width_score = min(1.0, local_width * FGM_ANGLE_STEP_DEG / 60.0)
         turn_penalty, _ = cumulative_turn_penalty(angle_rad, accumulated_turn_rad)
+        side_penalty, side_block = side_gap_penalty(angle_rad, left_dist, right_dist)
 
         scores = (
             FGM_CLEARANCE_WEIGHT * clearance_score
@@ -747,8 +750,12 @@ def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, f
             + goal_weight * goal_score
             + FGM_PREV_TARGET_WEIGHT * prev_score
             + 0.25 * width_score
+            - side_penalty
             - turn_penalty
         )
+        scores = np.where(side_block, -np.inf, scores)
+        if not np.isfinite(scores).any():
+            continue
 
         local_best = int(np.argmax(scores))
         score = float(scores[local_best])
@@ -756,15 +763,26 @@ def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, f
             best_score = score
             best_idx = int(idxs[local_best])
             best_gap = (start, end)
+            best_side_penalty = float(side_penalty[local_best])
+            best_side_block = bool(side_block[local_best])
 
-    return best_idx, best_gap, best_score
+    return best_idx, best_gap, best_score, best_side_penalty, best_side_block
 
 
-def choose_fallback_target(angles_deg, ranges):
+def choose_fallback_target(angles_deg, ranges, left_dist=MAX_LIDAR_DIST_M, right_dist=MAX_LIDAR_DIST_M):
     usable = ranges > MIN_LIDAR_DIST_M
     if not usable.any():
         return len(ranges) // 2
-    usable_ranges = np.where(usable, ranges, -np.inf)
+
+    angle_rad = np.deg2rad(angles_deg)
+    side_penalty, side_block = side_gap_penalty(angle_rad, left_dist, right_dist)
+
+    usable_ranges = np.where(usable, ranges - side_penalty, -np.inf)
+    usable_ranges = np.where(side_block, -np.inf, usable_ranges)
+
+    if not np.isfinite(usable_ranges).any():
+        usable_ranges = np.where(usable, ranges, -np.inf)
+
     return int(np.argmax(usable_ranges))
 
 
@@ -818,14 +836,22 @@ def choose_fgm_cmd(
     gaps = filter_gaps_by_width(find_free_gaps(free_mask))
     has_safe_gap = len(gaps) > 0
 
-    target_idx, best_gap, best_score = choose_target_from_gaps(
-        angles_deg, bubble_ranges, gaps, pose, prev_target_angle, front_factor, accumulated_turn_rad
+    target_idx, best_gap, best_score, selected_side_penalty, selected_side_block = choose_target_from_gaps(
+        angles_deg, bubble_ranges, gaps, pose, prev_target_angle, front_factor, accumulated_turn_rad, info_left, info_right
     )
 
     if target_idx < 0:
-        target_idx = choose_fallback_target(angles_deg, smooth_ranges)
+        target_idx = choose_fallback_target(angles_deg, smooth_ranges, info_left, info_right)
         best_gap = (target_idx, target_idx + 1)
         best_score = 0.0
+        fallback_angle = np.array([math.radians(float(angles_deg[target_idx]))], dtype=np.float32)
+        fallback_side_penalty, fallback_side_block = side_gap_penalty(
+            fallback_angle,
+            info_left,
+            info_right,
+        )
+        selected_side_penalty = float(fallback_side_penalty[0])
+        selected_side_block = bool(fallback_side_block[0])
 
     target_angle = math.radians(float(angles_deg[target_idx]))
     target_angle = float(np.clip(target_angle, -TURN_HARD_LIMIT_RAD, TURN_HARD_LIMIT_RAD))
@@ -865,8 +891,8 @@ def choose_fgm_cmd(
         "has_safe_gap": has_safe_gap,
         # 아래 값들은 텍스트 1의 기존 로그 출력부 호환용이다.
         # 텍스트 2 FGM 알고리즘의 경로 선택/속도 계산에는 사용하지 않는다.
-        "side_penalty": 0.0,
-        "side_block": False,
+        "side_penalty": float(selected_side_penalty),
+        "side_block": bool(selected_side_block),
         "near_penalty": 0.0,
         "near_block": False,
         "turn_penalty": float(selected_turn_penalty[0]),
