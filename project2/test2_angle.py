@@ -73,6 +73,7 @@ RECOVERY_FRONT_START_DIST = 0.05
 RECOVERY_RETURN_BIAS_TIME_S = 1.20
 RECOVERY_RETURN_BIAS_PENALTY_WEIGHT = 3.0
 RECOVERY_RETURN_BIAS_DEADBAND_RAD = math.radians(2.0)
+RECOVERY_TRIGGER_ANGLE_LIMIT_DEG = 80.0
 # ============================================================
 
 # ============================================================
@@ -776,8 +777,11 @@ def rate_limit_w(prev_w, target_w, urgent=False):
     return prev_w + delta
 
 
-def choose_speed(target_dist, target_angle, has_safe_gap):
+def choose_speed(target_dist, target_angle, has_safe_gap, collision=False):
     if not has_safe_gap:
+        return 0.0
+
+    if collision:
         return 0.0
 
     turn_ratio = min(1.0, abs(target_angle) / TURN_HARD_LIMIT_RAD)
