@@ -265,6 +265,42 @@ def compute_side_info(points):
     return info_left, info_right
 
 
+def compute_side_info_from_scan(scan):
+    info_left = 1.0
+    info_right = 1.0
+    if scan is None:
+        return info_left, info_right
+
+    angles, dists, qualities = scan
+    dist_m = (dists.astype(np.float32) + DIST_OFFSET_MM) / 1000.0
+    angle_deg = normalize_angle_deg(angles.astype(np.float32) + ANGLE_OFFSET_DEG)
+    angle_deg = LIDAR_ANGLE_SIGN * angle_deg
+
+    mask = (
+        (dist_m >= MIN_LIDAR_DIST_M)
+        & (dist_m <= MAX_LIDAR_DIST_M)
+        & (qualities >= MIN_QUALITY)
+    )
+    if not mask.any():
+        return info_left, info_right
+
+    dist_m = dist_m[mask]
+    angle_rad = np.deg2rad(angle_deg[mask])
+    x = dist_m * np.cos(angle_rad)
+    y = dist_m * np.sin(angle_rad)
+
+    side_band = (np.abs(x) < 0.15) & (np.abs(y) < 0.30)
+    if side_band.any():
+        ys = y[side_band]
+        left = ys[ys > 0.05]
+        right = ys[ys < -0.05]
+        if len(left) > 0:
+            info_left = float(np.min(left))
+        if len(right) > 0:
+            info_right = float(-np.max(right))
+    return info_left, info_right
+
+
 def scan_to_angle_ranges(scan):
     angles_grid = np.arange(
         FGM_MIN_ANGLE_DEG,
@@ -580,7 +616,7 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose, accumulated_turn_rad=0
     points = lidar_points_to_xy(scan)
     front_dist = front_distance(points)
     front_factor = compute_front_factor(front_dist)
-    info_left, info_right = compute_side_info(points)
+    info_left, info_right = compute_side_info_from_scan(scan)
 
     angles_deg, raw_ranges, counts = scan_to_angle_ranges(scan)
     smooth_ranges = smooth_ranges_conservative(raw_ranges)
