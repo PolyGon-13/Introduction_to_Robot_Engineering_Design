@@ -379,6 +379,59 @@ def side_wall_distance_from_scan(scan, follow_side):
     return float(np.percentile(dist_m[mask], 20))
 
 
+def side_wall_average_distance_from_scan(scan, follow_side):
+    """
+    벽 따라가기 전용 거리 계산.
+
+    기존처럼 좌/우 90도 한 점만 보지 않고,
+    왼쪽 벽 추종은 +30도 ~ +90도,
+    오른쪽 벽 추종은 -90도 ~ -30도 구간의 라이다 값을 사용한다.
+
+    단순 사선거리 평균이 아니라 로봇 기준 좌우 위치거리(y 성분)를 평균내서
+    WALL_TARGET_DIST와 비교한다.
+    """
+    if scan is None:
+        return MAX_LIDAR_DIST_M
+
+    angles, dists, qualities = scan
+
+    dist_m = (dists.astype(np.float32) + DIST_OFFSET_MM) / 1000.0
+    angle_deg = normalize_angle_deg(angles.astype(np.float32) + ANGLE_OFFSET_DEG)
+    angle_deg = LIDAR_ANGLE_SIGN * angle_deg
+
+    if follow_side > 0.0:
+        min_angle = 30.0
+        max_angle = 90.0
+    else:
+        min_angle = -90.0
+        max_angle = -30.0
+
+    mask = (
+        (dist_m >= MIN_LIDAR_DIST_M)
+        & (dist_m <= MAX_LIDAR_DIST_M)
+        & (qualities >= MIN_QUALITY)
+        & (angle_deg >= min_angle)
+        & (angle_deg <= max_angle)
+    )
+
+    if np.count_nonzero(mask) < WALL_MIN_POINTS:
+        return MAX_LIDAR_DIST_M
+
+    angle_rad = np.deg2rad(angle_deg[mask])
+    side_y = dist_m[mask] * np.sin(angle_rad)
+
+    if follow_side > 0.0:
+        side_dist = side_y
+    else:
+        side_dist = -side_y
+
+    valid_side_dist = side_dist[side_dist > 0.0]
+    if len(valid_side_dist) < WALL_MIN_POINTS:
+        return MAX_LIDAR_DIST_M
+
+    return float(np.mean(valid_side_dist))
+
+
 def wall_follow_front_distance(points_all):
     """
     벽 따라가기 전용 정면 거리.
@@ -838,7 +891,7 @@ def choose_wall_follow_cmd(scan, prev_w, follow_side):
     """
     points_all = lidar_points_to_xy_all(scan)
 
-    wall_dist = side_wall_distance_from_scan(scan, follow_side)
+    wall_dist = side_wall_average_distance_from_scan(scan, follow_side)
     front_dist = wall_follow_front_distance(points_all)
 
     wall_valid = wall_dist < WALL_LOST_DIST
@@ -1242,9 +1295,9 @@ def main():
 
                 elif wall_follow_active:
                     if wall_follow_side > 0.0:
-                        wall_name = "left_wall_90"
+                        wall_name = "left_wall_30_90_avg"
                     else:
-                        wall_name = "right_wall_90"
+                        wall_name = "right_wall_90_30_avg"
 
                     print(
                         f"[{recovery_mode_name}] x={pose.x:.2f} y={pose.y:.2f} "
