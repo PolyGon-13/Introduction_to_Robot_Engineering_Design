@@ -482,6 +482,34 @@ def compute_front_factor(front_dist):
         )
     )
 
+def compute_side_info(points):
+    info_left = 1.0
+    info_right = 1.0
+
+    if len(points) == 0:
+        return info_left, info_right
+
+    x = points[:, 0]
+    y = points[:, 1]
+
+    side_front_band = (
+        (x > SIDE_FRONT_X_MIN)
+        & (x < SIDE_FRONT_X_MAX)
+        & (np.abs(y) < SIDE_FRONT_Y_MAX)
+    )
+
+    if side_front_band.any():
+        left = y[side_front_band & (y > SIDE_FRONT_Y_MIN)]
+        right = y[side_front_band & (y < -SIDE_FRONT_Y_MIN)]
+
+        if len(left) > 0:
+            info_left = float(np.percentile(left, 20))
+
+        if len(right) > 0:
+            info_right = float(np.percentile(-right, 20))
+
+    return info_left, info_right
+
 
 def side_gap_penalty(angle_rad, left_dist, right_dist):
     penalty = np.zeros_like(angle_rad, dtype=np.float32)
@@ -640,61 +668,6 @@ def find_free_gaps(free_mask):
 def filter_gaps_by_width(gaps):
     min_bins = max(1, int(math.ceil(FGM_MIN_GAP_WIDTH_DEG / FGM_ANGLE_STEP_DEG)))
     return [(start, end) for start, end in gaps if end - start >= min_bins]
-
-
-def side_gap_penalty(angle_rad, left_dist, right_dist):
-    penalty = np.zeros_like(angle_rad, dtype=np.float32)
-    hard_block = np.zeros_like(angle_rad, dtype=bool)
-    block_angle_rad = math.radians(SIDE_GAP_BLOCK_ANGLE_DEG)
-    straight_mask = np.abs(angle_rad) <= block_angle_rad
-
-    if left_dist < SIDE_GAP_WARN_DIST:
-        pressure = float(
-            np.clip(
-                (SIDE_GAP_WARN_DIST - left_dist)
-                / max(1e-6, SIDE_GAP_WARN_DIST - SIDE_GAP_BLOCK_DIST),
-                0.0,
-                1.0,
-            )
-        )
-        left_side = angle_rad > block_angle_rad
-        penalty += np.where(
-            left_side,
-            SIDE_GAP_PENALTY_WEIGHT * pressure,
-            0.0,
-        )
-        penalty += np.where(
-            straight_mask,
-            SIDE_STRAIGHT_PENALTY_WEIGHT * pressure,
-            0.0,
-        )
-        if left_dist <= SIDE_GAP_BLOCK_DIST:
-            hard_block |= left_side
-
-    if right_dist < SIDE_GAP_WARN_DIST:
-        pressure = float(
-            np.clip(
-                (SIDE_GAP_WARN_DIST - right_dist)
-                / max(1e-6, SIDE_GAP_WARN_DIST - SIDE_GAP_BLOCK_DIST),
-                0.0,
-                1.0,
-            )
-        )
-        right_side = angle_rad < -block_angle_rad
-        penalty += np.where(
-            right_side,
-            SIDE_GAP_PENALTY_WEIGHT * pressure,
-            0.0,
-        )
-        penalty += np.where(
-            straight_mask,
-            SIDE_STRAIGHT_PENALTY_WEIGHT * pressure,
-            0.0,
-        )
-        if right_dist <= SIDE_GAP_BLOCK_DIST:
-            hard_block |= right_side
-
-    return penalty, hard_block
 
 
 def near_collision_straight_penalty(angle_rad, closest_dist):
