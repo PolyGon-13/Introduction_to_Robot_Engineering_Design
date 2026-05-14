@@ -642,7 +642,7 @@ def cumulative_turn_penalty(angle_rad, accumulated_turn_rad):
     return penalty.astype(np.float32), projected_turn
 
 
-def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, front_factor):
+def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, front_factor, accumulated_turn_rad):
     if not gaps:
         return -1, (0, 0), -float("inf")
 
@@ -685,6 +685,7 @@ def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, f
             1.0,
         )
         width_score = min(1.0, local_width * FGM_ANGLE_STEP_DEG / 60.0)
+        turn_penalty, _ = cumulative_turn_penalty(angle_rad, accumulated_turn_rad)
 
         scores = (
             FGM_CLEARANCE_WEIGHT * clearance_score
@@ -693,6 +694,7 @@ def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, f
             + goal_weight * goal_score
             + FGM_PREV_TARGET_WEIGHT * prev_score
             + 0.25 * width_score
+            - turn_penalty
         )
 
         local_best = int(np.argmax(scores))
@@ -746,6 +748,7 @@ def choose_fgm_cmd(
     prev_w,
     prev_target_angle,
     pose,
+    accumulated_turn_rad=0.0,
 ):
     points = lidar_points_to_xy(scan)
     front_dist = front_distance(points)
@@ -763,7 +766,7 @@ def choose_fgm_cmd(
     has_safe_gap = len(gaps) > 0
 
     target_idx, best_gap, best_score = choose_target_from_gaps(
-        angles_deg, bubble_ranges, gaps, pose, prev_target_angle, front_factor
+        angles_deg, bubble_ranges, gaps, pose, prev_target_angle, front_factor, accumulated_turn_rad
     )
 
     if target_idx < 0:
@@ -775,6 +778,10 @@ def choose_fgm_cmd(
     target_angle = float(np.clip(target_angle, -TURN_HARD_LIMIT_RAD, TURN_HARD_LIMIT_RAD))
     target_dist = float(smooth_ranges[target_idx])
     raw_w = float(np.clip(FGM_TURN_GAIN * target_angle, -MAX_ABS_W, MAX_ABS_W))
+    selected_turn_penalty, selected_projected_turn = cumulative_turn_penalty(
+        np.array([target_angle], dtype=np.float32),
+        accumulated_turn_rad,
+    )
     urgent = front_dist < URGENT_FRONT_DIST or not has_safe_gap
     w = rate_limit_w(prev_w, raw_w, urgent=urgent)
     v = choose_speed(target_dist, target_angle, has_safe_gap)
@@ -809,8 +816,8 @@ def choose_fgm_cmd(
         "side_block": False,
         "near_penalty": 0.0,
         "near_block": False,
-        "turn_penalty": 0.0,
-        "projected_turn_deg": math.degrees(target_angle),
+        "turn_penalty": float(selected_turn_penalty[0]),
+        "projected_turn_deg": math.degrees(float(selected_projected_turn[0])),
     }
 
 
@@ -1021,6 +1028,7 @@ def main():
                     last_w,
                     last_target_angle,
                     pose,
+                    accumulated_turn_rad,
                 )
                 else:
                     v = wall_v
@@ -1043,6 +1051,7 @@ def main():
                     last_w,
                     last_target_angle,
                     pose,
+                    accumulated_turn_rad,
                 )
 
                 # 텍스트 1 기준 좁은길/막힘 인식 조건.
