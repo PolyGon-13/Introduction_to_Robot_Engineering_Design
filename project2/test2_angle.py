@@ -1150,7 +1150,7 @@ def main():
 
                 # 텍스트 1 기준 좁은길/막힘 인식 조건.
                 # 이제는 Recovery 회전 후 bias를 걸고 FGM으로 복귀한다.
-                blocked_now = info["collision"] and v <= 0.01
+                blocked_now = info["collision"] and v <= 0.05
                 no_safe_gap_now = not info["has_safe_gap"]
                 narrow_wall_trigger = (blocked_now or no_safe_gap_now)
 
