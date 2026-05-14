@@ -120,11 +120,18 @@ FGM_EDGE_WEIGHT = 0.85
 
 # 기존 Recovery 로그 호환용 상수
 # 텍스트 2 FGM 경로 선택에는 사용하지 않는다.
-SIDE_GAP_WARN_DIST = COLLISION_DIST + 0.06
-SIDE_GAP_BLOCK_DIST = 0.14
-SIDE_GAP_PENALTY_WEIGHT = 4.0
+SIDE_GAP_WARN_DIST = COLLISION_DIST + 0.12
+SIDE_GAP_BLOCK_DIST = COLLISION_DIST + 0.02
+SIDE_GAP_PENALTY_WEIGHT = 8.0
 SIDE_GAP_BLOCK_ANGLE_DEG = 3.0
-SIDE_STRAIGHT_PENALTY_WEIGHT = 1.0
+SIDE_STRAIGHT_PENALTY_WEIGHT = 4.0
+
+SIDE_FRONT_X_MIN = -0.02
+SIDE_FRONT_X_MAX = 0.55
+SIDE_FRONT_Y_MIN = 0.04
+SIDE_FRONT_Y_MAX = 0.45
+SIDE_ESCAPE_ANGLE_DEG = 10.0
+
 NEAR_COLLISION_STRAIGHT_BLOCK_DIST = COLLISION_DIST
 NEAR_COLLISION_STRAIGHT_BLOCK_ANGLE_DEG = 12.0
 NEAR_COLLISION_STRAIGHT_WARN_ANGLE_DEG = 25.0
@@ -476,22 +483,72 @@ def compute_front_factor(front_dist):
     )
 
 
-def compute_side_info(points):
-    info_left = 1.0
-    info_right = 1.0
-    if len(points) == 0:
-        return info_left, info_right
+def side_gap_penalty(angle_rad, left_dist, right_dist):
+    penalty = np.zeros_like(angle_rad, dtype=np.float32)
+    hard_block = np.zeros_like(angle_rad, dtype=bool)
 
-    side_band = (np.abs(points[:, 0]) < 0.15) & (np.abs(points[:, 1]) < 0.30)
-    if side_band.any():
-        ys = points[side_band, 1]
-        left = ys[ys > 0.05]
-        right = ys[ys < -0.05]
-        if len(left) > 0:
-            info_left = float(np.min(left))
-        if len(right) > 0:
-            info_right = float(-np.max(right))
-    return info_left, info_right
+    block_angle_rad = math.radians(SIDE_GAP_BLOCK_ANGLE_DEG)
+    escape_angle_rad = math.radians(SIDE_ESCAPE_ANGLE_DEG)
+
+    straight_mask = np.abs(angle_rad) <= escape_angle_rad
+
+    if left_dist < SIDE_GAP_WARN_DIST:
+        pressure = float(
+            np.clip(
+                (SIDE_GAP_WARN_DIST - left_dist)
+                / max(1e-6, SIDE_GAP_WARN_DIST - SIDE_GAP_BLOCK_DIST),
+                0.0,
+                1.0,
+            )
+        )
+
+        # 왼쪽 장애물이 가까우면 왼쪽 방향뿐 아니라 직진/약한 우회전도 위험하게 봄
+        left_or_straight = angle_rad > -escape_angle_rad
+
+        penalty += np.where(
+            left_or_straight,
+            SIDE_GAP_PENALTY_WEIGHT * pressure,
+            0.0,
+        )
+
+        penalty += np.where(
+            straight_mask,
+            SIDE_STRAIGHT_PENALTY_WEIGHT * pressure,
+            0.0,
+        )
+
+        if left_dist <= SIDE_GAP_BLOCK_DIST:
+            hard_block |= left_or_straight
+
+    if right_dist < SIDE_GAP_WARN_DIST:
+        pressure = float(
+            np.clip(
+                (SIDE_GAP_WARN_DIST - right_dist)
+                / max(1e-6, SIDE_GAP_WARN_DIST - SIDE_GAP_BLOCK_DIST),
+                0.0,
+                1.0,
+            )
+        )
+
+        # 오른쪽 장애물이 가까우면 오른쪽 방향뿐 아니라 직진/약한 좌회전도 위험하게 봄
+        right_or_straight = angle_rad < escape_angle_rad
+
+        penalty += np.where(
+            right_or_straight,
+            SIDE_GAP_PENALTY_WEIGHT * pressure,
+            0.0,
+        )
+
+        penalty += np.where(
+            straight_mask,
+            SIDE_STRAIGHT_PENALTY_WEIGHT * pressure,
+            0.0,
+        )
+
+        if right_dist <= SIDE_GAP_BLOCK_DIST:
+            hard_block |= right_or_straight
+
+    return penalty, hard_block
 
 
 def scan_to_angle_ranges(scan):
