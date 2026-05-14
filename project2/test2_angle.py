@@ -73,7 +73,6 @@ RECOVERY_FRONT_START_DIST = 0.05
 RECOVERY_RETURN_BIAS_TIME_S = 1.20
 RECOVERY_RETURN_BIAS_PENALTY_WEIGHT = 3.0
 RECOVERY_RETURN_BIAS_DEADBAND_RAD = math.radians(2.0)
-RECOVERY_TRIGGER_ANGLE_LIMIT_DEG = 80.0
 # ============================================================
 
 # ============================================================
