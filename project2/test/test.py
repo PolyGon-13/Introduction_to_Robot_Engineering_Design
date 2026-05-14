@@ -25,8 +25,8 @@ SCAN_HOLD_S = 0.30
 LOOP_DT_S = 0.05
 
 BASE_V = 0.25
-MIN_V = 0.22
-MAX_ABS_W = 0.70
+MIN_V = 0.20
+MAX_ABS_W = 0.90
 
 # Recovery / Wall follow 전용 최대 회전속도
 RECOVERY_MAX_W = 1.00
