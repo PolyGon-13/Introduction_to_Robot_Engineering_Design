@@ -810,9 +810,10 @@ def choose_fgm_cmd(
     accumulated_turn_rad=0.0,
 ):
     points = lidar_points_to_xy(scan)
+    points_all = lidar_points_to_xy_all(scan)
     front_dist = front_distance(points)
     front_factor = compute_front_factor(front_dist)
-    info_left, info_right = compute_side_info(points)
+    info_left, info_right = compute_side_info(points_all)
 
     angles_deg, raw_ranges, counts = scan_to_angle_ranges(scan)
     smooth_ranges = smooth_ranges_conservative(raw_ranges)
