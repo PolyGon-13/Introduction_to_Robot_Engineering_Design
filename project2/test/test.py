@@ -6,7 +6,6 @@ import math
 import threading
 import numpy as np
 
-
 LIDAR_PORT = "/dev/ttyUSB0"
 LIDAR_BAUD = 460800
 ARDU_PORT = "/dev/ttyS0"
@@ -50,7 +49,7 @@ TURN_SOFT_LIMIT_RAD = math.radians(70.0)
 TURN_HARD_LIMIT_RAD = math.radians(80.0)
 CUM_TURN_SOFT_LIMIT_RAD = math.radians(70.0)
 CUM_TURN_HARD_LIMIT_RAD = math.radians(88.0)
-CUM_TURN_SOFT_PENALTY_WEIGHT = 9.0
+CUM_TURN_SOFT_PENALTY_WEIGHT = 8.0
 CUM_TURN_HARD_PENALTY_WEIGHT = 50.0
 
 # ============================================================
@@ -79,7 +78,7 @@ WALL_TARGET_DIST = 0.22
 WALL_FOLLOW_V = 0.15
 WALL_SLOW_V = 0.10
 
-WALL_KP = 10.0
+WALL_KP = 8.0
 WALL_SEARCH_W = 0.28
 
 WALL_MIN_TURN_ERR = 0.025
@@ -1139,7 +1138,7 @@ def main():
             # ------------------------------------------------------------
             # 벽 따라가기 중이 아니면 텍스트 1의 FGM/좁은길 인식 코드를 그대로 사용한다.
             # ------------------------------------------------------------
-            if (not wall_follow_active) and (not returned_from_wall_this_loop):
+            if (not recovery_turn_active) and (not wall_follow_active) and (not returned_from_wall_this_loop):
                 v, w, target_angle, info = choose_fgm_cmd(
                     scan,
                     last_w,
@@ -1150,7 +1149,7 @@ def main():
 
                 # 텍스트 1 기준 좁은길/막힘 인식 조건.
                 # 이제는 텍스트 2의 Recovery + Wall follow 코드로 넘긴다.
-                blocked_now = info["collision"] and v <= 0.05
+                blocked_now = info["collision"] and v <= 0.01
                 no_safe_gap_now = not info["has_safe_gap"]
                 narrow_wall_trigger = (blocked_now or no_safe_gap_now)
 
@@ -1287,6 +1286,7 @@ def main():
 
             send_vw(v, w)
             pose.update(v, w, dt)
+            # FGM OFF 상태(Recovery/Wall follow)에서도 실제 명령 w 기준으로 각속도 누적 유지
             accumulated_turn_rad += w * dt
             last_v, last_w = v, w
 
@@ -1331,7 +1331,8 @@ def main():
                         f"seen_cnt={recovery_wall_seen_count} "
                         f"front={front_log:.2f} "
                         f"gaps={gaps_log} safe={safe_log} "
-                        f"close={close_log:.2f}@{close_angle_log:.0f} "                        f"L={left_log:.2f} R={right_log:.2f}"
+                        f"close={close_log:.2f}@{close_angle_log:.0f} "                        
+                        f"L={left_log:.2f} R={right_log:.2f}"
                     )
 
                 elif wall_follow_active:
@@ -1369,7 +1370,8 @@ def main():
                         f"bb={info['bubble_bins']} score={info['score']:.2f} "
                         f"pts={info['points']} coll={int(info['collision'])} "
                         f"sp={info['side_penalty']:.2f} sb={int(info['side_block'])} "
-                        f"np={info['near_penalty']:.2f} nb={int(info['near_block'])} "                        f"L={info['left']:.2f} R={info['right']:.2f}"
+                        f"np={info['near_penalty']:.2f} nb={int(info['near_block'])} "                        
+                        f"L={info['left']:.2f} R={info['right']:.2f}"
                     )
 
                 last_log = time.time()
