@@ -50,8 +50,7 @@ TURN_SOFT_LIMIT_RAD = math.radians(70.0)
 TURN_HARD_LIMIT_RAD = math.radians(80.0)
 CUM_TURN_SOFT_LIMIT_RAD = math.radians(70.0)
 CUM_TURN_HARD_LIMIT_RAD = math.radians(88.0)
-CUM_TURN_SOFT_PENALTY_WEIGHT = 8.0
-CUM_TURN_HARD_PENALTY_WEIGHT = 50.0
+CUM_TURN_GAP_PENALTY_WEIGHT = 3.0
 
 # ============================================================
 # 좁은길/막힘 감지 후 Recovery 회전 설정
@@ -625,18 +624,19 @@ def near_collision_straight_penalty(angle_rad, closest_dist):
 def cumulative_turn_penalty(angle_rad, accumulated_turn_rad):
     projected_turn = accumulated_turn_rad + angle_rad
     abs_accumulated = abs(accumulated_turn_rad)
-    abs_projected = np.abs(projected_turn)
-    increasing_turn = abs_projected > (abs_accumulated + math.radians(1.0))
+    accum_excess = max(0.0, abs_accumulated - CUM_TURN_SOFT_LIMIT_RAD)
+    accum_span = max(1e-6, CUM_TURN_HARD_LIMIT_RAD - CUM_TURN_SOFT_LIMIT_RAD)
+    accum_factor = float(np.clip(accum_excess / accum_span, 0.0, 1.0))
 
-    soft_excess = np.maximum(0.0, abs_projected - CUM_TURN_SOFT_LIMIT_RAD)
-    hard_excess = np.maximum(0.0, abs_projected - CUM_TURN_HARD_LIMIT_RAD)
-    soft_span = max(1e-6, CUM_TURN_HARD_LIMIT_RAD - CUM_TURN_SOFT_LIMIT_RAD)
+    if accum_factor <= 0.0:
+        penalty = np.zeros_like(angle_rad, dtype=np.float32)
+        return penalty, projected_turn
 
-    soft_penalty = CUM_TURN_SOFT_PENALTY_WEIGHT * (soft_excess / soft_span) ** 2
-    hard_penalty = CUM_TURN_HARD_PENALTY_WEIGHT * (
-        hard_excess / math.radians(10.0) + (hard_excess > 0.0)
-    )
-    penalty = np.where(increasing_turn, soft_penalty + hard_penalty, 0.0)
+    accum_dir = math.copysign(1.0, accumulated_turn_rad)
+    same_side_gap = angle_rad * accum_dir > math.radians(1.0)
+    side_factor = np.clip(np.abs(angle_rad) / TURN_HARD_LIMIT_RAD, 0.0, 1.0)
+    penalty = CUM_TURN_GAP_PENALTY_WEIGHT * accum_factor * side_factor
+    penalty = np.where(same_side_gap, penalty, 0.0)
 
     return penalty.astype(np.float32), projected_turn
 
@@ -987,7 +987,8 @@ def main():
                 if time.time() - last_scan_ok <= SCAN_HOLD_S:
                     send_vw(last_v, last_w)
                     pose.update(last_v, last_w, dt)
-                    accumulated_turn_rad += last_w * dt
+                    if (not recovery_turn_active) and (not wall_follow_active):
+                        accumulated_turn_rad += last_w * dt
                 else:
                     send_vw(0.0, 0.0)
                     pose.update(0.0, 0.0, dt)
@@ -1211,7 +1212,8 @@ def main():
 
             send_vw(v, w)
             pose.update(v, w, dt)
-            accumulated_turn_rad += w * dt
+            if (not recovery_turn_active) and (not wall_follow_active):
+                accumulated_turn_rad += w * dt
             last_v, last_w = v, w
 
             if (not recovery_turn_active) and (not wall_follow_active):
