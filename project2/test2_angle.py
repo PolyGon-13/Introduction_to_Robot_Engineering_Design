@@ -148,23 +148,21 @@ def normalize_angle_rad(angle):
 def angle_error_rad(a, b):
     return normalize_angle_rad(a - b)
 
-def choose_initial_based_recovery_dir(theta, prev_w=0.0):
+def choose_accumulated_based_recovery_dir(accumulated_turn_rad, prev_w=0.0):
     """
-    처음 방향 INITIAL_HEADING_RAD 기준으로 현재 로봇이 어느 쪽으로 휘었는지 판단.
+    각속도 누적값 기준으로 어느 쪽 회전이 과하게 누적되었는지 판단.
 
-    theta > 0 : 처음 방향 기준 왼쪽으로 휘어 있음 -> 오른쪽 Recovery 회전
-    theta < 0 : 처음 방향 기준 오른쪽으로 휘어 있음 -> 왼쪽 Recovery 회전
+    accumulated_turn_rad > 0 : 왼쪽 회전 누적 -> 오른쪽 Recovery 회전
+    accumulated_turn_rad < 0 : 오른쪽 회전 누적 -> 왼쪽 Recovery 회전
 
     반환값:
     +1.0 : 왼쪽 회전
     -1.0 : 오른쪽 회전
     """
-    heading_from_initial = normalize_angle_rad(theta - INITIAL_HEADING_RAD)
-
-    if heading_from_initial > RECOVERY_INITIAL_DEADBAND_RAD:
+    if accumulated_turn_rad > RECOVERY_INITIAL_DEADBAND_RAD:
         return -1.0
 
-    if heading_from_initial < -RECOVERY_INITIAL_DEADBAND_RAD:
+    if accumulated_turn_rad < -RECOVERY_INITIAL_DEADBAND_RAD:
         return +1.0
 
     if prev_w > 0.0:
@@ -1161,8 +1159,8 @@ def main():
                     and (not recovery_turn_active)
                     and narrow_wall_trigger
                 ):
-                    recovery_turn_dir = choose_initial_based_recovery_dir(
-                        pose.theta,
+                    recovery_turn_dir = choose_accumulated_based_recovery_dir(
+                        accumulated_turn_rad,
                         last_w,
                     )
                     recovery_follow_side = -recovery_turn_dir
