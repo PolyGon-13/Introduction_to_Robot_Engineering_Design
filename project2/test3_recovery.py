@@ -65,7 +65,7 @@ RECOVERY_MAX_TURN_RAD = math.radians(200.0)
 RECOVERY_TURN_TIMEOUT_S = 15.0
 RECOVERY_INITIAL_DEADBAND_RAD = math.radians(2.0)
 
-RECOVERY_FRONT_OPEN_JUMP_DIST = 0.20
+RECOVERY_FRONT_OPEN_JUMP_DIST = 0.10
 RECOVERY_FRONT_EDGE_COUNT_N = 1
 # ============================================================
 
