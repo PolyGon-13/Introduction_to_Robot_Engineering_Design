@@ -25,7 +25,7 @@ LOOP_DT_S = 0.05
 
 BASE_V = 0.18
 MIN_V = 0.15
-MAX_ABS_W = 0.90
+MAX_ABS_W = 0.70
 
 # Recovery / Wall follow 전용 최대 회전속도
 RECOVERY_MAX_W = 1.00
@@ -47,7 +47,7 @@ GOAL_Y_M = 0.0
 GOAL_TOL_M = 0.15
 TURN_SOFT_LIMIT_RAD = math.radians(70.0)
 TURN_HARD_LIMIT_RAD = math.radians(80.0)
-CUM_TURN_SOFT_LIMIT_RAD = math.radians(70.0)
+CUM_TURN_SOFT_LIMIT_RAD = math.radians(80.0)
 CUM_TURN_HARD_LIMIT_RAD = math.radians(88.0)
 CUM_TURN_SOFT_PENALTY_WEIGHT = 8.0
 CUM_TURN_HARD_PENALTY_WEIGHT = 50.0
