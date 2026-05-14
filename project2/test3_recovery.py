@@ -65,9 +65,7 @@ RECOVERY_MAX_TURN_RAD = math.radians(200.0)
 RECOVERY_TURN_TIMEOUT_S = 15.0
 RECOVERY_INITIAL_DEADBAND_RAD = math.radians(2.0)
 
-RECOVERY_FRONT_EDGE_NEAR_DIST = 0.30
-RECOVERY_FRONT_EDGE_FAR_DIST = 0.45
-RECOVERY_FRONT_EDGE_JUMP_DIST = 0.20
+RECOVERY_FRONT_OPEN_JUMP_DIST = 0.20
 RECOVERY_FRONT_EDGE_COUNT_N = 1
 # ============================================================
 
@@ -172,15 +170,11 @@ def choose_initial_based_recovery_dir(theta, prev_w=0.0):
     return -1.0
 
 
-def recovery_front_edge_detected(prev_front_dist, front_dist):
-    if prev_front_dist is None:
+def recovery_front_edge_detected(front_min_dist, front_dist):
+    if front_min_dist is None:
         return False
 
-    return (
-        prev_front_dist <= RECOVERY_FRONT_EDGE_NEAR_DIST
-        and front_dist >= RECOVERY_FRONT_EDGE_FAR_DIST
-        and (front_dist - prev_front_dist) >= RECOVERY_FRONT_EDGE_JUMP_DIST
-    )
+    return (front_dist - front_min_dist) >= RECOVERY_FRONT_OPEN_JUMP_DIST
 
 
 class RobotPose:
@@ -937,13 +931,13 @@ def main():
     recovery_follow_side = +1.0
     recovery_start_time = 0.0
     recovery_front_edge_count = 0
-    recovery_prev_front_dist = None
+    recovery_front_min_dist = None
     recovery_accum_turn = 0.0
 
     recovery_turned_deg_log = 0.0
     recovery_wall_dist_log = MAX_LIDAR_DIST_M
     recovery_front_start_log = MAX_LIDAR_DIST_M
-    recovery_prev_front_log = MAX_LIDAR_DIST_M
+    recovery_front_min_log = MAX_LIDAR_DIST_M
 
     wall_follow_active = False
     wall_follow_side = +1.0
@@ -1076,7 +1070,7 @@ def main():
                     recovery_follow_side = -recovery_turn_dir
                     recovery_start_time = time.time()
                     recovery_front_edge_count = 0
-                    recovery_prev_front_dist = None
+                    recovery_front_min_dist = None
                     recovery_accum_turn = 0.0
                     recovery_turn_active = True
 
@@ -1121,21 +1115,25 @@ def main():
                 recovery_turned_deg_log = math.degrees(recovery_accum_turn)
                 recovery_wall_dist_log = recovery_wall_dist
                 recovery_front_start_log = recovery_front_dist
-                recovery_prev_front_log = (
-                    recovery_prev_front_dist
-                    if recovery_prev_front_dist is not None
+                if (
+                    recovery_front_min_dist is None
+                    or recovery_front_dist < recovery_front_min_dist
+                ):
+                    recovery_front_min_dist = recovery_front_dist
+
+                recovery_front_min_log = (
+                    recovery_front_min_dist
+                    if recovery_front_min_dist is not None
                     else MAX_LIDAR_DIST_M
                 )
 
                 if recovery_front_edge_detected(
-                    recovery_prev_front_dist,
+                    recovery_front_min_dist,
                     recovery_front_dist,
                 ):
                     recovery_front_edge_count += 1
                 else:
                     recovery_front_edge_count = 0
-
-                recovery_prev_front_dist = recovery_front_dist
 
                 recovery_ready_to_wall_follow = (
                     recovery_front_edge_count >= RECOVERY_FRONT_EDGE_COUNT_N
@@ -1154,7 +1152,7 @@ def main():
                     wall_prev_dist = None
                     wall_open_count = 0
                     recovery_front_edge_count = 0
-                    recovery_prev_front_dist = None
+                    recovery_front_min_dist = None
 
                     v = 0.0
                     w = 0.0
@@ -1168,7 +1166,7 @@ def main():
                     if recovery_ready_to_wall_follow:
                         print(
                             f"[RECOVERY] front edge found after {recovery_turned_deg_log:.1f}deg. "
-                            f"prev_front={recovery_prev_front_log:.2f} "
+                            f"front_min={recovery_front_min_log:.2f} "
                             f"wall90={recovery_wall_dist:.2f} "
                             f"front={recovery_front_dist:.2f}. "
                             "Start wall following."
@@ -1247,7 +1245,7 @@ def main():
                         f"turned={recovery_turned_deg_log:.1f}deg "
                         f"wall90={recovery_wall_dist_log:.2f} "
                         f"wall_front={recovery_front_start_log:.2f} "
-                        f"front_prev={recovery_prev_front_log:.2f} "
+                        f"front_min={recovery_front_min_log:.2f} "
                         f"edge_cnt={recovery_front_edge_count} "
                         f"front={front_log:.2f} "
                         f"gaps={gaps_log} safe={safe_log} "
