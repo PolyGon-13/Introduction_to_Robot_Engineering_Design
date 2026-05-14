@@ -124,6 +124,9 @@ SIDE_GAP_BLOCK_DIST = 0.16
 SIDE_GAP_PENALTY_WEIGHT = 4.0
 SIDE_GAP_BLOCK_ANGLE_DEG = 3.0
 SIDE_GAP_BIAS_MAX_DEG = 10.0
+SIDE_GAP_BIAS_GAIN_DEG_PER_M = 125.0
+SIDE_NARROW_TURN_LIMIT_DEG = 35.0
+SIDE_TIGHT_TURN_LIMIT_DEG = 20.0
 SIDE_STRAIGHT_PENALTY_WEIGHT = 1.0
 NEAR_COLLISION_STRAIGHT_BLOCK_DIST = COLLISION_DIST
 NEAR_COLLISION_STRAIGHT_BLOCK_ANGLE_DEG = 12.0
@@ -600,11 +603,24 @@ def side_gap_pressure(dist):
 
 
 def side_gap_steering_bias(left_dist, right_dist):
-    left_pressure = side_gap_pressure(left_dist)
-    right_pressure = side_gap_pressure(right_dist)
+    if min(left_dist, right_dist) >= SIDE_GAP_WARN_DIST:
+        return 0.0
+
     max_bias = math.radians(SIDE_GAP_BIAS_MAX_DEG)
-    bias = max_bias * (right_pressure - left_pressure)
+    bias = math.radians(SIDE_GAP_BIAS_GAIN_DEG_PER_M) * (left_dist - right_dist)
     return float(np.clip(bias, -max_bias, max_bias))
+
+
+def side_narrow_turn_limit(left_dist, right_dist):
+    side_min = min(left_dist, right_dist)
+
+    if side_min <= SIDE_GAP_BLOCK_DIST:
+        return math.radians(SIDE_TIGHT_TURN_LIMIT_DEG)
+
+    if side_min < SIDE_GAP_WARN_DIST:
+        return math.radians(SIDE_NARROW_TURN_LIMIT_DEG)
+
+    return TURN_HARD_LIMIT_RAD
 
 
 def side_gap_penalty(angle_rad, left_dist, right_dist):
@@ -855,7 +871,8 @@ def choose_fgm_cmd(
     target_angle = math.radians(float(angles_deg[target_idx]))
     target_angle = float(np.clip(target_angle, -TURN_HARD_LIMIT_RAD, TURN_HARD_LIMIT_RAD))
     side_bias = side_gap_steering_bias(info_left, info_right)
-    target_angle = float(np.clip(target_angle + side_bias, -TURN_HARD_LIMIT_RAD, TURN_HARD_LIMIT_RAD))
+    side_turn_limit = side_narrow_turn_limit(info_left, info_right)
+    target_angle = float(np.clip(target_angle + side_bias, -side_turn_limit, side_turn_limit))
     selected_side_penalty = 0.0
     selected_side_block = False
     target_dist = float(smooth_ranges[target_idx])
@@ -897,6 +914,7 @@ def choose_fgm_cmd(
         "side_penalty": float(selected_side_penalty),
         "side_block": bool(selected_side_block),
         "side_bias_deg": math.degrees(side_bias),
+        "side_turn_limit_deg": math.degrees(side_turn_limit),
         "near_penalty": 0.0,
         "near_block": False,
         "turn_penalty": float(selected_turn_penalty[0]),
@@ -1377,6 +1395,7 @@ def main():
                         f"pts={info['points']} coll={int(info['collision'])} "
                         f"sp={info['side_penalty']:.2f} sb={int(info['side_block'])} "
                         f"sbias={info['side_bias_deg']:.1f}deg "
+                        f"slim={info['side_turn_limit_deg']:.0f}deg "
                         f"np={info['near_penalty']:.2f} nb={int(info['near_block'])} "                        
                         f"L={info['left']:.2f} R={info['right']:.2f}"
                     )
