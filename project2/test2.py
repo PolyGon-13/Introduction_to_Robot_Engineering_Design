@@ -67,6 +67,9 @@ RECOVERY_INITIAL_DEADBAND_RAD = math.radians(2.0)
 RECOVERY_WALL_START_DIST = 0.30
 RECOVERY_WALL_START_COUNT_N = 2
 RECOVERY_FRONT_START_DIST = 0.05
+RECOVERY_TURN_SIDE_DANGER_DIST = COLLISION_DIST + 0.02
+RECOVERY_TURN_SIDE_DANGER_ANGLE_DEG = 10.0
+RECOVERY_SIDE_CLEAR_MARGIN = 0.02
 # ============================================================
 
 # ============================================================
@@ -168,6 +171,41 @@ def choose_initial_based_recovery_dir(theta, prev_w=0.0):
         return +1.0
 
     return -1.0
+
+
+def adjust_recovery_turn_dir_for_clearance(info, turn_dir):
+    if info is None:
+        return turn_dir
+
+    turn_dir = math.copysign(1.0, turn_dir)
+    closest = info["closest"]
+    closest_angle = info["closest_angle"]
+
+    if (
+        closest < RECOVERY_TURN_SIDE_DANGER_DIST
+        and abs(closest_angle) > RECOVERY_TURN_SIDE_DANGER_ANGLE_DEG
+    ):
+        closest_side = 1.0 if closest_angle > 0.0 else -1.0
+        if closest_side == turn_dir:
+            return -closest_side
+
+    left_dist = info["left"]
+    right_dist = info["right"]
+    if (
+        turn_dir > 0.0
+        and left_dist < RECOVERY_TURN_SIDE_DANGER_DIST
+        and left_dist + RECOVERY_SIDE_CLEAR_MARGIN < right_dist
+    ):
+        return -1.0
+
+    if (
+        turn_dir < 0.0
+        and right_dist < RECOVERY_TURN_SIDE_DANGER_DIST
+        and right_dist + RECOVERY_SIDE_CLEAR_MARGIN < left_dist
+    ):
+        return 1.0
+
+    return turn_dir
 
 
 class RobotPose:
@@ -875,7 +913,7 @@ def choose_wall_follow_cmd(scan, prev_w, follow_side):
         target_w = follow_side * WALL_SEARCH_W
 
     if front_dist < WALL_FRONT_HARD_STOP_DIST:
-        target_v = WALL_SLOW_V
+        target_v = 0.0
 
         if follow_side > 0.0:
             target_w = max(target_w, WALL_FRONT_KEEP_TURN_W)
@@ -1088,6 +1126,10 @@ def main():
                         pose.theta,
                         last_w,
                     )
+                    recovery_turn_dir = adjust_recovery_turn_dir_for_clearance(
+                        info,
+                        recovery_turn_dir,
+                    )
                     recovery_follow_side = -recovery_turn_dir
                     recovery_start_time = time.time()
                     recovery_wall_seen_count = 0
@@ -1193,6 +1235,11 @@ def main():
 
                 else:
                     v = 0.0
+                    recovery_turn_dir = adjust_recovery_turn_dir_for_clearance(
+                        info,
+                        recovery_turn_dir,
+                    )
+                    recovery_follow_side = -recovery_turn_dir
                     target_w = recovery_turn_dir * RECOVERY_TURN_W
                     target_w = float(
                         np.clip(
