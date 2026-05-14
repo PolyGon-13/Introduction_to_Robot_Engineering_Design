@@ -59,6 +59,8 @@ INITIAL_HEADING_RAD = 0.0
 RECOVERY_TURN_ENABLE = True
 RECOVERY_TURN_W = 1.00
 
+RECOVERY_CUM_TURN_SOFT_LIMIT_RAD = math.radians(70.0)
+RECOVERY_CUM_TURN_HARD_LIMIT_RAD = math.radians(88.0)
 RECOVERY_MIN_TURN_RAD = math.radians(120.0)
 RECOVERY_MAX_TURN_RAD = math.radians(200.0)
 RECOVERY_TURN_TIMEOUT_S = 15.0
@@ -693,6 +695,36 @@ def cumulative_turn_penalty(angle_rad, accumulated_turn_rad):
     return penalty.astype(np.float32), projected_turn
 
 
+def limit_recovery_turn_w(w, accumulated_turn_rad, dt):
+    if abs(w) < 1e-6 or dt <= 1e-6:
+        return w
+
+    projected_turn = accumulated_turn_rad + w * dt
+    abs_current = abs(accumulated_turn_rad)
+    abs_projected = abs(projected_turn)
+
+    if abs_projected <= abs_current + math.radians(0.5):
+        return w
+
+    if abs_current >= RECOVERY_CUM_TURN_HARD_LIMIT_RAD:
+        return 0.0
+
+    if abs_projected >= RECOVERY_CUM_TURN_HARD_LIMIT_RAD:
+        remaining = max(0.0, RECOVERY_CUM_TURN_HARD_LIMIT_RAD - abs_current)
+        return math.copysign(min(abs(w), remaining / dt), w)
+
+    if abs_projected > RECOVERY_CUM_TURN_SOFT_LIMIT_RAD:
+        span = max(
+            1e-6,
+            RECOVERY_CUM_TURN_HARD_LIMIT_RAD - RECOVERY_CUM_TURN_SOFT_LIMIT_RAD,
+        )
+        excess_ratio = (abs_projected - RECOVERY_CUM_TURN_SOFT_LIMIT_RAD) / span
+        scale = max(0.25, 1.0 - excess_ratio)
+        return w * scale
+
+    return w
+
+
 def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, front_factor, accumulated_turn_rad, left_dist=MAX_LIDAR_DIST_M, right_dist=MAX_LIDAR_DIST_M):
     if not gaps:
         return -1, (0, 0), -float("inf"), 0.0, False
@@ -1276,7 +1308,13 @@ def main():
                             RECOVERY_MAX_W,
                         )
                     )
+                    target_w = limit_recovery_turn_w(
+                        target_w,
+                        accumulated_turn_rad,
+                        dt,
+                    )
                     w = rate_limit_w(last_w, target_w, urgent=True)
+                    w = limit_recovery_turn_w(w, accumulated_turn_rad, dt)
                     target_angle = 0.0
 
                     if recovery_turn_dir > 0.0:
