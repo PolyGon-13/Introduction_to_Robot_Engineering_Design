@@ -909,17 +909,32 @@ def choose_wall_follow_cmd(scan, prev_w, follow_side):
     else:
         target_w = follow_side * WALL_SEARCH_W
 
-    if wall_valid and wall_dist < WALL_FRONT_SLOW_DIST:
-        target_v = 0.0
-        target_w = -follow_side * WALL_FRONT_KEEP_TURN_W
+    if wall_valid and wall_dist < WALL_TARGET_DIST:
+        target_v = WALL_SLOW_V
+    
+        close_error = WALL_TARGET_DIST - wall_dist
+        target_w = -follow_side * WALL_KP * close_error
+    
+        if abs(target_w) < WALL_MIN_TURN_W:
+            target_w = -follow_side * WALL_MIN_TURN_W
     
     elif front_dist < WALL_FRONT_HARD_STOP_DIST:
-        target_v = 0.0
-        target_w = -follow_side * WALL_FRONT_KEEP_TURN_W
+        target_v = WALL_SLOW_V
+    
+        front_error = WALL_FRONT_HARD_STOP_DIST - front_dist
+        target_w = -follow_side * WALL_KP * front_error
+    
+        if abs(target_w) < WALL_MIN_TURN_W:
+            target_w = -follow_side * WALL_MIN_TURN_W
     
     elif front_dist < WALL_FRONT_SLOW_DIST:
         target_v = WALL_SLOW_V
-        target_w = -follow_side * WALL_FRONT_KEEP_TURN_W
+    
+        front_error = WALL_FRONT_SLOW_DIST - front_dist
+        target_w = -follow_side * WALL_KP * front_error
+    
+        if abs(target_w) < WALL_MIN_TURN_W:
+            target_w = -follow_side * WALL_MIN_TURN_W
     
     else:
         target_v = WALL_FOLLOW_V
