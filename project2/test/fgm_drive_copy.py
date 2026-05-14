@@ -44,6 +44,10 @@ GOAL_Y_M = 0.0
 GOAL_TOL_M = 0.15
 TURN_SOFT_LIMIT_RAD = math.radians(70.0)
 TURN_HARD_LIMIT_RAD = math.radians(80.0)
+CUM_TURN_SOFT_LIMIT_RAD = math.radians(70.0)
+CUM_TURN_HARD_LIMIT_RAD = math.radians(88.0)
+CUM_TURN_SOFT_PENALTY_WEIGHT = 8.0
+CUM_TURN_HARD_PENALTY_WEIGHT = 50.0
 
 FGM_MIN_ANGLE_DEG = -90.0
 FGM_MAX_ANGLE_DEG = 90.0
@@ -60,6 +64,12 @@ FGM_GOAL_WEIGHT_DANGER = 0.30
 FGM_STRAIGHT_WEIGHT = 0.70
 FGM_CLEARANCE_WEIGHT = 1.80
 FGM_EDGE_WEIGHT = 0.85
+
+SIDE_GAP_WARN_DIST = COLLISION_DIST + 0.06
+SIDE_GAP_BLOCK_DIST = 0.14
+SIDE_GAP_PENALTY_WEIGHT = 4.0
+SIDE_GAP_BLOCK_ANGLE_DEG = 3.0
+SIDE_STRAIGHT_PENALTY_WEIGHT = 1.0
 
 
 def normalize_angle_deg(angle):
@@ -346,9 +356,93 @@ def filter_gaps_by_width(gaps):
     return [(start, end) for start, end in gaps if end - start >= min_bins]
 
 
-def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, front_factor):
+def side_gap_penalty(angle_rad, left_dist, right_dist):
+    penalty = np.zeros_like(angle_rad, dtype=np.float32)
+    hard_block = np.zeros_like(angle_rad, dtype=bool)
+    block_angle_rad = math.radians(SIDE_GAP_BLOCK_ANGLE_DEG)
+    straight_mask = np.abs(angle_rad) <= block_angle_rad
+
+    if left_dist < SIDE_GAP_WARN_DIST:
+        pressure = float(
+            np.clip(
+                (SIDE_GAP_WARN_DIST - left_dist)
+                / max(1e-6, SIDE_GAP_WARN_DIST - SIDE_GAP_BLOCK_DIST),
+                0.0,
+                1.0,
+            )
+        )
+        left_side = angle_rad > block_angle_rad
+        penalty += np.where(
+            left_side,
+            SIDE_GAP_PENALTY_WEIGHT * pressure,
+            0.0,
+        )
+        penalty += np.where(
+            straight_mask,
+            SIDE_STRAIGHT_PENALTY_WEIGHT * pressure,
+            0.0,
+        )
+        if left_dist <= SIDE_GAP_BLOCK_DIST:
+            hard_block |= left_side
+
+    if right_dist < SIDE_GAP_WARN_DIST:
+        pressure = float(
+            np.clip(
+                (SIDE_GAP_WARN_DIST - right_dist)
+                / max(1e-6, SIDE_GAP_WARN_DIST - SIDE_GAP_BLOCK_DIST),
+                0.0,
+                1.0,
+            )
+        )
+        right_side = angle_rad < -block_angle_rad
+        penalty += np.where(
+            right_side,
+            SIDE_GAP_PENALTY_WEIGHT * pressure,
+            0.0,
+        )
+        penalty += np.where(
+            straight_mask,
+            SIDE_STRAIGHT_PENALTY_WEIGHT * pressure,
+            0.0,
+        )
+        if right_dist <= SIDE_GAP_BLOCK_DIST:
+            hard_block |= right_side
+
+    return penalty, hard_block
+
+
+def cumulative_turn_penalty(angle_rad, accumulated_turn_rad):
+    projected_turn = accumulated_turn_rad + angle_rad
+    abs_accumulated = abs(accumulated_turn_rad)
+    abs_projected = np.abs(projected_turn)
+    increasing_turn = abs_projected > (abs_accumulated + math.radians(1.0))
+
+    soft_excess = np.maximum(0.0, abs_projected - CUM_TURN_SOFT_LIMIT_RAD)
+    hard_excess = np.maximum(0.0, abs_projected - CUM_TURN_HARD_LIMIT_RAD)
+    soft_span = max(1e-6, CUM_TURN_HARD_LIMIT_RAD - CUM_TURN_SOFT_LIMIT_RAD)
+
+    soft_penalty = CUM_TURN_SOFT_PENALTY_WEIGHT * (soft_excess / soft_span) ** 2
+    hard_penalty = CUM_TURN_HARD_PENALTY_WEIGHT * (
+        hard_excess / math.radians(10.0) + (hard_excess > 0.0)
+    )
+    penalty = np.where(increasing_turn, soft_penalty + hard_penalty, 0.0)
+
+    return penalty.astype(np.float32), projected_turn
+
+
+def choose_target_from_gaps(
+    angles_deg,
+    ranges,
+    gaps,
+    pose,
+    prev_target_angle,
+    front_factor,
+    accumulated_turn_rad=0.0,
+    left_dist=1.0,
+    right_dist=1.0,
+):
     if not gaps:
-        return -1, (0, 0), -float("inf")
+        return -1, (0, 0), -float("inf"), 0.0, accumulated_turn_rad, 0.0, False
 
     goal_angle = goal_heading_error(pose.x, pose.y, pose.theta)
     goal_angle = float(np.clip(goal_angle, -TURN_HARD_LIMIT_RAD, TURN_HARD_LIMIT_RAD))
@@ -357,6 +451,10 @@ def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, f
     best_idx = -1
     best_gap = (0, 0)
     best_score = -float("inf")
+    best_turn_penalty = 0.0
+    best_projected_turn = accumulated_turn_rad
+    best_side_penalty = 0.0
+    best_side_block = False
     max_target_angle = TURN_HARD_LIMIT_RAD
     goal_weight = (
         FGM_GOAL_WEIGHT_SAFE * (1.0 - front_factor)
@@ -398,6 +496,16 @@ def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, f
             + FGM_PREV_TARGET_WEIGHT * prev_score
             + 0.25 * width_score
         )
+        turn_penalty, projected_turn = cumulative_turn_penalty(
+            angle_rad,
+            accumulated_turn_rad,
+        )
+        side_penalty, side_block = side_gap_penalty(
+            angle_rad,
+            left_dist,
+            right_dist,
+        )
+        scores = scores - turn_penalty - side_penalty
 
         local_best = int(np.argmax(scores))
         score = float(scores[local_best])
@@ -405,16 +513,39 @@ def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, f
             best_score = score
             best_idx = int(idxs[local_best])
             best_gap = (start, end)
+            best_turn_penalty = float(turn_penalty[local_best])
+            best_projected_turn = float(projected_turn[local_best])
+            best_side_penalty = float(side_penalty[local_best])
+            best_side_block = bool(side_block[local_best])
 
-    return best_idx, best_gap, best_score
+    return (
+        best_idx,
+        best_gap,
+        best_score,
+        best_turn_penalty,
+        best_projected_turn,
+        best_side_penalty,
+        best_side_block,
+    )
 
 
-def choose_fallback_target(angles_deg, ranges):
+def choose_fallback_target(
+    angles_deg,
+    ranges,
+    accumulated_turn_rad=0.0,
+    left_dist=1.0,
+    right_dist=1.0,
+):
     usable = ranges > MIN_LIDAR_DIST_M
     if not usable.any():
-        return len(ranges) // 2
+        return len(ranges) // 2, 0.0, False
+    angle_rad = np.deg2rad(angles_deg)
+    turn_penalty, _ = cumulative_turn_penalty(angle_rad, accumulated_turn_rad)
+    side_penalty, side_block = side_gap_penalty(angle_rad, left_dist, right_dist)
     usable_ranges = np.where(usable, ranges, -np.inf)
-    return int(np.argmax(usable_ranges))
+    usable_ranges = usable_ranges - 0.25 * turn_penalty - 0.25 * side_penalty
+    fallback_idx = int(np.argmax(usable_ranges))
+    return fallback_idx, float(side_penalty[fallback_idx]), bool(side_block[fallback_idx])
 
 
 def rate_limit_w(prev_w, target_w, urgent=False):
@@ -445,7 +576,7 @@ def choose_speed(target_dist, target_angle, has_safe_gap):
     return float(np.clip(v, 0.0, BASE_V))
 
 
-def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
+def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose, accumulated_turn_rad=0.0):
     points = lidar_points_to_xy(scan)
     front_dist = front_distance(points)
     front_factor = compute_front_factor(front_dist)
@@ -461,14 +592,43 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
     gaps = filter_gaps_by_width(find_free_gaps(free_mask))
     has_safe_gap = len(gaps) > 0
 
-    target_idx, best_gap, best_score = choose_target_from_gaps(
-        angles_deg, bubble_ranges, gaps, pose, prev_target_angle, front_factor
+    (
+        target_idx,
+        best_gap,
+        best_score,
+        turn_penalty,
+        projected_turn,
+        side_penalty,
+        side_block,
+    ) = choose_target_from_gaps(
+        angles_deg,
+        bubble_ranges,
+        gaps,
+        pose,
+        prev_target_angle,
+        front_factor,
+        accumulated_turn_rad,
+        info_left,
+        info_right,
     )
 
     if target_idx < 0:
-        target_idx = choose_fallback_target(angles_deg, smooth_ranges)
+        target_idx, side_penalty, side_block = choose_fallback_target(
+            angles_deg,
+            smooth_ranges,
+            accumulated_turn_rad,
+            info_left,
+            info_right,
+        )
         best_gap = (target_idx, target_idx + 1)
         best_score = 0.0
+        fallback_angle = np.array([math.radians(float(angles_deg[target_idx]))])
+        fallback_turn_penalty, fallback_projected_turn = cumulative_turn_penalty(
+            fallback_angle,
+            accumulated_turn_rad,
+        )
+        turn_penalty = float(fallback_turn_penalty[0])
+        projected_turn = float(fallback_projected_turn[0])
 
     target_angle = math.radians(float(angles_deg[target_idx]))
     target_angle = float(np.clip(target_angle, -TURN_HARD_LIMIT_RAD, TURN_HARD_LIMIT_RAD))
@@ -502,6 +662,10 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose):
         "collision": target_dist < COLLISION_DIST or closest_dist < COLLISION_DIST,
         "raw_w": raw_w,
         "has_safe_gap": has_safe_gap,
+        "turn_penalty": turn_penalty,
+        "projected_turn_deg": math.degrees(projected_turn),
+        "side_penalty": side_penalty,
+        "side_block": side_block,
     }
 
 
@@ -532,6 +696,7 @@ def main():
     last_target_angle = 0.0
     last_log = 0.0
     last_pose_time = time.time()
+    accumulated_turn_rad = 0.0
 
     try:
         while True:
@@ -549,6 +714,7 @@ def main():
                 if time.time() - last_scan_ok <= SCAN_HOLD_S:
                     send_vw(last_v, last_w)
                     pose.update(last_v, last_w, dt)
+                    accumulated_turn_rad += last_w * dt
                 else:
                     send_vw(0.0, 0.0)
                     pose.update(0.0, 0.0, dt)
@@ -556,14 +722,22 @@ def main():
                 continue
 
             last_scan_ok = time.time()
-            v, w, target_angle, info = choose_fgm_cmd(scan, last_w, last_target_angle, pose)
+            v, w, target_angle, info = choose_fgm_cmd(
+                scan,
+                last_w,
+                last_target_angle,
+                pose,
+                accumulated_turn_rad,
+            )
             send_vw(v, w)
             pose.update(v, w, dt)
+            accumulated_turn_rad += w * dt
             last_v, last_w = v, w
             last_target_angle = target_angle
 
             gd = pose.goal_distance()
             he = goal_heading_error(pose.x, pose.y, pose.theta)
+            accumulated_turn_deg_log = math.degrees(accumulated_turn_rad)
             if gd <= GOAL_TOL_M:
                 stop()
                 print("[INFO] Goal reached. Stopping.")
@@ -574,6 +748,9 @@ def main():
                     f"[FGM] x={pose.x:.2f} y={pose.y:.2f} "
                     f"th={pose.theta:.2f} gd={gd:.2f} he={he:.2f} "
                     f"v={v:.2f} w={w:.2f} raw={info['raw_w']:.2f} "
+                    f"ct={accumulated_turn_deg_log:.1f}deg "
+                    f"pt={info['projected_turn_deg']:.1f}deg "
+                    f"tp={info['turn_penalty']:.2f} "
                     f"tgt={info['target_deg']:.1f} td={info['target_dist']:.2f} "
                     f"front={info['front']:.2f} ff={info['front_factor']:.2f} "
                     f"gap={info['gap_width']:.0f} "
@@ -582,6 +759,7 @@ def main():
                     f"close={info['closest']:.2f}@{info['closest_angle']:.0f} "
                     f"bb={info['bubble_bins']} score={info['score']:.2f} "
                     f"pts={info['points']} coll={int(info['collision'])} "
+                    f"sp={info['side_penalty']:.2f} sb={int(info['side_block'])} "
                     f"L={info['left']:.2f} R={info['right']:.2f}"
                 )
                 last_log = time.time()
