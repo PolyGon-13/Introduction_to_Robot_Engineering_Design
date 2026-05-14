@@ -7,7 +7,6 @@ import threading
 import numpy as np
 
 
-
 LIDAR_PORT = "/dev/ttyUSB0"
 LIDAR_BAUD = 460800
 ARDU_PORT = "/dev/ttyS0"
@@ -51,7 +50,7 @@ TURN_SOFT_LIMIT_RAD = math.radians(70.0)
 TURN_HARD_LIMIT_RAD = math.radians(80.0)
 CUM_TURN_SOFT_LIMIT_RAD = math.radians(70.0)
 CUM_TURN_HARD_LIMIT_RAD = math.radians(88.0)
-CUM_TURN_SOFT_PENALTY_WEIGHT = 8.0
+CUM_TURN_SOFT_PENALTY_WEIGHT = 9.0
 CUM_TURN_HARD_PENALTY_WEIGHT = 50.0
 
 # ============================================================
@@ -1151,7 +1150,7 @@ def main():
 
                 # 텍스트 1 기준 좁은길/막힘 인식 조건.
                 # 이제는 텍스트 2의 Recovery + Wall follow 코드로 넘긴다.
-                blocked_now = info["collision"] and v <= 0.01
+                blocked_now = info["collision"] and v <= 0.05
                 no_safe_gap_now = not info["has_safe_gap"]
                 narrow_wall_trigger = (blocked_now or no_safe_gap_now)
 
