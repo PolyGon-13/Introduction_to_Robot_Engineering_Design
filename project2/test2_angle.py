@@ -69,6 +69,10 @@ RECOVERY_INITIAL_DEADBAND_RAD = math.radians(2.0)
 RECOVERY_WALL_START_DIST = 0.30
 RECOVERY_WALL_START_COUNT_N = 2
 RECOVERY_FRONT_START_DIST = 0.05
+
+RECOVERY_RETURN_BIAS_TIME_S = 1.20
+RECOVERY_RETURN_BIAS_PENALTY_WEIGHT = 3.0
+RECOVERY_RETURN_BIAS_DEADBAND_RAD = math.radians(2.0)
 # ============================================================
 
 # ============================================================
@@ -380,10 +384,6 @@ def side_wall_distance_from_scan(scan, follow_side):
 
 
 def wall_follow_front_distance(points_all):
-    """
-    벽 따라가기 전용 정면 거리.
-    기존 front_distance()보다 폭을 좁혀서 옆벽이 정면 장애물로 잡히는 현상을 줄인다.
-    """
     if len(points_all) == 0:
         return MAX_LIDAR_DIST_M
 
@@ -642,9 +642,31 @@ def cumulative_turn_penalty(angle_rad, accumulated_turn_rad):
     return penalty.astype(np.float32), projected_turn
 
 
-def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, front_factor):
+def recovery_return_bias_penalty(angle_rad, recovery_bias_dir):
+    if abs(recovery_bias_dir) < 1e-6:
+        return np.zeros_like(angle_rad, dtype=np.float32)
+
+    opposite_side = angle_rad * recovery_bias_dir < -RECOVERY_RETURN_BIAS_DEADBAND_RAD
+    side_strength = np.clip(np.abs(angle_rad) / TURN_HARD_LIMIT_RAD, 0.0, 1.0)
+
+    return np.where(
+        opposite_side,
+        RECOVERY_RETURN_BIAS_PENALTY_WEIGHT * side_strength,
+        0.0,
+    ).astype(np.float32)
+
+
+def choose_target_from_gaps(
+    angles_deg,
+    ranges,
+    gaps,
+    pose,
+    prev_target_angle,
+    front_factor,
+    recovery_bias_dir=0.0,
+):
     if not gaps:
-        return -1, (0, 0), -float("inf")
+        return -1, (0, 0), -float("inf"), 0.0
 
     goal_angle = goal_heading_error(pose.x, pose.y, pose.theta)
     goal_angle = float(np.clip(goal_angle, -TURN_HARD_LIMIT_RAD, TURN_HARD_LIMIT_RAD))
@@ -653,6 +675,7 @@ def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, f
     best_idx = -1
     best_gap = (0, 0)
     best_score = -float("inf")
+    best_recovery_bias_penalty = 0.0
     max_target_angle = TURN_HARD_LIMIT_RAD
     goal_weight = (
         FGM_GOAL_WEIGHT_SAFE * (1.0 - front_factor)
@@ -694,6 +717,11 @@ def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, f
             + FGM_PREV_TARGET_WEIGHT * prev_score
             + 0.25 * width_score
         )
+        recovery_bias_penalty = recovery_return_bias_penalty(
+            angle_rad,
+            recovery_bias_dir,
+        )
+        scores = scores - recovery_bias_penalty
 
         local_best = int(np.argmax(scores))
         score = float(scores[local_best])
@@ -701,16 +729,23 @@ def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, f
             best_score = score
             best_idx = int(idxs[local_best])
             best_gap = (start, end)
+            best_recovery_bias_penalty = float(recovery_bias_penalty[local_best])
 
-    return best_idx, best_gap, best_score
+    return best_idx, best_gap, best_score, best_recovery_bias_penalty
 
 
-def choose_fallback_target(angles_deg, ranges):
+def choose_fallback_target(angles_deg, ranges, recovery_bias_dir=0.0):
     usable = ranges > MIN_LIDAR_DIST_M
     if not usable.any():
         return len(ranges) // 2
-    usable_ranges = np.where(usable, ranges, -np.inf)
-    return int(np.argmax(usable_ranges))
+    angle_rad = np.deg2rad(angles_deg)
+    recovery_bias_penalty = recovery_return_bias_penalty(
+        angle_rad,
+        recovery_bias_dir,
+    )
+    usable_scores = np.where(usable, ranges, -np.inf)
+    usable_scores = usable_scores - 0.25 * recovery_bias_penalty
+    return int(np.argmax(usable_scores))
 
 
 def rate_limit_w(prev_w, target_w, urgent=False):
@@ -746,6 +781,7 @@ def choose_fgm_cmd(
     prev_w,
     prev_target_angle,
     pose,
+    recovery_bias_dir=0.0,
 ):
     points = lidar_points_to_xy(scan)
     front_dist = front_distance(points)
@@ -762,14 +798,28 @@ def choose_fgm_cmd(
     gaps = filter_gaps_by_width(find_free_gaps(free_mask))
     has_safe_gap = len(gaps) > 0
 
-    target_idx, best_gap, best_score = choose_target_from_gaps(
-        angles_deg, bubble_ranges, gaps, pose, prev_target_angle, front_factor
+    target_idx, best_gap, best_score, recovery_bias_penalty = choose_target_from_gaps(
+        angles_deg,
+        bubble_ranges,
+        gaps,
+        pose,
+        prev_target_angle,
+        front_factor,
+        recovery_bias_dir,
     )
 
     if target_idx < 0:
-        target_idx = choose_fallback_target(angles_deg, smooth_ranges)
+        target_idx = choose_fallback_target(
+            angles_deg,
+            smooth_ranges,
+            recovery_bias_dir,
+        )
         best_gap = (target_idx, target_idx + 1)
         best_score = 0.0
+        fallback_angle = np.array([math.radians(float(angles_deg[target_idx]))])
+        recovery_bias_penalty = float(
+            recovery_return_bias_penalty(fallback_angle, recovery_bias_dir)[0]
+        )
 
     target_angle = math.radians(float(angles_deg[target_idx]))
     target_angle = float(np.clip(target_angle, -TURN_HARD_LIMIT_RAD, TURN_HARD_LIMIT_RAD))
@@ -811,6 +861,8 @@ def choose_fgm_cmd(
         "near_block": False,
         "turn_penalty": 0.0,
         "projected_turn_deg": math.degrees(target_angle),
+        "recovery_bias_dir": recovery_bias_dir,
+        "recovery_bias_penalty": recovery_bias_penalty,
     }
 
 
@@ -919,7 +971,7 @@ def main():
 
     # ============================================================
     # 텍스트 1의 FGM/좁은길 인식은 그대로 사용하고,
-    # 좁은길/막힘으로 판단되는 순간 텍스트 2의 Recovery + Wall follow로 넘긴다.
+    # 좁은길/막힘으로 판단되는 순간 Recovery 회전 후 FGM으로 복귀한다.
     # ============================================================
     recovery_turn_active = False
     recovery_turn_dir = 0.0
@@ -931,6 +983,9 @@ def main():
     recovery_turned_deg_log = 0.0
     recovery_wall_dist_log = MAX_LIDAR_DIST_M
     recovery_front_start_log = MAX_LIDAR_DIST_M
+    recovery_return_bias_active = False
+    recovery_return_bias_dir = 0.0
+    recovery_return_bias_until = 0.0
 
     wall_follow_active = False
     wall_follow_side = +1.0
@@ -948,6 +1003,10 @@ def main():
             now = time.time()
             dt = max(0.0, min(0.20, now - last_pose_time))
             last_pose_time = now
+
+            if recovery_return_bias_active and now >= recovery_return_bias_until:
+                recovery_return_bias_active = False
+                recovery_return_bias_dir = 0.0
 
             if recovery_turn_active:
                 recovery_accum_turn += abs(last_w) * dt
@@ -1017,11 +1076,12 @@ def main():
                     )
 
                     v, w, target_angle, info = choose_fgm_cmd(
-                    scan,
-                    last_w,
-                    last_target_angle,
-                    pose,
-                )
+                        scan,
+                        last_w,
+                        last_target_angle,
+                        pose,
+                        recovery_return_bias_dir if recovery_return_bias_active else 0.0,
+                    )
                 else:
                     v = wall_v
                     w = wall_w
@@ -1043,10 +1103,11 @@ def main():
                     last_w,
                     last_target_angle,
                     pose,
+                    recovery_return_bias_dir if recovery_return_bias_active else 0.0,
                 )
 
                 # 텍스트 1 기준 좁은길/막힘 인식 조건.
-                # 이제는 텍스트 2의 Recovery + Wall follow 코드로 넘긴다.
+                # 이제는 Recovery 회전 후 bias를 걸고 FGM으로 복귀한다.
                 blocked_now = info["collision"] and v <= 0.01
                 no_safe_gap_now = not info["has_safe_gap"]
                 narrow_wall_trigger = (blocked_now or no_safe_gap_now)
@@ -1065,6 +1126,8 @@ def main():
                     recovery_wall_seen_count = 0
                     recovery_accum_turn = 0.0
                     recovery_turn_active = True
+                    recovery_return_bias_active = False
+                    recovery_return_bias_dir = 0.0
 
                     if blocked_now:
                         trigger_name = "blocked/narrow path"
@@ -1074,16 +1137,16 @@ def main():
                     if recovery_turn_dir > 0.0:
                         print(
                             f"[NARROW] {trigger_name}. "
-                            "Start LEFT recovery turn. Follow RIGHT wall."
+                            "Start LEFT recovery turn. Penalize RIGHT gap after turn."
                         )
                     else:
                         print(
                             f"[NARROW] {trigger_name}. "
-                            "Start RIGHT recovery turn. Follow LEFT wall."
+                            "Start RIGHT recovery turn. Penalize LEFT gap after turn."
                         )
 
             # ------------------------------------------------------------
-            # Recovery 회전 중: 텍스트 2의 벽 인식 조건 그대로 사용한다.
+            # Recovery 회전 중: 일정 각도 회전 후 FGM으로 복귀할 조건을 확인한다.
             # ------------------------------------------------------------
             if (
                 RECOVERY_TURN_ENABLE
@@ -1108,7 +1171,7 @@ def main():
                 recovery_wall_dist_log = recovery_wall_dist
                 recovery_front_start_log = recovery_front_dist
 
-                wall_ready = recovery_wall_dist <= RECOVERY_WALL_START_DIST
+                wall_ready = 0.16 <= recovery_wall_dist <= RECOVERY_WALL_START_DIST
                 front_ok = recovery_front_dist >= RECOVERY_FRONT_START_DIST
                 min_turn_ok = recovery_accum_turn >= RECOVERY_MIN_TURN_RAD
 
@@ -1117,51 +1180,58 @@ def main():
                 else:
                     recovery_wall_seen_count = 0
 
-                recovery_ready_to_wall_follow = (
+                recovery_ready_to_fgm = (
                     recovery_wall_seen_count >= RECOVERY_WALL_START_COUNT_N
                 )
 
                 if (
-                    recovery_ready_to_wall_follow
+                    recovery_ready_to_fgm
                     or recovery_max_turn_reached
                     or recovery_timeout
                 ):
                     recovery_turn_active = False
-                    wall_follow_active = True
-                    wall_follow_side = recovery_follow_side
+                    wall_follow_active = False
+                    recovery_return_bias_active = True
+                    recovery_return_bias_dir = recovery_turn_dir
+                    recovery_return_bias_until = now + RECOVERY_RETURN_BIAS_TIME_S
 
-                    wall_follow_start_time = time.time()
                     wall_prev_dist = None
                     wall_open_count = 0
                     recovery_wall_seen_count = 0
 
-                    v = 0.0
-                    w = 0.0
-                    target_angle = 0.0
-
-                    if wall_follow_side > 0.0:
-                        recovery_mode_name = "RECOVERY_TO_LEFT_WALL"
+                    if recovery_return_bias_dir > 0.0:
+                        penalized_gap_name = "RIGHT"
                     else:
-                        recovery_mode_name = "RECOVERY_TO_RIGHT_WALL"
+                        penalized_gap_name = "LEFT"
 
-                    if recovery_ready_to_wall_follow:
+                    recovery_mode_name = "FGM_RETURN_FROM_RECOVERY"
+
+                    if recovery_ready_to_fgm:
                         print(
-                            f"[RECOVERY] wall found after {recovery_turned_deg_log:.1f}deg. "
+                            f"[RECOVERY] turn complete after {recovery_turned_deg_log:.1f}deg. "
                             f"wall90={recovery_wall_dist:.2f} "
                             f"front={recovery_front_dist:.2f}. "
-                            "Start wall following."
+                            f"Return to FGM driving. Penalize {penalized_gap_name} gap."
                         )
                     elif recovery_max_turn_reached:
                         print(
                             f"[RECOVERY] max turn reached. "
                             f"turned={recovery_turned_deg_log:.1f}deg. "
-                            "Start wall following."
+                            f"Return to FGM driving. Penalize {penalized_gap_name} gap."
                         )
                     else:
                         print(
                             "[RECOVERY] recovery turn timeout. "
-                            "Start wall following anyway."
+                            f"Return to FGM driving. Penalize {penalized_gap_name} gap."
                         )
+
+                    v, w, target_angle, info = choose_fgm_cmd(
+                        scan,
+                        0.0,
+                        last_target_angle,
+                        pose,
+                        recovery_return_bias_dir,
+                    )
 
                 else:
                     v = 0.0
@@ -1257,6 +1327,8 @@ def main():
                         f"ct={accumulated_turn_deg_log:.1f}deg "
                         f"pt={info['projected_turn_deg']:.1f}deg "
                         f"tp={info['turn_penalty']:.2f} "
+                        f"rb={info['recovery_bias_dir']:.0f} "
+                        f"rp={info['recovery_bias_penalty']:.2f} "
                         f"tgt={info['target_deg']:.1f} td={info['target_dist']:.2f} "
                         f"front={info['front']:.2f} ff={info['front_factor']:.2f} "
                         f"gap={info['gap_width']:.0f} "
