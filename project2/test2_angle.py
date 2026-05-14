@@ -664,9 +664,10 @@ def choose_target_from_gaps(
     prev_target_angle,
     front_factor,
     recovery_bias_dir=0.0,
+    accumulated_turn_rad=0.0,
 ):
     if not gaps:
-        return -1, (0, 0), -float("inf"), 0.0
+        return -1, (0, 0), -float("inf"), 0.0, 0.0, accumulated_turn_rad
 
     goal_angle = goal_heading_error(pose.x, pose.y, pose.theta)
     goal_angle = float(np.clip(goal_angle, -TURN_HARD_LIMIT_RAD, TURN_HARD_LIMIT_RAD))
@@ -676,6 +677,8 @@ def choose_target_from_gaps(
     best_gap = (0, 0)
     best_score = -float("inf")
     best_recovery_bias_penalty = 0.0
+    best_turn_penalty = 0.0
+    best_projected_turn = accumulated_turn_rad
     max_target_angle = TURN_HARD_LIMIT_RAD
     goal_weight = (
         FGM_GOAL_WEIGHT_SAFE * (1.0 - front_factor)
@@ -721,7 +724,11 @@ def choose_target_from_gaps(
             angle_rad,
             recovery_bias_dir,
         )
-        scores = scores - recovery_bias_penalty
+        turn_penalty, projected_turn = cumulative_turn_penalty(
+            angle_rad,
+            accumulated_turn_rad,
+        )
+        scores = scores - recovery_bias_penalty - turn_penalty
 
         local_best = int(np.argmax(scores))
         score = float(scores[local_best])
@@ -730,11 +737,25 @@ def choose_target_from_gaps(
             best_idx = int(idxs[local_best])
             best_gap = (start, end)
             best_recovery_bias_penalty = float(recovery_bias_penalty[local_best])
+            best_turn_penalty = float(turn_penalty[local_best])
+            best_projected_turn = float(projected_turn[local_best])
 
-    return best_idx, best_gap, best_score, best_recovery_bias_penalty
+    return (
+        best_idx,
+        best_gap,
+        best_score,
+        best_recovery_bias_penalty,
+        best_turn_penalty,
+        best_projected_turn,
+    )
 
 
-def choose_fallback_target(angles_deg, ranges, recovery_bias_dir=0.0):
+def choose_fallback_target(
+    angles_deg,
+    ranges,
+    recovery_bias_dir=0.0,
+    accumulated_turn_rad=0.0,
+):
     usable = ranges > MIN_LIDAR_DIST_M
     if not usable.any():
         return len(ranges) // 2
@@ -743,8 +764,9 @@ def choose_fallback_target(angles_deg, ranges, recovery_bias_dir=0.0):
         angle_rad,
         recovery_bias_dir,
     )
+    turn_penalty, _ = cumulative_turn_penalty(angle_rad, accumulated_turn_rad)
     usable_scores = np.where(usable, ranges, -np.inf)
-    usable_scores = usable_scores - 0.25 * recovery_bias_penalty
+    usable_scores = usable_scores - 0.25 * recovery_bias_penalty - 0.25 * turn_penalty
     return int(np.argmax(usable_scores))
 
 
@@ -782,6 +804,7 @@ def choose_fgm_cmd(
     prev_target_angle,
     pose,
     recovery_bias_dir=0.0,
+    accumulated_turn_rad=0.0,
 ):
     points = lidar_points_to_xy(scan)
     front_dist = front_distance(points)
@@ -798,7 +821,14 @@ def choose_fgm_cmd(
     gaps = filter_gaps_by_width(find_free_gaps(free_mask))
     has_safe_gap = len(gaps) > 0
 
-    target_idx, best_gap, best_score, recovery_bias_penalty = choose_target_from_gaps(
+    (
+        target_idx,
+        best_gap,
+        best_score,
+        recovery_bias_penalty,
+        turn_penalty,
+        projected_turn,
+    ) = choose_target_from_gaps(
         angles_deg,
         bubble_ranges,
         gaps,
@@ -806,6 +836,7 @@ def choose_fgm_cmd(
         prev_target_angle,
         front_factor,
         recovery_bias_dir,
+        accumulated_turn_rad,
     )
 
     if target_idx < 0:
@@ -813,6 +844,7 @@ def choose_fgm_cmd(
             angles_deg,
             smooth_ranges,
             recovery_bias_dir,
+            accumulated_turn_rad,
         )
         best_gap = (target_idx, target_idx + 1)
         best_score = 0.0
@@ -820,6 +852,12 @@ def choose_fgm_cmd(
         recovery_bias_penalty = float(
             recovery_return_bias_penalty(fallback_angle, recovery_bias_dir)[0]
         )
+        fallback_turn_penalty, fallback_projected_turn = cumulative_turn_penalty(
+            fallback_angle,
+            accumulated_turn_rad,
+        )
+        turn_penalty = float(fallback_turn_penalty[0])
+        projected_turn = float(fallback_projected_turn[0])
 
     target_angle = math.radians(float(angles_deg[target_idx]))
     target_angle = float(np.clip(target_angle, -TURN_HARD_LIMIT_RAD, TURN_HARD_LIMIT_RAD))
@@ -859,8 +897,8 @@ def choose_fgm_cmd(
         "side_block": False,
         "near_penalty": 0.0,
         "near_block": False,
-        "turn_penalty": 0.0,
-        "projected_turn_deg": math.degrees(target_angle),
+        "turn_penalty": turn_penalty,
+        "projected_turn_deg": math.degrees(projected_turn),
         "recovery_bias_dir": recovery_bias_dir,
         "recovery_bias_penalty": recovery_bias_penalty,
     }
@@ -1081,6 +1119,7 @@ def main():
                         last_target_angle,
                         pose,
                         recovery_return_bias_dir if recovery_return_bias_active else 0.0,
+                        accumulated_turn_rad,
                     )
                 else:
                     v = wall_v
@@ -1104,6 +1143,7 @@ def main():
                     last_target_angle,
                     pose,
                     recovery_return_bias_dir if recovery_return_bias_active else 0.0,
+                    accumulated_turn_rad,
                 )
 
                 # 텍스트 1 기준 좁은길/막힘 인식 조건.
@@ -1231,6 +1271,7 @@ def main():
                         last_target_angle,
                         pose,
                         recovery_return_bias_dir,
+                        accumulated_turn_rad,
                     )
 
                 else:
