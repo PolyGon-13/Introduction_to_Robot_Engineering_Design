@@ -93,8 +93,8 @@ RECOVERY_MAX_TURN_RAD = math.radians(200.0) # Recovery 최대 회전각도
 RECOVERY_TURN_TIMEOUT_S = 15.0 # Recovery 해당 초 지나면 강제로 벽 따라가기
 
 RECOVERY_TURN_ENABLE = True # Recovery 기능 on/off 스위치
-RECOVERY_OPEN_JUMP_DIST = 0.09
-RECOVERY_OPEN_PREV_MAX_DIST = 0.45
+RECOVERY_FRONT_OPEN_JUMP_DIST = 0.09
+RECOVERY_FRONT_OPEN_PREV_MAX_DIST = 0.45
 
 
 # Wall Follow
@@ -885,7 +885,7 @@ def main():
     recovery_start_time = 0.0
     recovery_wall_seen_count = 0
     recovery_accum_turn = 0.0
-    recovery_prev_open_dist = None
+    recovery_prev_front_dist = None
 
     recovery_turned_deg_log = 0.0
     recovery_wall_dist_log = MAX_LIDAR_DIST_M
@@ -1029,7 +1029,7 @@ def main():
                     recovery_start_time = time.time()
                     recovery_wall_seen_count = 0
                     recovery_accum_turn = 0.0
-                    recovery_prev_open_dist = None
+                    recovery_prev_front_dist = None
                     recovery_turn_active = True
 
                     if blocked_now:
@@ -1066,23 +1066,22 @@ def main():
 
                 recovery_points_all = lidar_points_to_xy_all(scan)
                 recovery_front_dist = wall_follow_front_distance(recovery_points_all)
-                recovery_open_dist = recovery_wall_dist
 
                 recovery_turned_deg_log = math.degrees(recovery_accum_turn)
                 recovery_wall_dist_log = recovery_wall_dist
                 recovery_front_start_log = recovery_front_dist
 
                 recovery_open_detected = (
-                    recovery_prev_open_dist is not None
-                    and recovery_prev_open_dist <= RECOVERY_OPEN_PREV_MAX_DIST
-                    and (recovery_open_dist - recovery_prev_open_dist) >= RECOVERY_OPEN_JUMP_DIST
+                    recovery_prev_front_dist is not None
+                    and recovery_prev_front_dist <= RECOVERY_FRONT_OPEN_PREV_MAX_DIST
+                    and (recovery_front_dist - recovery_prev_front_dist) >= RECOVERY_FRONT_OPEN_JUMP_DIST
                 )
 
                 recovery_wall_seen_count = 1 if recovery_open_detected else 0
 
                 recovery_ready_to_wall_follow = recovery_open_detected
 
-                recovery_prev_open_dist = recovery_open_dist
+                recovery_prev_front_dist = recovery_front_dist
 
                 if (
                     recovery_ready_to_wall_follow
@@ -1097,7 +1096,7 @@ def main():
                     wall_prev_dist = None
                     wall_open_count = 0
                     recovery_wall_seen_count = 0
-                    recovery_prev_open_dist = None
+                    recovery_prev_front_dist = None
 
                     v = 0.0
                     w = 0.0
