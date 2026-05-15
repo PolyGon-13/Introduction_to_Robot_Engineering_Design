@@ -228,7 +228,7 @@ class RPLidarC1:
                     buf_q.append(quality)
 
             except (serial.SerialException, OSError) as e:
-                # print(f"[LIDAR] Serial Error: {e}, retrying in 1 second...")
+                print(f"[LIDAR] Serial Error: {e}, retrying in 1 second...")
                 time.sleep(1.0)
                 try:
                     self.ser.reset_input_buffer()
@@ -844,7 +844,7 @@ def main():
     pose = RobotPose()
     lidar = RPLidarC1(LIDAR_PORT, LIDAR_BAUD)
     ardu = serial.Serial(ARDU_PORT, ARDU_BAUD, timeout=0.1)
-    # print("[INFO] Warming up for 2 seconds...")
+    print("[INFO] Warming up for 2 seconds...")
     time.sleep(2.0)
 
     def send_vw(v, w):
@@ -854,13 +854,12 @@ def main():
         ardu.write(b"S\n")
 
     stop()
-    # print("[INFO] Initialization Complete. Press Enter to start!")
+    print("[INFO] Initialization Complete. Press Enter to start!")
     try:
         input()
     except EOFError:
-        # print("[WARN] Could not read standard input. Starting immediately.")
-        pass
-    # print("[INFO] Go!!")
+        print("[WARN] Could not read standard input. Starting immediately.")
+    print("[INFO] Go!!")
 
     pose.reset()
     last_scan_ok = 0.0
@@ -928,7 +927,7 @@ def main():
                 continue
 
             if scan_is_stale and not stale_scan_warned:
-                # print(f"[LIDAR] Stale scan age={scan_age:.2f}s. Reusing latest scan.")
+                print(f"[LIDAR] Stale scan age={scan_age:.2f}s. Reusing latest scan.")
                 stale_scan_warned = True
 
             last_processed_scan_seq = scan_seq
@@ -971,10 +970,10 @@ def main():
                     recovery_mode_name = "FGM_RETURN_FROM_WALL"
                     returned_from_wall_this_loop = True
 
-                    # print(
-                    #     "[WALL] wall distance opened suddenly. "
-                    #     "Return to FGM driving."
-                    # )
+                    print(
+                        "[WALL] wall distance opened suddenly. "
+                        "Return to FGM driving."
+                    )
 
                     v, w, target_angle, info = choose_fgm_cmd(
                     scan,
@@ -1029,17 +1028,15 @@ def main():
                         trigger_name = "no safe path"
 
                     if recovery_turn_dir > 0.0:
-                        # print(
-                        #     f"[NARROW] {trigger_name}. "
-                        #     "Start LEFT recovery turn. Follow RIGHT wall."
-                        # )
-                        pass
+                        print(
+                            f"[NARROW] {trigger_name}. "
+                            "Start LEFT recovery turn. Follow RIGHT wall."
+                        )
                     else:
-                        # print(
-                        #     f"[NARROW] {trigger_name}. "
-                        #     "Start RIGHT recovery turn. Follow LEFT wall."
-                        # )
-                        pass
+                        print(
+                            f"[NARROW] {trigger_name}. "
+                            "Start RIGHT recovery turn. Follow LEFT wall."
+                        )
 
             if (
                 RECOVERY_TURN_ENABLE
@@ -1101,26 +1098,23 @@ def main():
                         recovery_mode_name = "RECOVERY_TO_RIGHT_WALL"
 
                     if recovery_ready_to_wall_follow:
-                        # print(
-                        #     f"[RECOVERY] wall found after {recovery_turned_deg_log:.1f}deg. "
-                        #     f"wall90={recovery_wall_dist:.2f} "
-                        #     f"front={recovery_front_dist:.2f}. "
-                        #     "Start wall following."
-                        # )
-                        pass
+                        print(
+                            f"[RECOVERY] wall found after {recovery_turned_deg_log:.1f}deg. "
+                            f"wall90={recovery_wall_dist:.2f} "
+                            f"front={recovery_front_dist:.2f}. "
+                            "Start wall following."
+                        )
                     elif recovery_max_turn_reached:
-                        # print(
-                        #     f"[RECOVERY] max turn reached. "
-                        #     f"turned={recovery_turned_deg_log:.1f}deg. "
-                        #     "Start wall following."
-                        # )
-                        pass
+                        print(
+                            f"[RECOVERY] max turn reached. "
+                            f"turned={recovery_turned_deg_log:.1f}deg. "
+                            "Start wall following."
+                        )
                     else:
-                        # print(
-                        #     "[RECOVERY] recovery turn timeout. "
-                        #     "Start wall following anyway."
-                        # )
-                        pass
+                        print(
+                            "[RECOVERY] recovery turn timeout. "
+                            "Start wall following anyway."
+                        )
 
                 else:
                     v = 0.0
@@ -1170,20 +1164,20 @@ def main():
                         left_log = 1.0
                         right_log = 1.0
 
-                    # print(
-                    #     f"[{recovery_mode_name}] x={pose.x:.2f} y={pose.y:.2f} "
-                    #     f"th={math.degrees(pose.theta):.1f}deg "
-                    #     f"v={v:.2f} w={w:.2f} "
-                    #     f"ct={accumulated_turn_deg_log:.1f}deg "
-                    #     f"turned={recovery_turned_deg_log:.1f}deg "
-                    #     f"wall90={recovery_wall_dist_log:.2f} "
-                    #     f"wall_front={recovery_front_start_log:.2f} "
-                    #     f"seen_cnt={recovery_wall_seen_count} "
-                    #     f"front={front_log:.2f} "
-                    #     f"gaps={gaps_log} safe={safe_log} "
-                    #     f"close={close_log:.2f}@{close_angle_log:.0f} "
-                    #     f"L={left_log:.2f} R={right_log:.2f}"
-                    # )
+                    print(
+                        f"[{recovery_mode_name}] x={pose.x:.2f} y={pose.y:.2f} "
+                        f"th={math.degrees(pose.theta):.1f}deg "
+                        f"v={v:.2f} w={w:.2f} "
+                        f"ct={accumulated_turn_deg_log:.1f}deg "
+                        f"turned={recovery_turned_deg_log:.1f}deg "
+                        f"wall90={recovery_wall_dist_log:.2f} "
+                        f"wall_front={recovery_front_start_log:.2f} "
+                        f"seen_cnt={recovery_wall_seen_count} "
+                        f"front={front_log:.2f} "
+                        f"gaps={gaps_log} safe={safe_log} "
+                        f"close={close_log:.2f}@{close_angle_log:.0f} "                        
+                        f"L={left_log:.2f} R={right_log:.2f}"
+                    )
 
                 elif wall_follow_active:
                     if wall_follow_side > 0.0:
@@ -1191,39 +1185,38 @@ def main():
                     else:
                         wall_name = "right_wall_90_30_avg"
 
-                    # print(
-                    #     f"[{recovery_mode_name}] x={pose.x:.2f} y={pose.y:.2f} "
-                    #     f"th={math.degrees(pose.theta):.1f}deg "
-                    #     f"v={v:.2f} w={w:.2f} "
-                    #     f"ct={accumulated_turn_deg_log:.1f}deg "
-                    #     f"{wall_name}={wall_dist_log:.2f} "
-                    #     f"wall_front={wall_front_log:.2f} "
-                    #     f"valid={int(wall_valid_log)} "
-                    #     f"open_cnt={wall_open_count} "
-                    #     f"FGM=OFF"
-                    # )
+                    print(
+                        f"[{recovery_mode_name}] x={pose.x:.2f} y={pose.y:.2f} "
+                        f"th={math.degrees(pose.theta):.1f}deg "
+                        f"v={v:.2f} w={w:.2f} "
+                        f"ct={accumulated_turn_deg_log:.1f}deg "
+                        f"{wall_name}={wall_dist_log:.2f} "
+                        f"wall_front={wall_front_log:.2f} "
+                        f"valid={int(wall_valid_log)} "
+                        f"open_cnt={wall_open_count} "
+                        f"FGM=OFF"
+                    )
 
                 elif info is not None:
-                    # print(
-                    #     f"[FGM] x={pose.x:.2f} y={pose.y:.2f} "
-                    #     f"th={pose.theta:.2f} "
-                    #     f"v={v:.2f} w={w:.2f} raw={info['raw_w']:.2f} "
-                    #     f"ct={accumulated_turn_deg_log:.1f}deg "
-                    #     f"pt={info['projected_turn_deg']:.1f}deg "
-                    #     f"tp={info['turn_penalty']:.2f} "
-                    #     f"tgt={info['target_deg']:.1f} td={info['target_dist']:.2f} "
-                    #     f"front={info['front']:.2f} ff={info['front_factor']:.2f} "
-                    #     f"gap={info['gap_width']:.0f} "
-                    #     f"gr={info['gap_right']:.0f} gl={info['gap_left']:.0f} "
-                    #     f"gaps={info['gaps']} safe={int(info['has_safe_gap'])} "
-                    #     f"close={info['closest']:.2f}@{info['closest_angle']:.0f} "
-                    #     f"bb={info['bubble_bins']} score={info['score']:.2f} "
-                    #     f"pts={info['points']} coll={int(info['collision'])} "
-                    #     f"sbias={info['side_bias_deg']:.1f}deg "
-                    #     f"slim={info['side_turn_limit_deg']:.0f}deg "
-                    #     f"L={info['left']:.2f} R={info['right']:.2f}"
-                    # )
-                    pass
+                    print(
+                        f"[FGM] x={pose.x:.2f} y={pose.y:.2f} "
+                        f"th={pose.theta:.2f} "
+                        f"v={v:.2f} w={w:.2f} raw={info['raw_w']:.2f} "
+                        f"ct={accumulated_turn_deg_log:.1f}deg "
+                        f"pt={info['projected_turn_deg']:.1f}deg "
+                        f"tp={info['turn_penalty']:.2f} "
+                        f"tgt={info['target_deg']:.1f} td={info['target_dist']:.2f} "
+                        f"front={info['front']:.2f} ff={info['front_factor']:.2f} "
+                        f"gap={info['gap_width']:.0f} "
+                        f"gr={info['gap_right']:.0f} gl={info['gap_left']:.0f} "
+                        f"gaps={info['gaps']} safe={int(info['has_safe_gap'])} "
+                        f"close={info['closest']:.2f}@{info['closest_angle']:.0f} "
+                        f"bb={info['bubble_bins']} score={info['score']:.2f} "
+                        f"pts={info['points']} coll={int(info['collision'])} "
+                        f"sbias={info['side_bias_deg']:.1f}deg "
+                        f"slim={info['side_turn_limit_deg']:.0f}deg "
+                        f"L={info['left']:.2f} R={info['right']:.2f}"
+                    )
 
                 last_log = time.time()
 
@@ -1236,7 +1229,7 @@ def main():
         time.sleep(0.2)
         ardu.close()
         lidar.close()
-        # print("[INFO] Shutdown complete.")
+        print("[INFO] Shutdown complete.")
 
 
 if __name__ == "__main__":
