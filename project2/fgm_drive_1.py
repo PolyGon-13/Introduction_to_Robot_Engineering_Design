@@ -183,6 +183,8 @@ class RPLidarC1:
 
         self.lock = threading.Lock()
         self.latest_scan = None
+        self.scan_seq = 0
+        self.scan_time = 0.0
         self.running = True
         self.thread = threading.Thread(target=self._loop, daemon=True)
         self.thread.start()
@@ -214,6 +216,8 @@ class RPLidarC1:
                             np.array(buf_d, dtype=np.float32),
                             np.array(buf_q, dtype=np.float32),
                         )
+                        self.scan_seq += 1
+                        self.scan_time = time.time()
                     buf_a, buf_d, buf_q = [], [], []
 
                 if dist > 0 and quality > 0:
@@ -231,7 +235,7 @@ class RPLidarC1:
 
     def get_scan(self):
         with self.lock:
-            return self.latest_scan
+            return self.latest_scan, self.scan_seq, self.scan_time
 
     def close(self):
         self.running = False
@@ -844,6 +848,8 @@ def main():
 
     pose.reset()
     last_scan_ok = 0.0
+    last_processed_scan_seq = -1
+    stale_scan_warned = False
     last_v, last_w = BASE_V, 0.0
     last_target_angle = 0.0
     last_log = 0.0
@@ -880,7 +886,7 @@ def main():
             if recovery_turn_active:
                 recovery_accum_turn += abs(last_w) * dt
 
-            scan = lidar.get_scan()
+            scan, scan_seq, scan_time = lidar.get_scan()
             if scan is None:
                 if time.time() - last_scan_ok <= SCAN_HOLD_S:
                     send_vw(last_v, last_w)
@@ -892,7 +898,25 @@ def main():
                 time.sleep(LOOP_DT_S)
                 continue
 
-            last_scan_ok = time.time()
+            scan_age = now - scan_time
+            scan_is_new = scan_seq != last_processed_scan_seq
+            scan_is_stale = scan_age > SCAN_HOLD_S
+
+            if scan_is_new:
+                stale_scan_warned = False
+            elif not scan_is_stale:
+                send_vw(last_v, last_w)
+                pose.update(last_v, last_w, dt)
+                accumulated_turn_rad += last_w * dt
+                time.sleep(LOOP_DT_S)
+                continue
+
+            if scan_is_stale and not stale_scan_warned:
+                print(f"[LIDAR] Stale scan age={scan_age:.2f}s. Reusing latest scan.")
+                stale_scan_warned = True
+
+            last_processed_scan_seq = scan_seq
+            last_scan_ok = scan_time
 
             v = 0.0
             w = 0.0
