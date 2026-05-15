@@ -76,6 +76,9 @@ FGM_GOAL_WEIGHT_DANGER = 0.30 # 위험할 때 목표 방향 가중치
 FGM_STRAIGHT_WEIGHT = 0.70 # 정면 선호 가중치
 FGM_CLEARANCE_WEIGHT = 1.80 # 넓게 뚫린 방향 선호 가중치
 FGM_EDGE_WEIGHT = 0.85 # Gap 중앙 선호 가중치
+FGM_RANGE_DISCONTINUITY_WEIGHT = 0.70
+FGM_RANGE_DISCONTINUITY_CAP = 0.50
+FGM_RANGE_DISCONTINUITY_WINDOW_DEG = 12.0
 
 SIDE_GAP_WARN_DIST = 0.175 # 옆 경고 시작 거리
 SIDE_GAP_BLOCK_DIST = 0.16 # 강하게 거부할 옆 거리
@@ -583,7 +586,30 @@ def cumulative_turn_penalty(angle_rad, accumulated_turn_rad):
     return penalty.astype(np.float32), projected_turn
 
 
-def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, front_factor, accumulated_turn_rad):
+def range_discontinuity_scores(ranges, idxs):
+    half_window = max(1, int(round(FGM_RANGE_DISCONTINUITY_WINDOW_DEG / FGM_ANGLE_STEP_DEG)))
+    scores = np.zeros(len(idxs), dtype=np.float32)
+
+    for out_idx, center_idx in enumerate(idxs):
+        start = max(0, int(center_idx) - half_window)
+        end = min(len(ranges), int(center_idx) + half_window + 1)
+        values = ranges[start:end]
+        valid = np.isfinite(values) & (values >= MIN_LIDAR_DIST_M) & (values <= MAX_LIDAR_DIST_M)
+        values = values[valid]
+        if len(values) < 2:
+            continue
+
+        diffs = np.abs(np.diff(values))
+        if len(diffs) == 0:
+            continue
+
+        discontinuity = float(np.percentile(diffs, 90))
+        scores[out_idx] = float(np.clip(discontinuity / FGM_RANGE_DISCONTINUITY_CAP, 0.0, 1.0))
+
+    return scores
+
+
+def choose_target_from_gaps(angles_deg, ranges, discontinuity_ranges, gaps, pose, prev_target_angle, front_factor, accumulated_turn_rad):
     if not gaps:
         return -1, (0, 0), -float("inf")
 
@@ -611,6 +637,7 @@ def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, f
         angle_rad = angle_rad[targetable]
         local_width = max(1, end - start)
 
+        discontinuity_score = range_discontinuity_scores(discontinuity_ranges, idxs)
         edge_steps = np.minimum(idxs - start + 1, end - idxs)
         edge_score = np.clip(edge_steps / max(1.0, local_width * 0.5), 0.0, 1.0)
         clearance_score = np.clip(ranges[idxs] / CLEARANCE_CAP, 0.0, 1.0)
@@ -635,6 +662,7 @@ def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, f
             + goal_weight * goal_score
             + FGM_PREV_TARGET_WEIGHT * prev_score
             + 0.25 * width_score
+            + FGM_RANGE_DISCONTINUITY_WEIGHT * discontinuity_score
             - turn_penalty
         )
         if not np.isfinite(scores).any():
@@ -711,7 +739,7 @@ def choose_fgm_cmd(
     has_safe_gap = len(gaps) > 0
 
     target_idx, best_gap, best_score = choose_target_from_gaps(
-        angles_deg, bubble_ranges, gaps, pose, prev_target_angle, front_factor, accumulated_turn_rad
+        angles_deg, bubble_ranges, smooth_ranges, gaps, pose, prev_target_angle, front_factor, accumulated_turn_rad
     )
 
     if target_idx < 0:
