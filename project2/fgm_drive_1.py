@@ -20,7 +20,7 @@ LIDAR_ANGLE_SIGN = -1.0 # 라이다 각도 방향 반전 여부
 MIN_LIDAR_DIST_M = 0.05 # 라이다 유효 최소 거리
 MAX_LIDAR_DIST_M = 2.5 # 라이다 유효 최대 거리
 MIN_QUALITY = 1 # 라이다 품질 최소값
-MIN_X_FOR_PLANNING = 0.10 # FGM에 넣을 최소 전방 거리
+MIN_X_FOR_PLANNING = 0.00 # FGM에 넣을 최소 전방 거리
 MAX_EVAL_POINTS = 720 # 계산에 사용할 라이다 포인트 최대 개수
 SCAN_HOLD_S = 0.30 # 최근 라이다 스캔을 유효하다고 판단할 시간 (마지막 정상 스캔이 N초 이내면 그냥 사용)
 
