@@ -1109,7 +1109,7 @@ def main():
 
             accumulated_turn_deg_log = math.degrees(accumulated_turn_rad)
 
-            if time.time() - last_log > 0.25:
+            if time.time() > 0.05:
                 if recovery_turn_active:
                     if info is not None:
                         front_log = info["front"]
