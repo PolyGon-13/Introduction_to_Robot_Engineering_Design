@@ -78,7 +78,7 @@ FGM_CLEARANCE_WEIGHT = 1.80 # 넓게 뚫린 방향 선호 가중치
 FGM_EDGE_WEIGHT = 0.85 # Gap 중앙 선호 가중치
 FGM_RANGE_DISCONTINUITY_WEIGHT = 0.70
 FGM_RANGE_DISCONTINUITY_CAP = 0.50
-FGM_RANGE_DISCONTINUITY_WINDOW_DEG = 12.0
+FGM_RANGE_DISCONTINUITY_EDGE_WINDOW_DEG = 3.0
 
 SIDE_GAP_WARN_DIST = 0.175 # 옆 경고 시작 거리
 SIDE_GAP_BLOCK_DIST = 0.16 # 강하게 거부할 옆 거리
@@ -586,27 +586,35 @@ def cumulative_turn_penalty(angle_rad, accumulated_turn_rad):
     return penalty.astype(np.float32), projected_turn
 
 
-def range_discontinuity_scores(ranges, idxs):
-    half_window = max(1, int(round(FGM_RANGE_DISCONTINUITY_WINDOW_DEG / FGM_ANGLE_STEP_DEG)))
-    scores = np.zeros(len(idxs), dtype=np.float32)
+def valid_range_value(value):
+    return (
+        np.isfinite(value)
+        and value >= MIN_LIDAR_DIST_M
+        and value <= MAX_LIDAR_DIST_M
+    )
 
-    for out_idx, center_idx in enumerate(idxs):
-        start = max(0, int(center_idx) - half_window)
-        end = min(len(ranges), int(center_idx) + half_window + 1)
-        values = ranges[start:end]
-        valid = np.isfinite(values) & (values >= MIN_LIDAR_DIST_M) & (values <= MAX_LIDAR_DIST_M)
-        values = values[valid]
-        if len(values) < 2:
-            continue
 
-        diffs = np.abs(np.diff(values))
-        if len(diffs) == 0:
-            continue
+def edge_jump_score(ranges, left_idx, right_idx):
+    if left_idx < 0 or right_idx >= len(ranges):
+        return 0.0
 
-        discontinuity = float(np.percentile(diffs, 90))
-        scores[out_idx] = float(np.clip(discontinuity / FGM_RANGE_DISCONTINUITY_CAP, 0.0, 1.0))
+    left_value = float(ranges[left_idx])
+    right_value = float(ranges[right_idx])
+    if not valid_range_value(left_value) or not valid_range_value(right_value):
+        return 0.0
 
-    return scores
+    return float(np.clip(abs(right_value - left_value) / FGM_RANGE_DISCONTINUITY_CAP, 0.0, 1.0))
+
+
+def gap_edge_discontinuity_score(ranges, start, end):
+    edge_window = max(1, int(round(FGM_RANGE_DISCONTINUITY_EDGE_WINDOW_DEG / FGM_ANGLE_STEP_DEG)))
+    scores = []
+
+    for offset in range(edge_window):
+        scores.append(edge_jump_score(ranges, start - 1 - offset, start + offset))
+        scores.append(edge_jump_score(ranges, end - 1 - offset, end + offset))
+
+    return max(scores) if scores else 0.0
 
 
 def choose_target_from_gaps(angles_deg, ranges, discontinuity_ranges, gaps, pose, prev_target_angle, front_factor, accumulated_turn_rad):
@@ -638,7 +646,7 @@ def choose_target_from_gaps(angles_deg, ranges, discontinuity_ranges, gaps, pose
         angle_rad = angle_rad[targetable]
         local_width = max(1, end - start)
 
-        discontinuity_score = range_discontinuity_scores(discontinuity_ranges, idxs)
+        discontinuity_score = gap_edge_discontinuity_score(discontinuity_ranges, start, end)
         edge_steps = np.minimum(idxs - start + 1, end - idxs)
         edge_score = np.clip(edge_steps / max(1.0, local_width * 0.5), 0.0, 1.0)
         clearance_score = np.clip(ranges[idxs] / CLEARANCE_CAP, 0.0, 1.0)
@@ -685,7 +693,7 @@ def choose_target_from_gaps(angles_deg, ranges, discontinuity_ranges, gaps, pose
             "goal": float(goal_weight * goal_score[local_best]),
             "prev": float(FGM_PREV_TARGET_WEIGHT * prev_score[local_best]),
             "width": float(0.25 * width_score),
-            "disc": float(FGM_RANGE_DISCONTINUITY_WEIGHT * discontinuity_score[local_best]),
+            "disc": float(FGM_RANGE_DISCONTINUITY_WEIGHT * discontinuity_score),
             "turn_penalty": float(turn_penalty[local_best]),
         })
         if score > best_score:
