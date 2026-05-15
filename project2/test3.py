@@ -27,7 +27,6 @@ BASE_V = 0.18
 MIN_V = 0.15
 MAX_ABS_W = 0.70
 
-# Recovery / Wall follow 전용 최대 회전속도
 RECOVERY_MAX_W = 1.00
 WALL_MAX_W = 0.65
 
@@ -42,19 +41,12 @@ W_CMD_RATE_LIMIT = 0.30
 W_CMD_RATE_LIMIT_URGENT = 0.40
 URGENT_FRONT_DIST = 0.30
 
-GOAL_X_M = 5.0
-GOAL_Y_M = 0.0
-GOAL_TOL_M = 0.15
-TURN_SOFT_LIMIT_RAD = math.radians(70.0)
 TURN_HARD_LIMIT_RAD = math.radians(80.0)
 CUM_TURN_SOFT_LIMIT_RAD = math.radians(90.0)
 CUM_TURN_HARD_LIMIT_RAD = math.radians(100.0)
 CUM_TURN_SOFT_PENALTY_WEIGHT = 8.0
 CUM_TURN_HARD_PENALTY_WEIGHT = 50.0
 
-# ============================================================
-# 좁은길/막힘 감지 후 Recovery 회전 설정
-# ============================================================
 INITIAL_HEADING_RAD = 0.0
 RECOVERY_TURN_ENABLE = True
 RECOVERY_TURN_W = 1.00
@@ -67,11 +59,7 @@ RECOVERY_INITIAL_DEADBAND_RAD = math.radians(2.0)
 RECOVERY_WALL_START_DIST = 0.30
 RECOVERY_WALL_START_COUNT_N = 2
 RECOVERY_FRONT_START_DIST = 0.05
-# ============================================================
 
-# ============================================================
-# Recovery 회전 후 벽 따라가기 설정
-# ============================================================
 WALL_FOLLOW_ENABLE = True
 
 WALL_TARGET_DIST = 0.22
@@ -93,13 +81,11 @@ WALL_FRONT_Y_HALF = 0.16
 WALL_FRONT_CHECK_DIST = 0.30
 WALL_FRONT_SLOW_DIST = 0.14
 WALL_FRONT_HARD_STOP_DIST = 0.08
-WALL_FRONT_KEEP_TURN_W = 0.18
 
 WALL_MIN_FOLLOW_TIME_S = 0.80
 WALL_JUMP_DIST = 0.10
 WALL_LOST_DIST = 0.30
 WALL_OPEN_COUNT_N = 3
-# ============================================================
 
 FGM_MIN_ANGLE_DEG = -90.0
 FGM_MAX_ANGLE_DEG = 90.0
@@ -117,21 +103,12 @@ FGM_STRAIGHT_WEIGHT = 0.70
 FGM_CLEARANCE_WEIGHT = 1.80
 FGM_EDGE_WEIGHT = 0.85
 
-# 기존 Recovery 로그 호환용 상수
-# 텍스트 2 FGM 경로 선택에는 사용하지 않는다.
 SIDE_GAP_WARN_DIST = COLLISION_DIST - 0.01
 SIDE_GAP_BLOCK_DIST = 0.16
-SIDE_GAP_PENALTY_WEIGHT = 4.0
-SIDE_GAP_BLOCK_ANGLE_DEG = 3.0
 SIDE_GAP_BIAS_MAX_DEG = 10.0
 SIDE_GAP_BIAS_GAIN_DEG_PER_M = 125.0
 SIDE_NARROW_TURN_LIMIT_DEG = 35.0
 SIDE_TIGHT_TURN_LIMIT_DEG = 20.0
-SIDE_STRAIGHT_PENALTY_WEIGHT = 1.0
-NEAR_COLLISION_STRAIGHT_BLOCK_DIST = COLLISION_DIST
-NEAR_COLLISION_STRAIGHT_BLOCK_ANGLE_DEG = 12.0
-NEAR_COLLISION_STRAIGHT_WARN_ANGLE_DEG = 25.0
-NEAR_COLLISION_STRAIGHT_PENALTY_WEIGHT = 4.0
 
 
 
@@ -147,16 +124,6 @@ def angle_error_rad(a, b):
     return normalize_angle_rad(a - b)
 
 def choose_initial_based_recovery_dir(theta, prev_w=0.0):
-    """
-    처음 방향 INITIAL_HEADING_RAD 기준으로 현재 로봇이 어느 쪽으로 휘었는지 판단.
-
-    theta > 0 : 처음 방향 기준 왼쪽으로 휘어 있음 -> 오른쪽 Recovery 회전
-    theta < 0 : 처음 방향 기준 오른쪽으로 휘어 있음 -> 왼쪽 Recovery 회전
-
-    반환값:
-    +1.0 : 왼쪽 회전
-    -1.0 : 오른쪽 회전
-    """
     heading_from_initial = normalize_angle_rad(theta - INITIAL_HEADING_RAD)
 
     if heading_from_initial > RECOVERY_INITIAL_DEADBAND_RAD:
@@ -189,19 +156,6 @@ class RobotPose:
         self.x += v * math.cos(self.theta) * dt
         self.y += v * math.sin(self.theta) * dt
         self.theta = normalize_angle_rad(self.theta + w * dt)
-
-    def goal_distance(self):
-        dx = GOAL_X_M - self.x
-        dy = GOAL_Y_M - self.y
-        return math.hypot(dx, dy)
-
-
-def goal_heading_error(x, y, theta):
-    dx = GOAL_X_M - x
-    dy = GOAL_Y_M - y
-    target_heading = math.atan2(dy, dx)
-    return normalize_angle_rad(target_heading - theta)
-
 
 class RPLidarC1:
     def __init__(self, port, baud):
@@ -312,11 +266,6 @@ def lidar_points_to_xy(scan):
     return points
 
 def lidar_points_to_xy_all(scan):
-    """
-    벽 따라가기/정면 확인용 전체 좌표 변환 함수.
-    기존 lidar_points_to_xy()는 x >= MIN_X_FOR_PLANNING 조건 때문에
-    옆벽/뒤쪽 일부 점이 사라질 수 있어서 여기서는 x 필터를 걸지 않는다.
-    """
     if scan is None:
         return np.empty((0, 2), dtype=np.float32)
 
@@ -344,12 +293,6 @@ def lidar_points_to_xy_all(scan):
 
 
 def side_wall_distance_from_scan(scan, follow_side):
-    """
-    라이다 기준 바로 좌/우 90도 방향만 사용해서 벽 거리 계산.
-
-    follow_side = +1.0 : 왼쪽 90도 기준
-    follow_side = -1.0 : 오른쪽 -90도 기준
-    """
     if scan is None:
         return MAX_LIDAR_DIST_M
 
@@ -382,16 +325,6 @@ def side_wall_distance_from_scan(scan, follow_side):
 
 
 def side_wall_average_distance_from_scan(scan, follow_side):
-    """
-    벽 따라가기 전용 거리 계산.
-
-    기존처럼 좌/우 90도 한 점만 보지 않고,
-    왼쪽 벽 추종은 +30도 ~ +90도,
-    오른쪽 벽 추종은 -90도 ~ -30도 구간의 라이다 값을 사용한다.
-
-    단순 사선거리 평균이 아니라 로봇 기준 좌우 위치거리(y 성분)를 평균내서
-    WALL_TARGET_DIST와 비교한다.
-    """
     if scan is None:
         return MAX_LIDAR_DIST_M
 
@@ -435,10 +368,6 @@ def side_wall_average_distance_from_scan(scan, follow_side):
 
 
 def wall_follow_front_distance(points_all):
-    """
-    벽 따라가기 전용 정면 거리.
-    기존 front_distance()보다 폭을 좁혀서 옆벽이 정면 장애물로 잡히는 현상을 줄인다.
-    """
     if len(points_all) == 0:
         return MAX_LIDAR_DIST_M
 
@@ -588,20 +517,6 @@ def filter_gaps_by_width(gaps):
     return [(start, end) for start, end in gaps if end - start >= min_bins]
 
 
-def side_gap_pressure(dist):
-    if dist >= SIDE_GAP_WARN_DIST:
-        return 0.0
-
-    return float(
-        np.clip(
-            (SIDE_GAP_WARN_DIST - dist)
-            / max(1e-6, SIDE_GAP_WARN_DIST - SIDE_GAP_BLOCK_DIST),
-            0.0,
-            1.0,
-        )
-    )
-
-
 def side_gap_steering_bias(left_dist, right_dist):
     if min(left_dist, right_dist) >= SIDE_GAP_WARN_DIST:
         return 0.0
@@ -621,96 +536,6 @@ def side_narrow_turn_limit(left_dist, right_dist):
         return math.radians(SIDE_NARROW_TURN_LIMIT_DEG)
 
     return TURN_HARD_LIMIT_RAD
-
-
-def side_gap_penalty(angle_rad, left_dist, right_dist):
-    penalty = np.zeros_like(angle_rad, dtype=np.float32)
-    hard_block = np.zeros_like(angle_rad, dtype=bool)
-    block_angle_rad = math.radians(SIDE_GAP_BLOCK_ANGLE_DEG)
-    straight_mask = np.abs(angle_rad) <= block_angle_rad
-
-    if left_dist < SIDE_GAP_WARN_DIST:
-        pressure = float(
-            np.clip(
-                (SIDE_GAP_WARN_DIST - left_dist)
-                / max(1e-6, SIDE_GAP_WARN_DIST - SIDE_GAP_BLOCK_DIST),
-                0.0,
-                1.0,
-            )
-        )
-        left_side = angle_rad > block_angle_rad
-        penalty += np.where(
-            left_side,
-            SIDE_GAP_PENALTY_WEIGHT * pressure,
-            0.0,
-        )
-        penalty += np.where(
-            straight_mask,
-            SIDE_STRAIGHT_PENALTY_WEIGHT * pressure,
-            0.0,
-        )
-        if left_dist <= SIDE_GAP_BLOCK_DIST:
-            hard_block |= left_side
-
-    if right_dist < SIDE_GAP_WARN_DIST:
-        pressure = float(
-            np.clip(
-                (SIDE_GAP_WARN_DIST - right_dist)
-                / max(1e-6, SIDE_GAP_WARN_DIST - SIDE_GAP_BLOCK_DIST),
-                0.0,
-                1.0,
-            )
-        )
-        right_side = angle_rad < -block_angle_rad
-        penalty += np.where(
-            right_side,
-            SIDE_GAP_PENALTY_WEIGHT * pressure,
-            0.0,
-        )
-        penalty += np.where(
-            straight_mask,
-            SIDE_STRAIGHT_PENALTY_WEIGHT * pressure,
-            0.0,
-        )
-        if right_dist <= SIDE_GAP_BLOCK_DIST:
-            hard_block |= right_side
-
-    return penalty, hard_block
-
-
-def near_collision_straight_penalty(angle_rad, closest_dist):
-    penalty = np.zeros_like(angle_rad, dtype=np.float32)
-    hard_block = np.zeros_like(angle_rad, dtype=bool)
-
-    if closest_dist >= NEAR_COLLISION_STRAIGHT_BLOCK_DIST:
-        return penalty, hard_block
-
-    abs_angle = np.abs(angle_rad)
-    block_angle = math.radians(NEAR_COLLISION_STRAIGHT_BLOCK_ANGLE_DEG)
-    warn_angle = math.radians(NEAR_COLLISION_STRAIGHT_WARN_ANGLE_DEG)
-    hard_block |= abs_angle <= block_angle
-
-    warn_mask = abs_angle <= warn_angle
-    angle_pressure = np.clip(
-        (warn_angle - abs_angle) / max(1e-6, warn_angle),
-        0.0,
-        1.0,
-    )
-    dist_pressure = np.clip(
-        (NEAR_COLLISION_STRAIGHT_BLOCK_DIST - closest_dist)
-        / max(1e-6, NEAR_COLLISION_STRAIGHT_BLOCK_DIST),
-        0.0,
-        1.0,
-    )
-    penalty += np.where(
-        warn_mask,
-        NEAR_COLLISION_STRAIGHT_PENALTY_WEIGHT
-        * angle_pressure
-        * dist_pressure,
-        0.0,
-    )
-
-    return penalty, hard_block
 
 
 def cumulative_turn_penalty(angle_rad, accumulated_turn_rad):
@@ -736,7 +561,7 @@ def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, f
     if not gaps:
         return -1, (0, 0), -float("inf"), 0.0, False
 
-    goal_angle = goal_heading_error(pose.x, pose.y, pose.theta)
+    goal_angle = normalize_angle_rad(INITIAL_HEADING_RAD - pose.theta)
     goal_angle = float(np.clip(goal_angle, -TURN_HARD_LIMIT_RAD, TURN_HARD_LIMIT_RAD))
     prev_angle = float(np.clip(prev_target_angle, -TURN_HARD_LIMIT_RAD, TURN_HARD_LIMIT_RAD))
 
@@ -909,8 +734,6 @@ def choose_fgm_cmd(
         "collision": target_dist < COLLISION_DIST or closest_dist < COLLISION_DIST,
         "raw_w": raw_w,
         "has_safe_gap": has_safe_gap,
-        # 아래 값들은 텍스트 1의 기존 로그 출력부 호환용이다.
-        # 텍스트 2 FGM 알고리즘의 경로 선택/속도 계산에는 사용하지 않는다.
         "side_penalty": float(selected_side_penalty),
         "side_block": bool(selected_side_block),
         "side_bias_deg": math.degrees(side_bias),
@@ -922,21 +745,7 @@ def choose_fgm_cmd(
     }
 
 
-
-
 def choose_wall_follow_cmd(scan, prev_w, follow_side):
-    """
-    Recovery 회전 후 벽을 따라가는 명령 생성.
-
-    follow_side = +1.0 : 왼쪽 벽 추종
-    follow_side = -1.0 : 오른쪽 벽 추종
-
-    왼쪽 벽 추종:
-        벽이 멀면 왼쪽(+w), 가까우면 오른쪽(-w)
-
-    오른쪽 벽 추종:
-        벽이 멀면 오른쪽(-w), 가까우면 왼쪽(+w)
-    """
     points_all = lidar_points_to_xy_all(scan)
 
     wall_dist = side_wall_average_distance_from_scan(scan, follow_side)
@@ -994,10 +803,6 @@ def choose_wall_follow_cmd(scan, prev_w, follow_side):
 
 
 def is_wall_open(wall_dist, prev_wall_dist, follow_start_time):
-    """
-    벽과의 거리값이 갑자기 커졌는지 판단.
-    현재 wall_dist는 라이다 기준 좌측/우측 90도 근처 거리값이다.
-    """
     if time.time() - follow_start_time < WALL_MIN_FOLLOW_TIME_S:
         return False
 
@@ -1041,10 +846,6 @@ def main():
     last_pose_time = time.time()
     accumulated_turn_rad = 0.0
 
-    # ============================================================
-    # 텍스트 1의 FGM/좁은길 인식은 그대로 사용하고,
-    # 좁은길/막힘으로 판단되는 순간 텍스트 2의 Recovery + Wall follow로 넘긴다.
-    # ============================================================
     recovery_turn_active = False
     recovery_turn_dir = 0.0
     recovery_follow_side = +1.0
@@ -1065,7 +866,6 @@ def main():
     wall_dist_log = MAX_LIDAR_DIST_M
     wall_front_log = MAX_LIDAR_DIST_M
     wall_valid_log = False
-    # ============================================================
 
     try:
         while True:
@@ -1075,11 +875,6 @@ def main():
 
             if recovery_turn_active:
                 recovery_accum_turn += abs(last_w) * dt
-
-            if pose.goal_distance() <= GOAL_TOL_M:
-                stop()
-                print("[INFO] Goal reached. Stopping.")
-                break
 
             scan = lidar.get_scan()
             if scan is None:
@@ -1159,9 +954,6 @@ def main():
 
                     wall_prev_dist = wall_dist
 
-            # ------------------------------------------------------------
-            # 벽 따라가기 중이 아니면 텍스트 1의 FGM/좁은길 인식 코드를 그대로 사용한다.
-            # ------------------------------------------------------------
             if (not recovery_turn_active) and (not wall_follow_active) and (not returned_from_wall_this_loop):
                 v, w, target_angle, info = choose_fgm_cmd(
                     scan,
@@ -1171,8 +963,6 @@ def main():
                     accumulated_turn_rad,
                 )
 
-                # 텍스트 1 기준 좁은길/막힘 인식 조건.
-                # 이제는 텍스트 2의 Recovery + Wall follow 코드로 넘긴다.
                 blocked_now = info["collision"] and v <= 0.01
                 no_safe_gap_now = not info["has_safe_gap"]
                 narrow_wall_trigger = (blocked_now or no_safe_gap_now)
@@ -1208,9 +998,6 @@ def main():
                             "Start RIGHT recovery turn. Follow LEFT wall."
                         )
 
-            # ------------------------------------------------------------
-            # Recovery 회전 중: 텍스트 2의 벽 인식 조건 그대로 사용한다.
-            # ------------------------------------------------------------
             if (
                 RECOVERY_TURN_ENABLE
                 and recovery_turn_active
@@ -1310,20 +1097,13 @@ def main():
 
             send_vw(v, w)
             pose.update(v, w, dt)
-            # FGM OFF 상태(Recovery/Wall follow)에서도 실제 명령 w 기준으로 각속도 누적 유지
             accumulated_turn_rad += w * dt
             last_v, last_w = v, w
 
             if (not recovery_turn_active) and (not wall_follow_active):
                 last_target_angle = target_angle
 
-            gd = pose.goal_distance()
-            he = goal_heading_error(pose.x, pose.y, pose.theta)
             accumulated_turn_deg_log = math.degrees(accumulated_turn_rad)
-            if gd <= GOAL_TOL_M:
-                stop()
-                print("[INFO] Goal reached. Stopping.")
-                break
 
             if time.time() - last_log > 0.25:
                 if recovery_turn_active:
@@ -1380,7 +1160,7 @@ def main():
                 elif info is not None:
                     print(
                         f"[FGM] x={pose.x:.2f} y={pose.y:.2f} "
-                        f"th={pose.theta:.2f} gd={gd:.2f} he={he:.2f} "
+                        f"th={pose.theta:.2f} "
                         f"v={v:.2f} w={w:.2f} raw={info['raw_w']:.2f} "
                         f"ct={accumulated_turn_deg_log:.1f}deg "
                         f"pt={info['projected_turn_deg']:.1f}deg "
