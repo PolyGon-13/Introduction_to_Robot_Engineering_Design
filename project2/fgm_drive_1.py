@@ -66,6 +66,9 @@ FGM_ANGLE_STEP_DEG = 1.0 # 격자 생성 각도
 FGM_BUBBLE_RADIUS = ROBOT_RADIUS + 0.08 # 장애물 부풀리는 반경
 FGM_FREE_DIST = COLLISION_DIST + 0.04 # 이 이상 뚫려 있어야 지나갈 수 있는 칸으로 인식
 FGM_MIN_GAP_WIDTH_DEG = 8.0 # 인식한 Gap의 최소 허용각도
+FGM_DANGER_MIN_GAP_WIDTH_DEG = 25.0
+FGM_DANGER_GAP_FRONT_DIST = 0.25
+FGM_DANGER_GAP_CLOSEST_DIST = 0.20
 
 FGM_SMOOTH_WINDOW = 5 # 이동평균 윈도우 크기 (5칸 = +-2도) : 튀는 값 방지 휘해 2도 간격으로 값들의 평균값으로 값을 대체
 
@@ -528,8 +531,15 @@ def find_free_gaps(free_mask):
     return gaps
 
 
-def filter_gaps_by_width(gaps):
-    min_bins = max(1, int(math.ceil(FGM_MIN_GAP_WIDTH_DEG / FGM_ANGLE_STEP_DEG)))
+def dynamic_min_gap_width(front_dist, closest_dist):
+    if front_dist < FGM_DANGER_GAP_FRONT_DIST or closest_dist < FGM_DANGER_GAP_CLOSEST_DIST:
+        return FGM_DANGER_MIN_GAP_WIDTH_DEG
+
+    return FGM_MIN_GAP_WIDTH_DEG
+
+
+def filter_gaps_by_width(gaps, min_gap_width_deg=FGM_MIN_GAP_WIDTH_DEG):
+    min_bins = max(1, int(math.ceil(min_gap_width_deg / FGM_ANGLE_STEP_DEG)))
     return [(start, end) for start, end in gaps if end - start >= min_bins]
 
 
@@ -709,7 +719,8 @@ def choose_fgm_cmd(
     )
 
     free_mask = bubble_ranges >= FGM_FREE_DIST
-    gaps = filter_gaps_by_width(find_free_gaps(free_mask))
+    min_gap_width_deg = dynamic_min_gap_width(front_dist, closest_dist)
+    gaps = filter_gaps_by_width(find_free_gaps(free_mask), min_gap_width_deg)
     has_safe_gap = len(gaps) > 0
 
     target_idx, best_gap, best_score = choose_target_from_gaps(
