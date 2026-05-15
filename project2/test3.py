@@ -11,105 +11,115 @@ LIDAR_BAUD = 460800
 ARDU_PORT = "/dev/ttyS0"
 ARDU_BAUD = 9600
 
-ANGLE_OFFSET_DEG = 1.54
-DIST_OFFSET_MM = 0.0
-LIDAR_ANGLE_SIGN = -1.0
 
-MIN_LIDAR_DIST_M = 0.05
-MAX_LIDAR_DIST_M = 2.5
-MIN_QUALITY = 1
-MIN_X_FOR_PLANNING = 0.10
-MAX_EVAL_POINTS = 720
-SCAN_HOLD_S = 0.30
-LOOP_DT_S = 0.05
+# LiDAR
+ANGLE_OFFSET_DEG = 1.54 # 라이다 각도 보정값
+DIST_OFFSET_MM = 0.0 # 라이다 거리 보정값
+LIDAR_ANGLE_SIGN = -1.0 # 라이다 각도 방향 반전 여부
 
-BASE_V = 0.18
-MIN_V = 0.15
-MAX_ABS_W = 0.70
+MIN_LIDAR_DIST_M = 0.05 # 라이다 유효 최소 거리
+MAX_LIDAR_DIST_M = 2.5 # 라이다 유효 최대 거리
+MIN_QUALITY = 1 # 라이다 품질 최소값
+MIN_X_FOR_PLANNING = 0.10 # FGM에 넣을 최소 전방 거리
+MAX_EVAL_POINTS = 720 # 계산에 사용할 라이다 포인트 최대 개수
+SCAN_HOLD_S = 0.30 # 최근 라이다 스캔을 유효하다고 판단할 시간 (마지막 정상 스캔이 N초 이내면 그냥 사용)
 
-RECOVERY_MAX_W = 1.00
-WALL_MAX_W = 0.65
+# 속도/거리 관련
+BASE_V = 0.18 # FGM 기본 직진속도
+MIN_V = 0.15 # FGM 장애물 회피속도
+MAX_ABS_W = 0.70 # FGM 최대 회전속도
 
-ROBOT_RADIUS = 0.16
-COLLISION_DIST = ROBOT_RADIUS + 0.05
-CLEARANCE_CAP = 0.6
-FRONT_CORRIDOR_HALF = COLLISION_DIST + 0.30
-ACTIVE_FRONT_DIST = 0.30
-FRONT_DANGER_DIST = 0.19
+RECOVERY_MAX_W = 1.00 # Recovery 회전속도
 
-W_CMD_RATE_LIMIT = 0.30
-W_CMD_RATE_LIMIT_URGENT = 0.40
-URGENT_FRONT_DIST = 0.30
+WALL_FOLLOW_V = 0.15 # Wall follow 기본속도
+WALL_SLOW_V = 0.10 # # Wall follow 최소속도
+WALL_MAX_W = 0.65 # Wall follow 최대 회전속도
 
-TURN_HARD_LIMIT_RAD = math.radians(80.0)
-CUM_TURN_SOFT_LIMIT_RAD = math.radians(90.0)
-CUM_TURN_HARD_LIMIT_RAD = math.radians(100.0)
-CUM_TURN_SOFT_PENALTY_WEIGHT = 8.0
-CUM_TURN_HARD_PENALTY_WEIGHT = 50.0
+CLEARANCE_CAP = 0.6 # FGM - 해당 거리 이상 뚫려 있으면 동일 취급
+W_CMD_RATE_LIMIT = 0.30 # 루프당 최대 회전속도 변화량
+W_CMD_RATE_LIMIT_URGENT = 0.40 # 긴급 시 허용 변화량
+URGENT_FRONT_DIST = 0.30 # 정면이 이 안이면 긴급모드
 
-INITIAL_HEADING_RAD = 0.0
-RECOVERY_TURN_ENABLE = True
-RECOVERY_TURN_W = 1.00
 
-RECOVERY_MIN_TURN_RAD = math.radians(120.0)
-RECOVERY_MAX_TURN_RAD = math.radians(200.0)
-RECOVERY_TURN_TIMEOUT_S = 15.0
-RECOVERY_INITIAL_DEADBAND_RAD = math.radians(2.0)
+# 로봇 크기 & 충돌 거리
+ROBOT_RADIUS = 0.16 # 로봇 반지름
+COLLISION_DIST = ROBOT_RADIUS + 0.05 # 충돌위험 거리
+ACTIVE_FRONT_DIST = 0.30 # 정면 장애물 반응 시작 거리
+FRONT_DANGER_DIST = 0.19 # 정면 위험 거리
+FRONT_CORRIDOR_HALF = COLLISION_DIST + 0.30 # FGM 장애물로 인식할 Y축 범위의 절반
 
-RECOVERY_WALL_START_DIST = 0.30
-RECOVERY_WALL_START_COUNT_N = 2
-RECOVERY_FRONT_START_DIST = 0.05
+INITIAL_HEADING_RAD = 0.0 # 출발 기준 방향
+RECOVERY_INITIAL_DEADBAND_RAD = math.radians(2.0) # 출발 방향 기준 N도 안이면 방향 판단 보류
 
-WALL_FOLLOW_ENABLE = True
+# 회전 limit
+TURN_HARD_LIMIT_RAD = math.radians(80.0) # FGM 최대 목표 각도
+CUM_TURN_SOFT_LIMIT_RAD = math.radians(90.0) # 누적 회전량 페널티 기준1
+CUM_TURN_HARD_LIMIT_RAD = math.radians(100.0) # 누적 회전량 페널티 기준2
+CUM_TURN_SOFT_PENALTY_WEIGHT = 8.0 # 90도 초과 시 페널티 강도
+CUM_TURN_HARD_PENALTY_WEIGHT = 50.0 # 100도 초과 시 페널티 강도
 
-WALL_TARGET_DIST = 0.22
-WALL_FOLLOW_V = 0.15
-WALL_SLOW_V = 0.10
 
-WALL_KP = 6.0
-WALL_SEARCH_W = 0.28
+# FGM 알고리즘
+FGM_MIN_ANGLE_DEG = -90.0 # 우측 라이다 스캔 각도
+FGM_MAX_ANGLE_DEG = 90.0 # 좌측 라이다 스캔 각도
+FGM_ANGLE_STEP_DEG = 1.0 # 격자 생성 각도
+FGM_BUBBLE_RADIUS = ROBOT_RADIUS + 0.08 # 장애물 부풀리는 반경
+FGM_FREE_DIST = COLLISION_DIST + 0.04 # 이 이상 뚫려 있어야 지나갈 수 있는 칸으로 인식
+FGM_MIN_GAP_WIDTH_DEG = 8.0 # 인식한 Gap의 최소 허용각도
 
-WALL_MIN_TURN_ERR = 0.025
-WALL_MIN_TURN_W = 0.16
+FGM_SMOOTH_WINDOW = 5 # 이동평균 윈도우 크기 (5칸 = +-2도) : 튀는 값 방지 휘해 2도 간격으로 값들의 평균값으로 값을 대체
 
-LEFT_WALL_ANGLE_CENTER_DEG = 90.0
-RIGHT_WALL_ANGLE_CENTER_DEG = -90.0
-WALL_ANGLE_HALF_WIDTH_DEG = 1.0
-WALL_MIN_POINTS = 2
+FGM_TURN_GAIN = 1.05 # 목표 각도->회전명령 가중치
+FGM_PREV_TARGET_WEIGHT = 0.45 # 직전 목표 방향 연속성 가중치
+FGM_GOAL_WEIGHT_SAFE = 1.00 # 안전할 때 목표 방향 가중치
+FGM_GOAL_WEIGHT_DANGER = 0.30 # 위험할 때 목표 방향 가중치
+FGM_STRAIGHT_WEIGHT = 0.70 # 정면 선호 가중치
+FGM_CLEARANCE_WEIGHT = 1.80 # 넓게 뚫린 방향 선호 가중치
+FGM_EDGE_WEIGHT = 0.85 # Gap 중앙 선호 가중치
 
-WALL_FRONT_Y_HALF = 0.16
-WALL_FRONT_CHECK_DIST = 0.30
-WALL_FRONT_SLOW_DIST = 0.14
-WALL_FRONT_HARD_STOP_DIST = 0.08
+SIDE_GAP_WARN_DIST = COLLISION_DIST - 0.01 # 옆 경고 시작 거리
+SIDE_GAP_BLOCK_DIST = 0.16 # 강하게 거부할 옆 거리
+SIDE_GAP_BIAS_MAX_DEG = 10.0 # 조향 보정 최대각도
+SIDE_GAP_BIAS_GAIN_DEG_PER_M = 125.0 # 좌우 거리차
+SIDE_NARROW_TURN_LIMIT_DEG = 35.0 # 옆이 좁을 때 회전한계
+SIDE_TIGHT_TURN_LIMIT_DEG = 20.0 # 옆이 매우 좁을 때 회전한계
 
-WALL_MIN_FOLLOW_TIME_S = 0.80
-WALL_JUMP_DIST = 0.10
-WALL_LOST_DIST = 0.30
-WALL_OPEN_COUNT_N = 3
 
-FGM_MIN_ANGLE_DEG = -90.0
-FGM_MAX_ANGLE_DEG = 90.0
-FGM_ANGLE_STEP_DEG = 1.0
-FGM_SMOOTH_WINDOW = 5
-FGM_SAFETY_MARGIN = 0.08
-FGM_BUBBLE_RADIUS = ROBOT_RADIUS + FGM_SAFETY_MARGIN
-FGM_FREE_DIST = COLLISION_DIST + 0.04
-FGM_MIN_GAP_WIDTH_DEG = 8.0
-FGM_TURN_GAIN = 1.05
-FGM_PREV_TARGET_WEIGHT = 0.45
-FGM_GOAL_WEIGHT_SAFE = 1.00
-FGM_GOAL_WEIGHT_DANGER = 0.30
-FGM_STRAIGHT_WEIGHT = 0.70
-FGM_CLEARANCE_WEIGHT = 1.80
-FGM_EDGE_WEIGHT = 0.85
+# Recovery Mode
+RECOVERY_TURN_W = 1.00 # Recovery 제자리 회전 속도
+RECOVERY_MIN_TURN_RAD = math.radians(120.0) # Recovery 최소 회전각도
+RECOVERY_MAX_TURN_RAD = math.radians(200.0) # Recovery 최대 회전각도
+RECOVERY_TURN_TIMEOUT_S = 15.0 # Recovery 해당 초 지나면 강제로 벽 따라가기
+RECOVERY_WALL_START_DIST = 0.30 # 옆 벽이 해당 거리 안이면 벽 찾음 후보
+RECOVERY_WALL_START_COUNT_N = 2 # N번 연속 확인되어야 Recovery 종료
 
-SIDE_GAP_WARN_DIST = COLLISION_DIST - 0.01
-SIDE_GAP_BLOCK_DIST = 0.16
-SIDE_GAP_BIAS_MAX_DEG = 10.0
-SIDE_GAP_BIAS_GAIN_DEG_PER_M = 125.0
-SIDE_NARROW_TURN_LIMIT_DEG = 35.0
-SIDE_TIGHT_TURN_LIMIT_DEG = 20.0
+RECOVERY_TURN_ENABLE = True # Recovery 기능 on/off 스위치
+RECOVERY_FRONT_START_DIST = 0.05 # Recovery 종료 조건 : 정면이 최소 이만큼 열려야 함
 
+
+# Wall Follow
+WALL_TARGET_DIST = 0.22 # 벽과 유지하려는 목표거리
+WALL_KP = 6.0 # 벽 거리 오차
+WALL_MIN_TURN_W = 0.16 # 오차가 있는데 명령이 너무 작으면 이만큼 보장
+WALL_FRONT_SLOW_DIST = 0.14 # 정면이 이 안에 들어오면 감속
+WALL_FRONT_HARD_STOP_DIST = 0.08 # 정면이 이 안에 들어오면 강제 회전
+WALL_LOST_DIST = 0.30 # 벽 거리가 이 이상이면 벽 놓침
+WALL_JUMP_DIST = 0.10 # 벽 거리가 한 번이 이만큼 늘어나면 벽 종료
+WALL_OPEN_COUNT_N = 3 # N번 연속 트여있어야 FGM 복귀
+
+WALL_FOLLOW_ENABLE = True # Wall follow on/off 스위치
+WALL_SEARCH_W = 0.28 # 벽을 놓쳤을 때 벽 쪽으로 탐색하는 회전속도
+WALL_MIN_TURN_ERR = 0.025 # 이 오차 이하이면 WALL_MIN_TURN_W 보장X
+WALL_FRONT_CHECK_DIST = 0.30 # Wall follow 정면 장애물 반응 거리
+WALL_ANGLE_HALF_WIDTH_DEG = 1.0 # Wall을 90도 하나가 아니라 +-1도 간격으로 더 확인
+WALL_FRONT_Y_HALF = 0.16 # Wall follow 장애물로 인식할 Y 거리의 절반
+WALL_MIN_FOLLOW_TIME_S = 0.80 # 진입 후 최소 N초는 종료 판정X
+LEFT_WALL_ANGLE_CENTER_DEG = 90.0 # 왼쪽 벽 감지 기준 각도
+RIGHT_WALL_ANGLE_CENTER_DEG = -90.0 # 오른쪽 벽 감지 기준 각도
+WALL_MIN_POINTS = 2 # 벽으로 인정하는 최소 라이다 포인트 수
+
+
+LOOP_DT_S = 0.05 # 메인 제어 루프 주기
 
 
 def normalize_angle_deg(angle):
@@ -557,9 +567,9 @@ def cumulative_turn_penalty(angle_rad, accumulated_turn_rad):
     return penalty.astype(np.float32), projected_turn
 
 
-def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, front_factor, accumulated_turn_rad, left_dist=MAX_LIDAR_DIST_M, right_dist=MAX_LIDAR_DIST_M):
+def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, front_factor, accumulated_turn_rad):
     if not gaps:
-        return -1, (0, 0), -float("inf"), 0.0, False
+        return -1, (0, 0), -float("inf")
 
     goal_angle = normalize_angle_rad(INITIAL_HEADING_RAD - pose.theta)
     goal_angle = float(np.clip(goal_angle, -TURN_HARD_LIMIT_RAD, TURN_HARD_LIMIT_RAD))
@@ -621,7 +631,7 @@ def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, f
             best_idx = int(idxs[local_best])
             best_gap = (start, end)
 
-    return best_idx, best_gap, best_score, 0.0, False
+    return best_idx, best_gap, best_score
 
 
 def choose_fallback_target(angles_deg, ranges, left_dist=MAX_LIDAR_DIST_M, right_dist=MAX_LIDAR_DIST_M):
@@ -684,8 +694,8 @@ def choose_fgm_cmd(
     gaps = filter_gaps_by_width(find_free_gaps(free_mask))
     has_safe_gap = len(gaps) > 0
 
-    target_idx, best_gap, best_score, selected_side_penalty, selected_side_block = choose_target_from_gaps(
-        angles_deg, bubble_ranges, gaps, pose, prev_target_angle, front_factor, accumulated_turn_rad, info_left, info_right
+    target_idx, best_gap, best_score = choose_target_from_gaps(
+        angles_deg, bubble_ranges, gaps, pose, prev_target_angle, front_factor, accumulated_turn_rad
     )
 
     if target_idx < 0:
@@ -698,8 +708,6 @@ def choose_fgm_cmd(
     side_bias = side_gap_steering_bias(info_left, info_right)
     side_turn_limit = side_narrow_turn_limit(info_left, info_right)
     target_angle = float(np.clip(target_angle + side_bias, -side_turn_limit, side_turn_limit))
-    selected_side_penalty = 0.0
-    selected_side_block = False
     target_dist = float(smooth_ranges[target_idx])
     raw_w = float(np.clip(FGM_TURN_GAIN * target_angle, -MAX_ABS_W, MAX_ABS_W))
     selected_turn_penalty, selected_projected_turn = cumulative_turn_penalty(
@@ -734,12 +742,8 @@ def choose_fgm_cmd(
         "collision": target_dist < COLLISION_DIST or closest_dist < COLLISION_DIST,
         "raw_w": raw_w,
         "has_safe_gap": has_safe_gap,
-        "side_penalty": float(selected_side_penalty),
-        "side_block": bool(selected_side_block),
         "side_bias_deg": math.degrees(side_bias),
         "side_turn_limit_deg": math.degrees(side_turn_limit),
-        "near_penalty": 0.0,
-        "near_block": False,
         "turn_penalty": float(selected_turn_penalty[0]),
         "projected_turn_deg": math.degrees(float(selected_projected_turn[0])),
     }
@@ -1173,10 +1177,8 @@ def main():
                         f"close={info['closest']:.2f}@{info['closest_angle']:.0f} "
                         f"bb={info['bubble_bins']} score={info['score']:.2f} "
                         f"pts={info['points']} coll={int(info['collision'])} "
-                        f"sp={info['side_penalty']:.2f} sb={int(info['side_block'])} "
                         f"sbias={info['side_bias_deg']:.1f}deg "
                         f"slim={info['side_turn_limit_deg']:.0f}deg "
-                        f"np={info['near_penalty']:.2f} nb={int(info['near_block'])} "                        
                         f"L={info['left']:.2f} R={info['right']:.2f}"
                     )
 
