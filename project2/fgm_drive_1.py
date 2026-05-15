@@ -27,7 +27,7 @@ SCAN_HOLD_S = 0.30 # 최근 라이다 스캔을 유효하다고 판단할 시간
 # 속도/거리 관련
 BASE_V = 0.18 # FGM 기본 직진속도
 MIN_V = 0.15 # FGM 장애물 회피속도
-MAX_ABS_W = 0.70 # FGM 최대 회전속도
+MAX_ABS_W = 0.90 # FGM 최대 회전속도
 
 RECOVERY_MAX_W = 1.00 # Recovery 회전속도
 
