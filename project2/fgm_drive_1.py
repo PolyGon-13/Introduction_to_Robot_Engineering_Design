@@ -76,8 +76,6 @@ FGM_GOAL_WEIGHT_DANGER = 0.30 # 위험할 때 목표 방향 가중치
 FGM_STRAIGHT_WEIGHT = 0.70 # 정면 선호 가중치
 FGM_CLEARANCE_WEIGHT = 1.80 # 넓게 뚫린 방향 선호 가중치
 FGM_EDGE_WEIGHT = 0.85 # Gap 중앙 선호 가중치
-FGM_RANGE_VARIATION_WEIGHT = 0.70
-FGM_RANGE_VARIATION_CAP = 1.00
 
 SIDE_GAP_WARN_DIST = 0.175 # 옆 경고 시작 거리
 SIDE_GAP_BLOCK_DIST = 0.16 # 강하게 거부할 옆 거리
@@ -585,21 +583,7 @@ def cumulative_turn_penalty(angle_rad, accumulated_turn_rad):
     return penalty.astype(np.float32), projected_turn
 
 
-def gap_range_variation_score(ranges, idxs):
-    if len(idxs) < 2:
-        return 0.0
-
-    values = ranges[idxs]
-    valid = np.isfinite(values) & (values >= MIN_LIDAR_DIST_M) & (values <= MAX_LIDAR_DIST_M)
-    values = values[valid]
-    if len(values) < 2:
-        return 0.0
-
-    spread = float(np.percentile(values, 90) - np.percentile(values, 10))
-    return float(np.clip(spread / FGM_RANGE_VARIATION_CAP, 0.0, 1.0))
-
-
-def choose_target_from_gaps(angles_deg, ranges, variation_ranges, gaps, pose, prev_target_angle, front_factor, accumulated_turn_rad):
+def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, front_factor, accumulated_turn_rad):
     if not gaps:
         return -1, (0, 0), -float("inf")
 
@@ -617,8 +601,6 @@ def choose_target_from_gaps(angles_deg, ranges, variation_ranges, gaps, pose, pr
     )
 
     for start, end in gaps:
-        gap_idxs = np.arange(start, end)
-        range_variation_score = gap_range_variation_score(variation_ranges, gap_idxs)
         idxs = np.arange(start, end)
         angle_rad = np.deg2rad(angles_deg[idxs])
         targetable = np.abs(angle_rad) <= max_target_angle
@@ -653,7 +635,6 @@ def choose_target_from_gaps(angles_deg, ranges, variation_ranges, gaps, pose, pr
             + goal_weight * goal_score
             + FGM_PREV_TARGET_WEIGHT * prev_score
             + 0.25 * width_score
-            + FGM_RANGE_VARIATION_WEIGHT * range_variation_score
             - turn_penalty
         )
         if not np.isfinite(scores).any():
@@ -730,7 +711,7 @@ def choose_fgm_cmd(
     has_safe_gap = len(gaps) > 0
 
     target_idx, best_gap, best_score = choose_target_from_gaps(
-        angles_deg, bubble_ranges, smooth_ranges, gaps, pose, prev_target_angle, front_factor, accumulated_turn_rad
+        angles_deg, bubble_ranges, gaps, pose, prev_target_angle, front_factor, accumulated_turn_rad
     )
 
     if target_idx < 0:
