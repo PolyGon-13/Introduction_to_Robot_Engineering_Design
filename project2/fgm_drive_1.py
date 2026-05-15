@@ -83,6 +83,8 @@ SIDE_GAP_BIAS_MAX_DEG = 10.0 # 조향 보정 최대각도
 SIDE_GAP_BIAS_GAIN_DEG_PER_M = 125.0 # 좌우 거리차
 SIDE_NARROW_TURN_LIMIT_DEG = 35.0 # 옆이 좁을 때 회전한계
 SIDE_TIGHT_TURN_LIMIT_DEG = 20.0 # 옆이 매우 좁을 때 회전한계
+SIDE_NARROW_V = 0.12 # 옆이 좁을 때 FGM 속도 상한
+SIDE_TIGHT_V = 0.08 # 옆이 매우 좁을 때 FGM 속도 상한
 
 
 # Recovery Mode
@@ -552,6 +554,18 @@ def side_narrow_turn_limit(left_dist, right_dist):
     return TURN_HARD_LIMIT_RAD
 
 
+def side_gap_speed_limit(left_dist, right_dist):
+    side_min = min(left_dist, right_dist)
+
+    if side_min <= SIDE_GAP_BLOCK_DIST:
+        return SIDE_TIGHT_V
+
+    if side_min < SIDE_GAP_WARN_DIST:
+        return SIDE_NARROW_V
+
+    return BASE_V
+
+
 def cumulative_turn_penalty(angle_rad, accumulated_turn_rad):
     projected_turn = accumulated_turn_rad + angle_rad
     abs_accumulated = abs(accumulated_turn_rad)
@@ -721,6 +735,7 @@ def choose_fgm_cmd(
     urgent = front_dist < URGENT_FRONT_DIST or not has_safe_gap
     w = rate_limit_w(prev_w, raw_w, urgent=urgent)
     v = choose_speed(target_dist, target_angle, has_safe_gap)
+    v = min(v, side_gap_speed_limit(info_left, info_right))
 
     gap_width = (best_gap[1] - best_gap[0]) * FGM_ANGLE_STEP_DEG
     gap_left = float(angles_deg[best_gap[1] - 1]) if best_gap[1] > best_gap[0] else 0.0
