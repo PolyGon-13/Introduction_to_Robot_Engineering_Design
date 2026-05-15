@@ -119,7 +119,7 @@ RIGHT_WALL_ANGLE_CENTER_DEG = -90.0 # 오른쪽 벽 감지 기준 각도
 WALL_MIN_POINTS = 2 # 벽으로 인정하는 최소 라이다 포인트 수
 
 
-LOOP_DT_S = 0.1 # 메인 제어 루프 주기
+LOOP_DT_S = 0.05 # 메인 제어 루프 주기
 
 
 def normalize_angle_deg(angle):
@@ -1109,7 +1109,7 @@ def main():
 
             accumulated_turn_deg_log = math.degrees(accumulated_turn_rad)
 
-            if time.time() > 0.05:
+            if time.time() - last_log > 0.05:
                 if recovery_turn_active:
                     if info is not None:
                         front_log = info["front"]
