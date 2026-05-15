@@ -587,7 +587,7 @@ def cumulative_turn_penalty(angle_rad, accumulated_turn_rad):
 
 def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, front_factor, accumulated_turn_rad):
     if not gaps:
-        return -1, (0, 0), -float("inf"), []
+        return -1, (0, 0), -float("inf")
 
     goal_angle = normalize_angle_rad(INITIAL_HEADING_RAD - pose.theta)
     goal_angle = float(np.clip(goal_angle, -TURN_HARD_LIMIT_RAD, TURN_HARD_LIMIT_RAD))
@@ -596,7 +596,6 @@ def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, f
     best_idx = -1
     best_gap = (0, 0)
     best_score = -float("inf")
-    gap_debug = []
     max_target_angle = TURN_HARD_LIMIT_RAD
     goal_weight = (
         FGM_GOAL_WEIGHT_SAFE * (1.0 - front_factor)
@@ -645,28 +644,12 @@ def choose_target_from_gaps(angles_deg, ranges, gaps, pose, prev_target_angle, f
 
         local_best = int(np.argmax(scores))
         score = float(scores[local_best])
-        gap_debug.append({
-            "gap_index": len(gap_debug),
-            "start": start,
-            "end": end,
-            "right": float(angles_deg[start]),
-            "left": float(angles_deg[end - 1]),
-            "target": float(angles_deg[int(idxs[local_best])]),
-            "score": score,
-            "clear": float(FGM_CLEARANCE_WEIGHT * clearance_score[local_best]),
-            "edge": float(FGM_EDGE_WEIGHT * edge_score[local_best]),
-            "straight": float(FGM_STRAIGHT_WEIGHT * straight_score[local_best]),
-            "goal": float(goal_weight * goal_score[local_best]),
-            "prev": float(FGM_PREV_TARGET_WEIGHT * prev_score[local_best]),
-            "width": float(0.25 * width_score),
-            "turn_penalty": float(turn_penalty[local_best]),
-        })
         if score > best_score:
             best_score = score
             best_idx = int(idxs[local_best])
             best_gap = (start, end)
 
-    return best_idx, best_gap, best_score, gap_debug
+    return best_idx, best_gap, best_score
 
 
 def choose_fallback_target(angles_deg, ranges, left_dist=MAX_LIDAR_DIST_M, right_dist=MAX_LIDAR_DIST_M):
@@ -729,7 +712,7 @@ def choose_fgm_cmd(
     gaps = filter_gaps_by_width(find_free_gaps(free_mask))
     has_safe_gap = len(gaps) > 0
 
-    target_idx, best_gap, best_score, gap_debug = choose_target_from_gaps(
+    target_idx, best_gap, best_score = choose_target_from_gaps(
         angles_deg, bubble_ranges, gaps, pose, prev_target_angle, front_factor, accumulated_turn_rad
     )
 
@@ -737,7 +720,6 @@ def choose_fgm_cmd(
         target_idx = choose_fallback_target(angles_deg, smooth_ranges, info_left, info_right)
         best_gap = (target_idx, target_idx + 1)
         best_score = 0.0
-        gap_debug = []
 
     target_angle = math.radians(float(angles_deg[target_idx]))
     target_angle = float(np.clip(target_angle, -TURN_HARD_LIMIT_RAD, TURN_HARD_LIMIT_RAD))
@@ -759,25 +741,9 @@ def choose_fgm_cmd(
     gap_left = float(angles_deg[best_gap[1] - 1]) if best_gap[1] > best_gap[0] else 0.0
     gap_right = float(angles_deg[best_gap[0]]) if best_gap[1] > best_gap[0] else 0.0
     closest_angle = float(angles_deg[closest_idx]) if closest_idx >= 0 else 0.0
-    score_weights = (
-        f"clr={FGM_CLEARANCE_WEIGHT:.2f},edg={FGM_EDGE_WEIGHT:.2f},"
-        f"str={FGM_STRAIGHT_WEIGHT:.2f},goal={FGM_GOAL_WEIGHT_SAFE * (1.0 - front_factor) + FGM_GOAL_WEIGHT_DANGER * front_factor:.2f},"
-        f"prev={FGM_PREV_TARGET_WEIGHT:.2f},wid=0.25"
-    )
-    gap_scores = ";".join(
-        f"g{item['gap_index']}{'*' if (item['start'], item['end']) == best_gap else ''}"
-        f"[{item['right']:.0f},{item['left']:.0f}]"
-        f"t={item['target']:.0f}:sc={item['score']:.2f},"
-        f"clr={item['clear']:.2f},edg={item['edge']:.2f},str={item['straight']:.2f},"
-        f"goal={item['goal']:.2f},prev={item['prev']:.2f},wid={item['width']:.2f},"
-        f"tp={item['turn_penalty']:.2f}"
-        for item in gap_debug
-    ) or "-"
 
     return v, w, target_angle, {
         "score": best_score,
-        "score_weights": score_weights,
-        "gap_scores": gap_scores,
         "target_deg": math.degrees(target_angle),
         "target_dist": target_dist,
         "front": front_dist,
@@ -1249,9 +1215,7 @@ def main():
                         f"pts={info['points']} coll={int(info['collision'])} "
                         f"sbias={info['side_bias_deg']:.1f}deg "
                         f"slim={info['side_turn_limit_deg']:.0f}deg "
-                        f"L={info['left']:.2f} R={info['right']:.2f} "
-                        f"wgt={info['score_weights']} "
-                        f"cand={info['gap_scores']}"
+                        f"L={info['left']:.2f} R={info['right']:.2f}"
                     )
 
                 last_log = time.time()
