@@ -932,9 +932,6 @@ def main():
             recovery_wall_dist_log = MAX_LIDAR_DIST_M
             recovery_front_start_log = MAX_LIDAR_DIST_M
 
-            # ------------------------------------------------------------
-            # 벽 따라가기 중에는 FGM을 끈다.
-            # ------------------------------------------------------------
             if WALL_FOLLOW_ENABLE and wall_follow_active:
                 wall_v, wall_w, wall_dist, wall_valid, wall_front = choose_wall_follow_cmd(
                     scan,
@@ -1133,7 +1130,7 @@ def main():
 
             accumulated_turn_deg_log = math.degrees(accumulated_turn_rad)
 
-            if time.time() - last_log > 0.25:
+            if time.time() - last_log > 0.5:
                 if recovery_turn_active:
                     if info is not None:
                         front_log = info["front"]
