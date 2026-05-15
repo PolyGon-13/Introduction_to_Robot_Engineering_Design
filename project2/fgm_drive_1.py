@@ -66,9 +66,6 @@ FGM_ANGLE_STEP_DEG = 1.0 # 격자 생성 각도
 FGM_BUBBLE_RADIUS = ROBOT_RADIUS + 0.08 # 장애물 부풀리는 반경
 FGM_FREE_DIST = COLLISION_DIST + 0.04 # 이 이상 뚫려 있어야 지나갈 수 있는 칸으로 인식
 FGM_MIN_GAP_WIDTH_DEG = 8.0 # 인식한 Gap의 최소 허용각도
-FGM_DANGER_MIN_GAP_WIDTH_DEG = 25.0
-FGM_DANGER_GAP_FRONT_DIST = 0.25
-FGM_DANGER_GAP_CLOSEST_DIST = 0.20
 
 FGM_SMOOTH_WINDOW = 5 # 이동평균 윈도우 크기 (5칸 = +-2도) : 튀는 값 방지 휘해 2도 간격으로 값들의 평균값으로 값을 대체
 
@@ -84,8 +81,8 @@ SIDE_GAP_WARN_DIST = 0.175 # 옆 경고 시작 거리
 SIDE_GAP_BLOCK_DIST = 0.16 # 강하게 거부할 옆 거리
 SIDE_GAP_BIAS_MAX_DEG = 10.0 # 조향 보정 최대각도
 SIDE_GAP_BIAS_GAIN_DEG_PER_M = 125.0 # 좌우 거리차
-SIDE_TIGHT_TURN_LIMIT_DEG = 55.0 # 옆이 매우 좁을 때 회전한계
-SIDE_NARROW_TURN_LIMIT_DEG = 70.0 # 옆이 좁을 때 회전한계
+SIDE_TIGHT_TURN_LIMIT_DEG = 20.0 # 옆이 매우 좁을 때 회전한계
+SIDE_NARROW_TURN_LIMIT_DEG = 35.0 # 옆이 좁을 때 회전한계
 SIDE_NARROW_V = 0.12 # 옆이 좁을 때 FGM 속도 상한
 SIDE_TIGHT_V = 0.08 # 옆이 매우 좁을 때 FGM 속도 상한
 
@@ -531,15 +528,8 @@ def find_free_gaps(free_mask):
     return gaps
 
 
-def dynamic_min_gap_width(front_dist, closest_dist):
-    if front_dist < FGM_DANGER_GAP_FRONT_DIST or closest_dist < FGM_DANGER_GAP_CLOSEST_DIST:
-        return FGM_DANGER_MIN_GAP_WIDTH_DEG
-
-    return FGM_MIN_GAP_WIDTH_DEG
-
-
-def filter_gaps_by_width(gaps, min_gap_width_deg=FGM_MIN_GAP_WIDTH_DEG):
-    min_bins = max(1, int(math.ceil(min_gap_width_deg / FGM_ANGLE_STEP_DEG)))
+def filter_gaps_by_width(gaps):
+    min_bins = max(1, int(math.ceil(FGM_MIN_GAP_WIDTH_DEG / FGM_ANGLE_STEP_DEG)))
     return [(start, end) for start, end in gaps if end - start >= min_bins]
 
 
@@ -719,8 +709,7 @@ def choose_fgm_cmd(
     )
 
     free_mask = bubble_ranges >= FGM_FREE_DIST
-    min_gap_width_deg = dynamic_min_gap_width(front_dist, closest_dist)
-    gaps = filter_gaps_by_width(find_free_gaps(free_mask), min_gap_width_deg)
+    gaps = filter_gaps_by_width(find_free_gaps(free_mask))
     has_safe_gap = len(gaps) > 0
 
     target_idx, best_gap, best_score = choose_target_from_gaps(
@@ -732,11 +721,24 @@ def choose_fgm_cmd(
         best_gap = (target_idx, target_idx + 1)
         best_score = 0.0
 
-    target_angle = math.radians(float(angles_deg[target_idx]))
-    target_angle = float(np.clip(target_angle, -TURN_HARD_LIMIT_RAD, TURN_HARD_LIMIT_RAD))
+    gap_width = (best_gap[1] - best_gap[0]) * FGM_ANGLE_STEP_DEG
+    gap_left = float(angles_deg[best_gap[1] - 1]) if best_gap[1] > best_gap[0] else float(angles_deg[target_idx])
+    gap_right = float(angles_deg[best_gap[0]]) if best_gap[1] > best_gap[0] else float(angles_deg[target_idx])
+    gap_left_rad = math.radians(gap_left)
+    gap_right_rad = math.radians(gap_right)
+
+    fgm_target_angle = math.radians(float(angles_deg[target_idx]))
+    fgm_target_angle = float(np.clip(fgm_target_angle, -TURN_HARD_LIMIT_RAD, TURN_HARD_LIMIT_RAD))
     side_bias = side_gap_steering_bias(info_left, info_right)
     side_turn_limit = side_narrow_turn_limit(info_left, info_right)
-    target_angle = float(np.clip(target_angle + side_bias, -side_turn_limit, side_turn_limit))
+    target_angle = float(np.clip(fgm_target_angle + side_bias, -side_turn_limit, side_turn_limit))
+    if has_safe_gap and best_gap[1] > best_gap[0]:
+        target_angle = float(np.clip(target_angle, gap_right_rad, gap_left_rad))
+        if fgm_target_angle > 0.0:
+            target_angle = max(0.0, target_angle)
+        elif fgm_target_angle < 0.0:
+            target_angle = min(0.0, target_angle)
+    target_idx = int(np.argmin(np.abs(angles_deg - math.degrees(target_angle))))
     target_dist = float(smooth_ranges[target_idx])
     raw_w = float(np.clip(FGM_TURN_GAIN * target_angle, -MAX_ABS_W, MAX_ABS_W))
     selected_turn_penalty, selected_projected_turn = cumulative_turn_penalty(
@@ -748,9 +750,6 @@ def choose_fgm_cmd(
     v = choose_speed(target_dist, target_angle, has_safe_gap)
     v = min(v, side_gap_speed_limit(info_left, info_right))
 
-    gap_width = (best_gap[1] - best_gap[0]) * FGM_ANGLE_STEP_DEG
-    gap_left = float(angles_deg[best_gap[1] - 1]) if best_gap[1] > best_gap[0] else 0.0
-    gap_right = float(angles_deg[best_gap[0]]) if best_gap[1] > best_gap[0] else 0.0
     closest_angle = float(angles_deg[closest_idx]) if closest_idx >= 0 else 0.0
 
     return v, w, target_angle, {
