@@ -64,6 +64,8 @@ FGM_MIN_ANGLE_DEG = -90.0 # 우측 라이다 스캔 각도
 FGM_MAX_ANGLE_DEG = 90.0 # 좌측 라이다 스캔 각도
 FGM_ANGLE_STEP_DEG = 1.0 # 격자 생성 각도
 FGM_BUBBLE_RADIUS = ROBOT_RADIUS + 0.08 # 장애물 부풀리는 반경
+FGM_SIDE_BUBBLE_START_DEG = 35.0 # 측면 장애물로 판단할 각도
+FGM_SIDE_BUBBLE_MAX_HALF_DEG = 24.0 # 측면 장애물이 지우는 최대 반각
 FGM_FREE_DIST = COLLISION_DIST + 0.04 # 이 이상 뚫려 있어야 지나갈 수 있는 칸으로 인식
 FGM_MIN_GAP_WIDTH_DEG = 8.0 # 인식한 Gap의 최소 허용각도
 
@@ -496,7 +498,7 @@ def smooth_ranges_conservative(ranges):
     return np.minimum(ranges, averaged)
 
 
-def apply_safety_bubble(ranges, counts):
+def apply_safety_bubble(angles_deg, ranges, counts):
     working = ranges.copy()
     valid = counts > 0
     valid_obstacles = valid & (ranges < MAX_LIDAR_DIST_M)
@@ -506,8 +508,13 @@ def apply_safety_bubble(ranges, counts):
     obstacle_ranges = np.where(valid_obstacles, ranges, np.inf)
     closest_idx = int(np.argmin(obstacle_ranges))
     closest_dist = float(ranges[closest_idx])
-    half_angle_rad = math.atan2(FGM_BUBBLE_RADIUS, max(closest_dist, MIN_LIDAR_DIST_M))
-    half_bins = int(math.ceil(math.degrees(half_angle_rad) / FGM_ANGLE_STEP_DEG))
+    closest_angle = float(angles_deg[closest_idx])
+    half_angle_deg = math.degrees(
+        math.atan2(FGM_BUBBLE_RADIUS, max(closest_dist, MIN_LIDAR_DIST_M))
+    )
+    if abs(closest_angle) >= FGM_SIDE_BUBBLE_START_DEG:
+        half_angle_deg = min(half_angle_deg, FGM_SIDE_BUBBLE_MAX_HALF_DEG)
+    half_bins = int(math.ceil(half_angle_deg / FGM_ANGLE_STEP_DEG))
 
     start = max(0, closest_idx - half_bins)
     end = min(len(working), closest_idx + half_bins + 1)
@@ -739,7 +746,7 @@ def choose_fgm_cmd(
     angles_deg, raw_ranges, counts = scan_to_angle_ranges(scan)
     smooth_ranges = smooth_ranges_conservative(raw_ranges)
     bubble_ranges, closest_idx, closest_dist, bubble_bins = apply_safety_bubble(
-        smooth_ranges, counts
+        angles_deg, smooth_ranges, counts
     )
 
     free_mask = bubble_ranges >= FGM_FREE_DIST
