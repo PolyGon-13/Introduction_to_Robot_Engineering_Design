@@ -87,7 +87,7 @@ SIDE_GAP_BIAS_GAIN_DEG_PER_M = 125.0 # 좌우 거리차
 SIDE_TIGHT_TURN_LIMIT_DEG = 20.0 # 옆이 매우 좁을 때 회전한계
 SIDE_NARROW_TURN_LIMIT_DEG = 35.0 # 옆이 좁을 때 회전한계
 SIDE_NARROW_V = 0.12 # 옆이 좁을 때 FGM 속도 상한
-SIDE_TIGHT_V = 0.08 # 옆이 매우 좁을 때 FGM 속도 상한
+SIDE_TIGHT_V = 0.12 # 옆이 매우 좁을 때 FGM 속도 상한
 
 
 # Recovery Mode
