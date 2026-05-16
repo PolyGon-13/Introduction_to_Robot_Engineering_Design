@@ -71,6 +71,9 @@ FGM_SMOOTH_WINDOW = 5 # 이동평균 윈도우 크기 (5칸 = +-2도) : 튀는 �
 
 FGM_TURN_GAIN = 1.05 # 목표 각도->회전명령 가중치
 FGM_PREV_TARGET_WEIGHT = 0.45 # 직전 목표 방향 연속성 가중치
+FGM_GAP_SIDE_DEADBAND_DEG = 12.0 # 좌/우 gap 판단에서 정면으로 볼 각도
+FGM_GAP_SWITCH_SCORE_MARGIN = 0.55 # 반대쪽 gap으로 전환하기 위한 최소 점수 차이
+FGM_GAP_KEEP_MIN_DIST = 0.30 # 기존 방향 gap을 유지할 최소 목표 거리
 FGM_GOAL_WEIGHT_SAFE = 1.00 # 안전할 때 목표 방향 가중치
 FGM_GOAL_WEIGHT_DANGER = 0.30 # 위험할 때 목표 방향 가중치
 FGM_STRAIGHT_WEIGHT = 0.70 # 정면 선호 가중치
@@ -651,9 +654,18 @@ def gap_edge_discontinuity_score(ranges, start, end):
     return max(scores) if scores else 0.0
 
 
-def choose_target_from_gaps(angles_deg, ranges, discontinuity_ranges, gaps, pose, prev_target_angle, front_factor, accumulated_turn_rad):
+def gap_side_from_angle(angle_rad):
+    deadband = math.radians(FGM_GAP_SIDE_DEADBAND_DEG)
+    if angle_rad > deadband:
+        return 1
+    if angle_rad < -deadband:
+        return -1
+    return 0
+
+
+def choose_target_from_gaps(angles_deg, ranges, discontinuity_ranges, gaps, pose, prev_target_angle, prev_gap_side, front_factor, accumulated_turn_rad):
     if not gaps:
-        return -1, (0, 0), -float("inf")
+        return -1, (0, 0), -float("inf"), 0
 
     goal_angle = normalize_angle_rad(INITIAL_HEADING_RAD - pose.theta)
     goal_angle = float(np.clip(goal_angle, -TURN_HARD_LIMIT_RAD, TURN_HARD_LIMIT_RAD))
@@ -662,6 +674,12 @@ def choose_target_from_gaps(angles_deg, ranges, discontinuity_ranges, gaps, pose
     best_idx = -1
     best_gap = (0, 0)
     best_score = -float("inf")
+    best_side = 0
+    keep_idx = -1
+    keep_gap = (0, 0)
+    keep_score = -float("inf")
+    keep_side = 0
+    keep_dist = 0.0
     max_target_angle = TURN_HARD_LIMIT_RAD
     goal_weight = (
         FGM_GOAL_WEIGHT_SAFE * (1.0 - front_factor)
@@ -696,6 +714,10 @@ def choose_target_from_gaps(angles_deg, ranges, discontinuity_ranges, gaps, pose
         )
         width_score = min(1.0, local_width * FGM_ANGLE_STEP_DEG / 60.0)
         turn_penalty, _ = cumulative_turn_penalty(angle_rad, accumulated_turn_rad)
+        candidate_sides = np.array(
+            [gap_side_from_angle(float(a)) for a in angle_rad],
+            dtype=np.int8,
+        )
 
         scores = (
             FGM_CLEARANCE_WEIGHT * clearance_score
@@ -716,8 +738,32 @@ def choose_target_from_gaps(angles_deg, ranges, discontinuity_ranges, gaps, pose
             best_score = score
             best_idx = int(idxs[local_best])
             best_gap = (start, end)
+            best_side = int(candidate_sides[local_best])
 
-    return best_idx, best_gap, best_score
+        if prev_gap_side != 0:
+            keep_mask = candidate_sides == prev_gap_side
+            if keep_mask.any():
+                keep_scores = scores[keep_mask]
+                keep_local_best = int(np.argmax(keep_scores))
+                keep_score_candidate = float(keep_scores[keep_local_best])
+                if keep_score_candidate > keep_score:
+                    keep_idxs = idxs[keep_mask]
+                    keep_idx = int(keep_idxs[keep_local_best])
+                    keep_gap = (start, end)
+                    keep_score = keep_score_candidate
+                    keep_side = int(prev_gap_side)
+                    keep_dist = float(ranges[keep_idx])
+
+    if (
+        prev_gap_side != 0
+        and best_side * prev_gap_side < 0
+        and keep_idx >= 0
+        and keep_dist >= FGM_GAP_KEEP_MIN_DIST
+        and best_score < keep_score + FGM_GAP_SWITCH_SCORE_MARGIN
+    ):
+        return keep_idx, keep_gap, keep_score, keep_side
+
+    return best_idx, best_gap, best_score, best_side
 
 
 def choose_fallback_target(angles_deg, ranges, left_dist=MAX_LIDAR_DIST_M, right_dist=MAX_LIDAR_DIST_M):
@@ -761,6 +807,7 @@ def choose_fgm_cmd(
     scan,
     prev_w,
     prev_target_angle,
+    prev_gap_side,
     pose,
     accumulated_turn_rad=0.0,
 ):
@@ -780,14 +827,15 @@ def choose_fgm_cmd(
     gaps = filter_gaps_by_width(find_free_gaps(free_mask))
     has_safe_gap = len(gaps) > 0
 
-    target_idx, best_gap, best_score = choose_target_from_gaps(
-        angles_deg, bubble_ranges, smooth_ranges, gaps, pose, prev_target_angle, front_factor, accumulated_turn_rad
+    target_idx, best_gap, best_score, gap_side = choose_target_from_gaps(
+        angles_deg, bubble_ranges, smooth_ranges, gaps, pose, prev_target_angle, prev_gap_side, front_factor, accumulated_turn_rad
     )
 
     if target_idx < 0:
         target_idx = choose_fallback_target(angles_deg, smooth_ranges, info_left, info_right)
         best_gap = (target_idx, target_idx + 1)
         best_score = 0.0
+        gap_side = gap_side_from_angle(math.radians(float(angles_deg[target_idx])))
 
     gap_width = (best_gap[1] - best_gap[0]) * FGM_ANGLE_STEP_DEG
     gap_left = float(angles_deg[best_gap[1] - 1]) if best_gap[1] > best_gap[0] else float(angles_deg[target_idx])
@@ -845,6 +893,7 @@ def choose_fgm_cmd(
         "collision": target_dist < COLLISION_DIST or closest_dist < COLLISION_DIST,
         "raw_w": raw_w,
         "has_safe_gap": has_safe_gap,
+        "gap_side": gap_side,
         "side_bias_deg": math.degrees(side_bias),
         "side_turn_limit_deg": math.degrees(max(abs(side_turn_min), abs(side_turn_max))),
         "turn_penalty": float(selected_turn_penalty[0]),
@@ -951,6 +1000,7 @@ def main():
     stale_scan_warned = False
     last_v, last_w = BASE_V, 0.0
     last_target_angle = 0.0
+    last_gap_side = 0
     last_log = 0.0
     last_pose_time = time.time()
     accumulated_turn_rad = 0.0
@@ -1060,13 +1110,16 @@ def main():
                         "Return to FGM driving."
                     )
 
+                    last_gap_side = 0
+                    last_target_angle = 0.0
                     v, w, target_angle, info = choose_fgm_cmd(
-                    scan,
-                    last_w,
-                    last_target_angle,
-                    pose,
-                    accumulated_turn_rad,
-                )
+                        scan,
+                        last_w,
+                        last_target_angle,
+                        last_gap_side,
+                        pose,
+                        accumulated_turn_rad,
+                    )
                 else:
                     v = wall_v
                     w = wall_w
@@ -1084,6 +1137,7 @@ def main():
                     scan,
                     last_w,
                     last_target_angle,
+                    last_gap_side,
                     pose,
                     accumulated_turn_rad,
                 )
@@ -1106,6 +1160,8 @@ def main():
                     recovery_wall_seen_count = 0
                     recovery_accum_turn = 0.0
                     recovery_prev_front_dist = None
+                    last_gap_side = 0
+                    last_target_angle = 0.0
                     recovery_turn_active = True
 
                     if blocked_now:
@@ -1228,6 +1284,8 @@ def main():
 
             if (not recovery_turn_active) and (not wall_follow_active):
                 last_target_angle = target_angle
+                if info is not None:
+                    last_gap_side = int(info["gap_side"])
 
             accumulated_turn_deg_log = math.degrees(accumulated_turn_rad)
 
