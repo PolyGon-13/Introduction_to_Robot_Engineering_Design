@@ -97,7 +97,7 @@ RECOVERY_MAX_TURN_RAD = math.radians(200.0) # Recovery 최대 회전각도
 RECOVERY_TURN_TIMEOUT_S = 15.0 # Recovery 해당 초 지나면 강제로 벽 따라가기
 
 RECOVERY_TURN_ENABLE = True # Recovery 기능 on/off 스위치
-RECOVERY_FRONT_OPEN_JUMP_DIST = 0.09
+RECOVERY_FRONT_OPEN_JUMP_DIST = 0.07
 RECOVERY_FRONT_OPEN_PREV_MAX_DIST = 0.45
 
 
