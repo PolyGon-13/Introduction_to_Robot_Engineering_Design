@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+# bubble 기반이 아닌 선분 기반 장애물 회피 로직
+
 import serial
 import time
 import math
