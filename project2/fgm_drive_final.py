@@ -84,7 +84,7 @@ SIDE_GAP_WARN_DIST = 0.175 # 옆 경고 시작 거리
 SIDE_GAP_CRITICAL_DIST = 0.07 # 옆이 매우 가까운 거리
 SIDE_GAP_BIAS_MAX_DEG = 40.0 # 조향 보정 최대각도
 SIDE_TOWARD_WALL_TURN_LIMIT_DEG = 5.0 # 가까운 벽 쪽 회전 제한
-SIDE_AWAY_WALL_TURN_LIMIT_DEG = 50.0 # 가까운 벽 반대쪽 회전 허용각도
+SIDE_AWAY_WALL_TURN_LIMIT_DEG = 40.0 # 가까운 벽 반대쪽 회전 허용각도
 SIDE_TIGHT_TURN_LIMIT_DEG = 20.0 # 옆이 매우 좁을 때 회전한계
 SIDE_NARROW_TURN_LIMIT_DEG = 35.0 # 옆이 좁을 때 회전한계
 SIDE_NARROW_V = 0.12 # 옆이 좁을 때 FGM 속도 상한
@@ -97,7 +97,7 @@ RECOVERY_MAX_TURN_RAD = math.radians(200.0) # Recovery 최대 회전각도
 RECOVERY_TURN_TIMEOUT_S = 15.0 # Recovery 해당 초 지나면 강제로 벽 따라가기
 
 RECOVERY_TURN_ENABLE = True # Recovery 기능 on/off 스위치
-RECOVERY_FRONT_OPEN_JUMP_DIST = 0.07
+RECOVERY_FRONT_OPEN_JUMP_DIST = 0.09
 RECOVERY_FRONT_OPEN_PREV_MAX_DIST = 0.45
 
 
