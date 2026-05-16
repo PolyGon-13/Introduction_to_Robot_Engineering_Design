@@ -81,9 +81,10 @@ FGM_RANGE_DISCONTINUITY_CAP = 0.50
 FGM_RANGE_DISCONTINUITY_EDGE_WINDOW_DEG = 3.0
 
 SIDE_GAP_WARN_DIST = 0.175 # 옆 경고 시작 거리
-SIDE_GAP_BLOCK_DIST = 0.16 # 강하게 거부할 옆 거리
-SIDE_GAP_BIAS_MAX_DEG = 10.0 # 조향 보정 최대각도
-SIDE_GAP_BIAS_GAIN_DEG_PER_M = 125.0 # 좌우 거리차
+SIDE_GAP_CRITICAL_DIST = 0.07 # 옆이 매우 가까운 거리
+SIDE_GAP_BIAS_MAX_DEG = 40.0 # 조향 보정 최대각도
+SIDE_TOWARD_WALL_TURN_LIMIT_DEG = 5.0 # 가까운 벽 쪽 회전 제한
+SIDE_AWAY_WALL_TURN_LIMIT_DEG = 65.0 # 가까운 벽 반대쪽 회전 허용각도
 SIDE_TIGHT_TURN_LIMIT_DEG = 20.0 # 옆이 매우 좁을 때 회전한계
 SIDE_NARROW_TURN_LIMIT_DEG = 35.0 # 옆이 좁을 때 회전한계
 SIDE_NARROW_V = 0.12 # 옆이 좁을 때 FGM 속도 상한
@@ -534,37 +535,70 @@ def filter_gaps_by_width(gaps):
     return [(start, end) for start, end in gaps if end - start >= min_bins]
 
 
-def side_gap_steering_bias(left_dist, right_dist):
-    if min(left_dist, right_dist) >= SIDE_GAP_WARN_DIST:
+def side_gap_severity(left_dist, right_dist):
+    side_min = min(left_dist, right_dist)
+    if side_min >= SIDE_GAP_WARN_DIST:
         return 0.0
 
-    max_bias = math.radians(SIDE_GAP_BIAS_MAX_DEG)
-    bias = math.radians(SIDE_GAP_BIAS_GAIN_DEG_PER_M) * (left_dist - right_dist)
-    return float(np.clip(bias, -max_bias, max_bias))
+    span = max(1e-6, SIDE_GAP_WARN_DIST - SIDE_GAP_CRITICAL_DIST)
+    return float(np.clip((SIDE_GAP_WARN_DIST - side_min) / span, 0.0, 1.0))
 
 
-def side_narrow_turn_limit(left_dist, right_dist):
-    side_min = min(left_dist, right_dist)
+def side_gap_steering_bias(left_dist, right_dist):
+    severity = side_gap_severity(left_dist, right_dist)
+    if severity <= 0.0:
+        return 0.0
 
-    if side_min <= SIDE_GAP_BLOCK_DIST:
-        return math.radians(SIDE_TIGHT_TURN_LIMIT_DEG)
+    diff = left_dist - right_dist
+    if abs(diff) < 1e-6:
+        return 0.0
 
-    if side_min < SIDE_GAP_WARN_DIST:
-        return math.radians(SIDE_NARROW_TURN_LIMIT_DEG)
+    direction = 1.0 if diff > 0.0 else -1.0
+    bias_deg = SIDE_GAP_BIAS_MAX_DEG * severity
+    return math.radians(direction * bias_deg)
 
-    return TURN_HARD_LIMIT_RAD
+
+def side_turn_bounds(left_dist, right_dist):
+    severity = side_gap_severity(left_dist, right_dist)
+    if severity <= 0.0:
+        return -TURN_HARD_LIMIT_RAD, TURN_HARD_LIMIT_RAD
+
+    diff = left_dist - right_dist
+    if abs(diff) < 1e-6:
+        limit_deg = (
+            SIDE_NARROW_TURN_LIMIT_DEG
+            + (SIDE_TIGHT_TURN_LIMIT_DEG - SIDE_NARROW_TURN_LIMIT_DEG) * severity
+        )
+        limit = math.radians(limit_deg)
+        return -limit, limit
+
+    toward_limit_deg = (
+        SIDE_TIGHT_TURN_LIMIT_DEG
+        + (SIDE_TOWARD_WALL_TURN_LIMIT_DEG - SIDE_TIGHT_TURN_LIMIT_DEG) * severity
+    )
+    away_limit_deg = (
+        SIDE_NARROW_TURN_LIMIT_DEG
+        + (SIDE_AWAY_WALL_TURN_LIMIT_DEG - SIDE_NARROW_TURN_LIMIT_DEG) * severity
+    )
+    toward_limit = math.radians(toward_limit_deg)
+    away_limit = math.radians(away_limit_deg)
+
+    if right_dist < left_dist:
+        return -toward_limit, away_limit
+    return -away_limit, toward_limit
 
 
 def side_gap_speed_limit(left_dist, right_dist):
-    side_min = min(left_dist, right_dist)
+    severity = side_gap_severity(left_dist, right_dist)
+    if severity <= 0.0:
+        return BASE_V
 
-    if side_min <= SIDE_GAP_BLOCK_DIST:
-        return SIDE_TIGHT_V
-
-    if side_min < SIDE_GAP_WARN_DIST:
-        return SIDE_NARROW_V
-
-    return BASE_V
+    if severity < 0.5:
+        return float(BASE_V + (SIDE_NARROW_V - BASE_V) * (severity / 0.5))
+    return float(
+        SIDE_NARROW_V
+        + (SIDE_TIGHT_V - SIDE_NARROW_V) * ((severity - 0.5) / 0.5)
+    )
 
 
 def cumulative_turn_penalty(angle_rad, accumulated_turn_rad):
@@ -764,14 +798,20 @@ def choose_fgm_cmd(
     fgm_target_angle = math.radians(float(angles_deg[target_idx]))
     fgm_target_angle = float(np.clip(fgm_target_angle, -TURN_HARD_LIMIT_RAD, TURN_HARD_LIMIT_RAD))
     side_bias = side_gap_steering_bias(info_left, info_right)
-    side_turn_limit = side_narrow_turn_limit(info_left, info_right)
-    target_angle = float(np.clip(fgm_target_angle + side_bias, -side_turn_limit, side_turn_limit))
+    side_turn_min, side_turn_max = side_turn_bounds(info_left, info_right)
+    target_angle = float(np.clip(fgm_target_angle + side_bias, side_turn_min, side_turn_max))
     if has_safe_gap and best_gap[1] > best_gap[0]:
-        target_angle = float(np.clip(target_angle, gap_right_rad, gap_left_rad))
-        if fgm_target_angle > 0.0:
-            target_angle = max(0.0, target_angle)
-        elif fgm_target_angle < 0.0:
-            target_angle = min(0.0, target_angle)
+        target_min = max(gap_right_rad, side_turn_min)
+        target_max = min(gap_left_rad, side_turn_max)
+        if target_min <= target_max:
+            target_angle = float(np.clip(target_angle, target_min, target_max))
+        else:
+            target_angle = float(np.clip(target_angle, side_turn_min, side_turn_max))
+        if abs(side_bias) < 1e-6:
+            if fgm_target_angle > 0.0:
+                target_angle = max(0.0, target_angle)
+            elif fgm_target_angle < 0.0:
+                target_angle = min(0.0, target_angle)
     target_idx = int(np.argmin(np.abs(angles_deg - math.degrees(target_angle))))
     target_dist = float(smooth_ranges[target_idx])
     raw_w = float(np.clip(FGM_TURN_GAIN * target_angle, -MAX_ABS_W, MAX_ABS_W))
@@ -806,7 +846,7 @@ def choose_fgm_cmd(
         "raw_w": raw_w,
         "has_safe_gap": has_safe_gap,
         "side_bias_deg": math.degrees(side_bias),
-        "side_turn_limit_deg": math.degrees(side_turn_limit),
+        "side_turn_limit_deg": math.degrees(max(abs(side_turn_min), abs(side_turn_max))),
         "turn_penalty": float(selected_turn_penalty[0]),
         "projected_turn_deg": math.degrees(float(selected_projected_turn[0])),
     }
