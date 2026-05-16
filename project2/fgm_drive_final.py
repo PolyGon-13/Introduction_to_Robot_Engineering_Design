@@ -805,13 +805,13 @@ def choose_fgm_cmd(
         target_max = min(gap_left_rad, side_turn_max)
         if target_min <= target_max:
             target_angle = float(np.clip(target_angle, target_min, target_max))
+            if abs(side_bias) < 1e-6:
+                if fgm_target_angle > 0.0:
+                    target_angle = max(0.0, target_angle)
+                elif fgm_target_angle < 0.0:
+                    target_angle = min(0.0, target_angle)
         else:
-            target_angle = float(np.clip(target_angle, side_turn_min, side_turn_max))
-        if abs(side_bias) < 1e-6:
-            if fgm_target_angle > 0.0:
-                target_angle = max(0.0, target_angle)
-            elif fgm_target_angle < 0.0:
-                target_angle = min(0.0, target_angle)
+            has_safe_gap = False
     target_idx = int(np.argmin(np.abs(angles_deg - math.degrees(target_angle))))
     target_dist = float(smooth_ranges[target_idx])
     raw_w = float(np.clip(FGM_TURN_GAIN * target_angle, -MAX_ABS_W, MAX_ABS_W))
