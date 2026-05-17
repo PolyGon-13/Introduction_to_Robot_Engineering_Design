@@ -42,7 +42,8 @@ ROBOT_RADIUS = 0.13 # 로봇 반지름
 COLLISION_DIST = ROBOT_RADIUS + 0.05 # 충돌위험 거리
 ACTIVE_FRONT_DIST = 0.30 # 정면 장애물 반응 시작 거리
 FRONT_DANGER_DIST = 0.19 # 정면 위험 거리
-FRONT_STOP_DIST = 0.08 # 너무 가까울 때 정지할 거리
+FRONT_SLOW_DIST = 0.13 # 정면 초근접 감속 시작 거리
+FRONT_STOP_DIST = 0.08 # 정면 초근접 정지 거리
 FRONT_CORRIDOR_HALF = COLLISION_DIST + 0.30 # FGM 장애물로 인식할 Y축 범위의 절반
 
 INITIAL_HEADING_RAD = 0.0 # 출발 기준 방향
@@ -665,37 +666,29 @@ def rate_limit_w(prev_w, target_w, urgent=False):
     return prev_w + delta
 
 
-def close_distance_speed_limit(distance):
-    if distance < FRONT_DANGER_DIST:
-        stop_ratio = np.clip(
-            (distance - FRONT_STOP_DIST) / max(1e-6, FRONT_DANGER_DIST - FRONT_STOP_DIST),
-            0.0,
-            1.0,
-        )
-        return MIN_V * float(stop_ratio)
-
-    if distance < ACTIVE_FRONT_DIST:
-        slow_ratio = np.clip(
-            (distance - FRONT_DANGER_DIST) / max(1e-6, ACTIVE_FRONT_DIST - FRONT_DANGER_DIST),
-            0.0,
-            1.0,
-        )
-        return MIN_V + (BASE_V - MIN_V) * float(slow_ratio)
-
-    return BASE_V
-
-
 # FGM이 고른 최종 목표 방향으로 얼마나 빠르게 전진할지 결정
 # target_dist : 목표 방향의 장애물까지의 거리, target_angle : 목표 각도, has_safe_gap : 안전한 gap이 있는지 여부
-def choose_speed(target_dist, target_angle, has_safe_gap, front_dist=MAX_LIDAR_DIST_M, closest_dist=MAX_LIDAR_DIST_M):
+def choose_speed(target_dist, target_angle, has_safe_gap, front_dist=MAX_LIDAR_DIST_M):
     if not has_safe_gap: # 안전한 Gap이 없으면 정지
         return 0.0
 
     turn_ratio = min(1.0, abs(target_angle) / TURN_HARD_LIMIT_RAD) # 목표각이 얼마나 큰지 비율
     v = BASE_V * (1.0 - 0.35 * turn_ratio) # 목표각이 클수록 감속
 
-    near_dist = min(target_dist, front_dist, closest_dist)
-    v = min(v, close_distance_speed_limit(near_dist))
+    if target_dist < ACTIVE_FRONT_DIST: # 목표 방향과 가까운지 확인
+        slow_ratio = np.clip((target_dist - FRONT_DANGER_DIST) / max(1e-6, ACTIVE_FRONT_DIST - FRONT_DANGER_DIST), 0.0, 1.0) # 추가 감속
+        v = min(v, MIN_V + (BASE_V - MIN_V) * float(slow_ratio)) # 목표 방향이 가까우면 속도 상한 낮추기
+
+    if target_dist < COLLISION_DIST:
+        v = 0.0
+
+    if front_dist < FRONT_SLOW_DIST:
+        front_ratio = np.clip(
+            (front_dist - FRONT_STOP_DIST) / max(1e-6, FRONT_SLOW_DIST - FRONT_STOP_DIST),
+            0.0,
+            1.0,
+        )
+        v = min(v, MIN_V * float(front_ratio))
 
     return float(np.clip(v, 0.0, BASE_V))
 
@@ -760,7 +753,7 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose, accumulated_turn_rad=0
     )
     urgent = front_dist < URGENT_FRONT_DIST or not has_safe_gap
     w = rate_limit_w(prev_w, raw_w, urgent=urgent)
-    v = choose_speed(target_dist, target_angle, has_safe_gap, front_dist, closest_dist)
+    v = choose_speed(target_dist, target_angle, has_safe_gap, front_dist)
     v = min(v, side_gap_speed_limit(info_left, info_right))
 
     closest_angle = float(angles_deg[closest_idx]) if closest_idx >= 0 else 0.0
