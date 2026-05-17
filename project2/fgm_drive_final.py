@@ -10,6 +10,9 @@ LIDAR_PORT = "/dev/ttyUSB0"
 LIDAR_BAUD = 460800
 ARDU_PORT = "/dev/ttyS0"
 ARDU_BAUD = 9600
+WHEEL_R = 0.034
+WHEEL_BASE = 0.179
+ODOM_HOLD_S = 0.25
 
 
 # LiDAR
@@ -93,7 +96,7 @@ RECOVERY_TURN_W = 1.00 # Recovery 제자리 회전 속도
 RECOVERY_MAX_TURN_RAD = math.radians(200.0) # Recovery 최대 회전각도
 RECOVERY_TURN_TIMEOUT_S = 15.0
 
-RECOVERY_TURN_ENABLE = True # Recovery 기능 on/off 스위치
+RECOVERY_TURN_ENABLE = False # Recovery 기능 on/off 스위치
 RECOVERY_FRONT_OPEN_JUMP_DIST = 0.07
 RECOVERY_FRONT_OPEN_PREV_MAX_DIST = 0.45
 RECOVERY_FRONT_OPEN_CONFIRM_FRAMES = 1 # Recovery 탈출 조건 프레임 수
@@ -162,6 +165,73 @@ class RobotPose:
         self.x += v * math.cos(self.theta) * dt
         self.y += v * math.sin(self.theta) * dt
         self.theta = normalize_angle_rad(self.theta + w * dt)
+
+
+class ArduinoLink:
+    def __init__(self, port, baud):
+        self.ser = serial.Serial(port, baud, timeout=0.05)
+        self.lock = threading.Lock()
+        self.write_lock = threading.Lock()
+        self.latest_odom = None
+        self.running = True
+        self.thread = threading.Thread(target=self._loop, daemon=True)
+        self.thread.start()
+
+    def _loop(self):
+        while self.running:
+            try:
+                line = self.ser.readline()
+                if not line:
+                    continue
+
+                text = line.decode("ascii", errors="ignore").strip()
+                if not text.startswith("O,"):
+                    continue
+
+                parts = text.split(",")
+                if len(parts) < 3:
+                    continue
+
+                wheel_l = float(parts[1])
+                wheel_r = float(parts[2])
+                v = WHEEL_R * (wheel_l + wheel_r) * 0.5
+                w = WHEEL_R * (wheel_r - wheel_l) / WHEEL_BASE
+
+                with self.lock:
+                    self.latest_odom = (v, w, time.time())
+            except (ValueError, UnicodeError):
+                continue
+            except (serial.SerialException, OSError) as e:
+                if self.running:
+                    print(f"[ARDU] Serial Error: {e}, retrying in 1 second...")
+                    time.sleep(1.0)
+
+    def get_odom(self, now=None):
+        if now is None:
+            now = time.time()
+        with self.lock:
+            odom = self.latest_odom
+        if odom is None:
+            return None
+
+        v, w, odom_time = odom
+        if now - odom_time > ODOM_HOLD_S:
+            return None
+
+        return v, w
+
+    def send_vw(self, v, w):
+        with self.write_lock:
+            self.ser.write(f"V{v:.3f},{w:.3f}\n".encode())
+
+    def stop(self):
+        with self.write_lock:
+            self.ser.write(b"S\n")
+
+    def close(self):
+        self.running = False
+        time.sleep(0.1)
+        self.ser.close()
 
 
 # RPLidar 초기화
@@ -792,15 +862,15 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose, accumulated_turn_rad=0
 def main():
     pose = RobotPose()
     lidar = RPLidarC1(LIDAR_PORT, LIDAR_BAUD)
-    ardu = serial.Serial(ARDU_PORT, ARDU_BAUD, timeout=0.1)
+    ardu = ArduinoLink(ARDU_PORT, ARDU_BAUD)
     print("[INFO] Warming up for 2 seconds...")
     time.sleep(2.0)
 
     def send_vw(v, w):
-        ardu.write(f"V{v:.3f},{w:.3f}\n".encode())
+        ardu.send_vw(v, w)
 
     def stop():
-        ardu.write(b"S\n")
+        ardu.stop()
 
     stop()
     print("[INFO] Initialization Complete. Press Enter to start!")
@@ -830,24 +900,37 @@ def main():
     recovery_turned_deg_log = 0.0
     recovery_front_dist_log = MAX_LIDAR_DIST_M
 
+    def update_pose_from_motion(command_v, command_w, dt, now):
+        nonlocal accumulated_turn_rad, recovery_accum_turn
+        odom = ardu.get_odom(now)
+        if odom is None:
+            motion_v = command_v
+            motion_w = command_w
+            odom_used = False
+        else:
+            motion_v, motion_w = odom
+            odom_used = True
+
+        pose.update(motion_v, motion_w, dt)
+        accumulated_turn_rad += motion_w * dt
+        if recovery_turn_active:
+            recovery_accum_turn += abs(motion_w) * dt
+        return motion_v, motion_w, odom_used
+
     try:
         while True:
             now = time.time()
             dt = max(0.0, min(0.20, now - last_pose_time))
             last_pose_time = now
 
-            if recovery_turn_active:
-                recovery_accum_turn += abs(last_w) * dt
-
             scan, scan_seq, scan_time = lidar.get_scan()
             if scan is None:
                 if time.time() - last_scan_ok <= SCAN_HOLD_S:
                     send_vw(last_v, last_w)
-                    pose.update(last_v, last_w, dt)
-                    accumulated_turn_rad += last_w * dt
+                    update_pose_from_motion(last_v, last_w, dt, now)
                 else:
                     send_vw(0.0, 0.0)
-                    pose.update(0.0, 0.0, dt)
+                    update_pose_from_motion(0.0, 0.0, dt, now)
                 time.sleep(LOOP_DT_S)
                 continue
 
@@ -859,8 +942,7 @@ def main():
                 stale_scan_warned = False
             elif not scan_is_stale:
                 send_vw(last_v, last_w)
-                pose.update(last_v, last_w, dt)
-                accumulated_turn_rad += last_w * dt
+                update_pose_from_motion(last_v, last_w, dt, now)
                 time.sleep(LOOP_DT_S)
                 continue
 
@@ -1011,8 +1093,7 @@ def main():
 
 
             send_vw(v, w)
-            pose.update(v, w, dt)
-            accumulated_turn_rad += w * dt
+            odom_v, odom_w, odom_used = update_pose_from_motion(v, w, dt, now)
             last_v, last_w = v, w
 
             if not recovery_turn_active:
@@ -1043,6 +1124,7 @@ def main():
                         f"[{recovery_mode_name}] x={pose.x:.2f} y={pose.y:.2f} "
                         f"th={math.degrees(pose.theta):.1f}deg "
                         f"v={v:.2f} w={w:.2f} "
+                        f"odom={int(odom_used)} ov={odom_v:.2f} ow={odom_w:.2f} "
                         f"ct={accumulated_turn_deg_log:.1f}deg "
                         f"turned={recovery_turned_deg_log:.1f}deg "
                         f"rfront={recovery_front_dist_log:.2f} "
@@ -1057,6 +1139,7 @@ def main():
                         f"[{recovery_mode_name}] x={pose.x:.2f} y={pose.y:.2f} "
                         f"th={pose.theta:.2f} "
                         f"v={v:.2f} w={w:.2f} raw={info['raw_w']:.2f} "
+                        f"odom={int(odom_used)} ov={odom_v:.2f} ow={odom_w:.2f} "
                         f"ct={accumulated_turn_deg_log:.1f}deg "
                         f"tp={info['turn_penalty']:.2f} "
                         f"tgt={info['target_deg']:.1f} td={info['target_dist']:.2f} "
