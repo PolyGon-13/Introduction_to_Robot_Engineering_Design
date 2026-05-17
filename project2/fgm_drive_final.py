@@ -42,7 +42,7 @@ ROBOT_RADIUS = 0.13 # 로봇 반지름
 COLLISION_DIST = ROBOT_RADIUS + 0.05 # 충돌위험 거리
 ACTIVE_FRONT_DIST = 0.30 # 정면 장애물 반응 시작 거리
 FRONT_DANGER_DIST = 0.19 # 정면 위험 거리
-FRONT_HARD_STOP_DIST = 0.12 # 정면 초근접 정지 거리
+FRONT_HARD_STOP_DIST = 0.10 # 정면 초근접 정지 거리
 FRONT_CORRIDOR_HALF = COLLISION_DIST + 0.30 # FGM 장애물로 인식할 Y축 범위의 절반
 
 INITIAL_HEADING_RAD = 0.0 # 출발 기준 방향
