@@ -126,7 +126,7 @@ while True:
     if 0 <= angle_index <= 180:
         distance_array[angle_index] = distance
         
-    desired_angle = Follow_the_Gap_Method(distance_array, threshold=400)
+    desired_angle = Follow_the_Gap_Method(distance_array, threshold=700)
 
     target_angle = desired_angle - 90
     
