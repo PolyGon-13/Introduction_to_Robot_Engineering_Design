@@ -4,6 +4,7 @@ import math
 from threading import Thread
 from queue import Queue
 
+
 lidar_ser = serial.Serial("/dev/ttyUSB0", 460800, timeout=0.1)
 arduino_ser = serial.Serial("/dev/ttyS0", 115200, timeout=0.1)
 
@@ -11,7 +12,6 @@ data_queue = Queue(maxsize=10)
 send_enable = False
 
 def arduino_writer():
-    global send_enable
     while True:
         angle, distance = data_queue.get()
         if not send_enable:
@@ -20,12 +20,17 @@ def arduino_writer():
         arduino_ser.write(msg)
         time.sleep(0.01)
 
+def wait_for_start_signal():
+    global send_enable
+    input("Press Enter to start driving calculations and Arduino commands...")
+    send_enable = True
+    print("Driving calculations and Arduino command sending started.")
+
 thread = Thread(target=arduino_writer, daemon=True)
 thread.start()
 
-input("Press Enter to start sending commands to Arduino...")
-send_enable = True
-print("Arduino command sending started.")
+start_thread = Thread(target=wait_for_start_signal, daemon=True)
+start_thread.start()
 
 lidar_ser.write(bytes([0xA5, 0x40]))
 time.sleep(1)
@@ -93,7 +98,7 @@ def corridor_center_correction(distances):
         return 0.0, right_wall, left_wall
 
     wall_error = right_wall - left_wall
-    correction = wall_error * 0.035
+    correction = wall_error * 0.050
 
     return max(-18.0, min(18.0, correction)), right_wall, left_wall
 
@@ -160,6 +165,9 @@ while True:
     
     if 0 <= angle_index <= 180:
         distance_array[angle_index] = distance
+
+    if not send_enable:
+        continue
         
     desired_angle = Follow_the_Gap_Method(distance_array, threshold=400)
 
