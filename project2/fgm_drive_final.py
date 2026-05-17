@@ -137,9 +137,10 @@ def normalize_angle_rad(angle):
 def angle_error_rad(a, b):
     return normalize_angle_rad(a - b)
 
+
 # Recovery mode에 들어갈 때 제자리 회전 방향 결정
-# theta : 현재 로봇 heading, accumulated_turn_rad : 누적 회전량
-def choose_initial_based_recovery_dir(theta, accumulated_turn_rad=0.0):
+# theta : 현재 로봇 heading, accumulated_turn_rad : 누적 회전량, prev_w : 직전 회전속도
+def choose_initial_based_recovery_dir(theta, accumulated_turn_rad=0.0, prev_w=0.0):
     heading_from_initial = normalize_angle_rad(theta - INITIAL_HEADING_RAD)
 
     # 왼쪽으로 돌아있는 경우 우회전
@@ -154,6 +155,13 @@ def choose_initial_based_recovery_dir(theta, accumulated_turn_rad=0.0):
         return -1.0
     # 누적 회전량이 오른쪽으로 쌓인 경우 좌회전
     elif accumulated_turn_rad < -RECOVERY_INITIAL_DEADBAND_RAD:
+        return +1.0
+
+    # 직전 회전속도가 왼쪽이면 우회전
+    if prev_w > 0.0:
+        return -1.0
+    # 직전 회전속도가 오른쪽이면 좌회전
+    elif prev_w < 0.0:
         return +1.0
 
     return -1.0
@@ -1070,6 +1078,7 @@ def main():
                     recovery_turn_dir = choose_initial_based_recovery_dir(
                         pose.theta,
                         accumulated_turn_rad,
+                        last_w,
                     )
                     recovery_follow_side = -recovery_turn_dir
                     recovery_start_time = time.time()
