@@ -94,6 +94,7 @@ RECOVERY_TURN_TIMEOUT_S = 15.0
 RECOVERY_TURN_ENABLE = True # Recovery 기능 on/off 스위치
 RECOVERY_FRONT_OPEN_JUMP_DIST = 0.09
 RECOVERY_FRONT_OPEN_PREV_MAX_DIST = 0.45
+RECOVERY_FRONT_OPEN_CONFIRM_FRAMES = 1 # Recovery 탈출 조건 프레임 수
 RECOVERY_FRONT_CHECK_DIST = 0.30
 RECOVERY_FRONT_Y_HALF = 0.16
 
@@ -797,6 +798,7 @@ def main():
     recovery_start_time = 0.0
     recovery_accum_turn = 0.0
     recovery_prev_front_dist = None
+    recovery_front_open_count = 0
 
     recovery_turned_deg_log = 0.0
     recovery_front_dist_log = MAX_LIDAR_DIST_M
@@ -869,6 +871,7 @@ def main():
                     recovery_start_time = time.time()
                     recovery_accum_turn = 0.0
                     recovery_prev_front_dist = None
+                    recovery_front_open_count = 0
                     recovery_turn_active = True
 
                     if blocked_now:
@@ -887,13 +890,8 @@ def main():
                             "Start RIGHT recovery turn."
                         )
 
-            if (
-                RECOVERY_TURN_ENABLE
-                and recovery_turn_active
-            ):
-                recovery_timeout = (
-                    time.time() - recovery_start_time
-                ) > RECOVERY_TURN_TIMEOUT_S
+            if (RECOVERY_TURN_ENABLE and recovery_turn_active):
+                recovery_timeout = (time.time() - recovery_start_time) > RECOVERY_TURN_TIMEOUT_S
 
                 recovery_max_turn_reached = recovery_accum_turn >= RECOVERY_MAX_TURN_RAD
 
@@ -909,13 +907,24 @@ def main():
                     and (recovery_front_dist - recovery_prev_front_dist) >= RECOVERY_FRONT_OPEN_JUMP_DIST
                 )
 
-                recovery_ready_to_fgm = recovery_open_detected
+                if recovery_open_detected:
+                    recovery_front_open_count += 1
+                elif (
+                    recovery_front_open_count > 0
+                    and recovery_front_dist > RECOVERY_FRONT_OPEN_PREV_MAX_DIST
+                ):
+                    recovery_front_open_count += 1
+                else:
+                    recovery_front_open_count = 0
+
+                recovery_ready_to_fgm = recovery_front_open_count >= RECOVERY_FRONT_OPEN_CONFIRM_FRAMES
 
                 recovery_prev_front_dist = recovery_front_dist
 
                 if recovery_ready_to_fgm:
                     recovery_turn_active = False
                     recovery_prev_front_dist = None
+                    recovery_front_open_count = 0
 
                     recovery_mode_name = "FGM_RETURN_FROM_RECOVERY"
 
@@ -932,10 +941,10 @@ def main():
                         pose,
                         accumulated_turn_rad,
                     )
-
                 elif recovery_max_turn_reached or recovery_timeout:
                     recovery_turn_active = False
                     recovery_prev_front_dist = None
+                    recovery_front_open_count = 0
 
                     recovery_mode_name = "FGM_RETURN_FROM_RECOVERY"
 
