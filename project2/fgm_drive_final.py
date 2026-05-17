@@ -486,12 +486,15 @@ def filter_gaps_by_width(gaps, ranges):
 
 
 def side_gap_steering_bias(left_dist, right_dist):
+    return 0.0
+    '''
     if min(left_dist, right_dist) >= SIDE_GAP_WARN_DIST:
         return 0.0
 
     max_bias = math.radians(SIDE_GAP_BIAS_MAX_DEG)
     bias = math.radians(SIDE_GAP_BIAS_GAIN_DEG_PER_M) * (left_dist - right_dist)
     return float(np.clip(bias, -max_bias, max_bias))
+    '''
 
 
 # 좌우 벽 거리를 보고 최종 조향각 제한값을 정함
