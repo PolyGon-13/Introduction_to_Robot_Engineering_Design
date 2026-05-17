@@ -18,7 +18,7 @@ DIST_OFFSET_MM = 0.0 # 라이다 거리 보정값
 LIDAR_ANGLE_SIGN = -1.0 # 라이다 각도 방향 반전 여부
 
 MIN_LIDAR_DIST_M = 0.05 # 라이다 유효 최소 거리
-MAX_LIDAR_DIST_M = 2.5 # 라이다 유효 최대 거리
+MAX_LIDAR_DIST_M = 1.5 # 라이다 유효 최대 거리
 MIN_QUALITY = 1 # 라이다 품질 최소값
 MIN_X_FOR_PLANNING = 0.10 # FGM에 넣을 최소 전방 거리
 MAX_EVAL_POINTS = 720 # 계산에 사용할 라이다 포인트 최대 개수
@@ -66,7 +66,7 @@ FGM_MIN_GAP_WIDTH_DEG = 8.0 # 인식한 Gap의 최소 허용각도
 FGM_SMOOTH_WINDOW = 5 # 이동평균 윈도우 크기 (5칸 = +-2도) : 튀는 값 방지 휘해 2도 간격으로 값들의 평균값으로 값을 대체
 
 FGM_TURN_GAIN = 1.05 # 목표 각도->회전명령 가중치
-FGM_PREV_TARGET_WEIGHT = 0.65 # 직전 목표 방향 연속성 가중치
+FGM_PREV_TARGET_WEIGHT = 0.85 # 직전 목표 방향 연속성 가중치
 FGM_GOAL_WEIGHT_SAFE = 1.00 # 안전할 때 목표 방향 가중치
 FGM_GOAL_WEIGHT_DANGER = 0.30 # 위험할 때 목표 방향 가중치
 FGM_STRAIGHT_WEIGHT = 0.70 # 정면 선호 가중치
