@@ -39,7 +39,7 @@ URGENT_FRONT_DIST = 0.30 # 정면이 이 안이면 긴급모드
 
 # 로봇 크기 & 충돌 거리
 ROBOT_RADIUS = 0.13 # 로봇 반지름
-COLLISION_DIST = ROBOT_RADIUS + 0.05 # 충돌위험 거리
+COLLISION_DIST = ROBOT_RADIUS # 충돌위험 거리
 ACTIVE_FRONT_DIST = 0.30 # 정면 장애물 반응 시작 거리
 FRONT_DANGER_DIST = 0.19 # 정면 위험 거리
 FRONT_CORRIDOR_HALF = COLLISION_DIST + 0.30 # FGM 장애물로 인식할 Y축 범위의 절반
