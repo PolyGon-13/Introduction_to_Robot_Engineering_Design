@@ -30,11 +30,14 @@ FGM_CENTER_BIAS_PER_DEG = 1.0
 MIN_SCAN_POINTS = 40
 
 BASE_V = 0.20
-MIN_V = 0.15
-MAX_ABS_W = 0.70
-FGM_TURN_GAIN = 1.05
+MIN_V = 0.10
+MAX_ABS_W = 1.10
+FGM_TURN_GAIN = 1.50
 STRAIGHT_DEADBAND_DEG = 8.0
 FRONT_DANGER_MM = 190.0
+
+WHEEL_R = 0.034
+WHEEL_BASE = 0.179
 
 COMMAND_WRITE_SLEEP_S = 0.01
 LOG_INTERVAL_S = 0.5
@@ -176,6 +179,12 @@ def choose_drive_command(target_angle_deg, target_distance_mm, has_gap):
     return v, w
 
 
+def expected_wheel_targets(v, w):
+    phi_l = (v - WHEEL_BASE * w * 0.5) / WHEEL_R
+    phi_r = (v + WHEEL_BASE * w * 0.5) / WHEEL_R
+    return phi_l, phi_r
+
+
 def main():
     lidar_ser = serial.Serial(LIDAR_PORT, LIDAR_BAUD, timeout=0.1)
     arduino_ser = serial.Serial(ARDU_PORT, ARDU_BAUD, timeout=0.1)
@@ -211,6 +220,7 @@ def main():
                 target_distance = distance_array[target_index]
 
                 v, w = choose_drive_command(target_angle, target_distance, has_gap)
+                phi_l, phi_r = expected_wheel_targets(v, w)
                 put_latest(data_queue, (v, w))
 
                 now = time.time()
@@ -219,7 +229,8 @@ def main():
                         f"[FGM_ADD] tgt={target_angle:.1f}deg "
                         f"dist={target_distance / 1000.0:.2f} "
                         f"gap={gap_width} safe={int(has_gap)} "
-                        f"v={v:.2f} w={w:.2f}"
+                        f"v={v:.2f} w={w:.2f} "
+                        f"phiL={phi_l:.2f} phiR={phi_r:.2f}"
                     )
                     last_log = now
 
