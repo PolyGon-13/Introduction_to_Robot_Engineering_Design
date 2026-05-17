@@ -513,22 +513,25 @@ def smooth_ranges_conservative(ranges):
     return np.minimum(ranges, averaged)
 
 
+# 가장 가까운 장애물 주변 각도 범위를 강제로 막는 함수 (안전 버블)
+# ranges : 각도별 거리 배열, counts : 각도별 포인트 수
 def apply_safety_bubble(ranges, counts):
     working = ranges.copy()
-    valid = counts > 0
-    valid_obstacles = valid & (ranges < MAX_LIDAR_DIST_M)
+    valid = counts > 0 # 각도별로 실제 측정값이 있는지 확인
+    valid_obstacles = valid & (ranges < MAX_LIDAR_DIST_M) # 실제 측정값이 있고, MAX_LIDAR_DIST_M보다 작은 칸만 선택
     if not valid_obstacles.any():
         return working, -1, MAX_LIDAR_DIST_M, 0
 
-    obstacle_ranges = np.where(valid_obstacles, ranges, np.inf)
-    closest_idx = int(np.argmin(obstacle_ranges))
-    closest_dist = float(ranges[closest_idx])
-    half_angle_rad = math.atan2(FGM_BUBBLE_RADIUS, max(closest_dist, MIN_LIDAR_DIST_M))
-    half_bins = int(math.ceil(math.degrees(half_angle_rad) / FGM_ANGLE_STEP_DEG))
+    obstacle_ranges = np.where(valid_obstacles, ranges, np.inf) # 장애물 후보인 칸은 실제 거리값을 유지하고, 후보가 아닌 칸은 inf(무한대)로 바꿈
+    closest_idx = int(np.argmin(obstacle_ranges)) # 가장 가까운 장애물의 인덱스
+    closest_dist = float(ranges[closest_idx]) # 가장 가까운 장애물까지의 거리
+    half_angle_rad = math.atan2(FGM_BUBBLE_RADIUS, max(closest_dist, MIN_LIDAR_DIST_M)) # 가장 가까운 장애물 주변을 안전 반경만큼 부풀렸을 때, 그 장애물이 LiDAR 기준으로 중심방향에서 좌우 몇 라디안까지 차지하는지 계산
+    half_bins = int(math.ceil(math.degrees(half_angle_rad) / FGM_ANGLE_STEP_DEG)) # half_angle_rad를 각도 격자 칸 수로 변환
 
-    start = max(0, closest_idx - half_bins)
-    end = min(len(working), closest_idx + half_bins + 1)
-    working[start:end] = 0.0
+    start = max(0, closest_idx - half_bins) # 막을 시작 인덱스
+    end = min(len(working), closest_idx + half_bins + 1) # 막을 끝 인덱스
+    working[start:end] = 0.0 # 버블 적용
+
     return working, closest_idx, closest_dist, half_bins
 
 
@@ -741,24 +744,21 @@ def choose_speed(target_dist, target_angle, has_safe_gap):
     return float(np.clip(v, 0.0, BASE_V))
 
 
-def choose_fgm_cmd(
-    scan,
-    prev_w,
-    prev_target_angle,
-    pose,
-    accumulated_turn_rad=0.0,
-):
-    points = lidar_points_to_xy(scan)
-    points_all = lidar_points_to_xy_all(scan)
-    front_dist = front_distance(points)
-    front_factor = compute_front_factor(front_dist)
-    info_left, info_right = compute_side_info(points_all)
+# scan : 현재 LiDAR 스캔 데이터, prev_w : 직전 회전속도, prev_target_angle : 직전 목표 각도, pose : 현재 로봇 위치와 방향, accumulated_turn_rad : 누적 회전량
+def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose, accumulated_turn_rad=0.0):
+    points = lidar_points_to_xy(scan) # LiDAR 스캔을 (x,y) 포인트 배열로 변환
+    points_all = lidar_points_to_xy_all(scan) # 모든 LiDAR 스캔을 (x,y) 포인트 배열로 변환
+    front_dist = front_distance(points) # 전방 장애물 거리 계산
+    front_factor = compute_front_factor(front_dist) # 전방 위험도 계산
+    info_left, info_right = compute_side_info(points_all) # 좌우 가까운 벽 거리 계산
 
+    # LiDAR 스캔을 -90~+90 범위의 1도 간격 배열로 변환
+    # angles_deg : 각도 배열, raw_ranges : 각도별 최소 거리 배열, counts : 각도별 포인트 수
     angles_deg, raw_ranges, counts = scan_to_angle_ranges(scan)
-    smooth_ranges = smooth_ranges_conservative(raw_ranges)
-    bubble_ranges, closest_idx, closest_dist, bubble_bins = apply_safety_bubble(
-        smooth_ranges, counts
-    )
+    smooth_ranges = smooth_ranges_conservative(raw_ranges) # 거리 배열 평활화
+
+    # bubble_ranges : 안전 버블 적용된 거리 배열, closest_idx : 가장 가까운 장애물의 각도 인덱스, closest_dist : 가장 가까운 장애물의 거리, bubble_bins : 그 장애물 주변 몇 칸을 막았는지
+    bubble_ranges, closest_idx, closest_dist, bubble_bins = apply_safety_bubble(smooth_ranges, counts) # 안전 버블 적용
 
     free_mask = bubble_ranges >= FGM_FREE_DIST
     gaps = filter_gaps_by_width(find_free_gaps(free_mask))
@@ -803,6 +803,18 @@ def choose_fgm_cmd(
     v = min(v, side_gap_speed_limit(info_left, info_right))
 
     closest_angle = float(angles_deg[closest_idx]) if closest_idx >= 0 else 0.0
+    if closest_idx >= 0:
+        bubble_half_angle_deg = math.degrees(
+            math.atan2(FGM_BUBBLE_RADIUS, max(closest_dist, MIN_LIDAR_DIST_M))
+        )
+        bubble_start_idx = max(0, closest_idx - bubble_bins)
+        bubble_end_idx = min(len(angles_deg), closest_idx + bubble_bins + 1)
+        bubble_right = float(angles_deg[bubble_start_idx])
+        bubble_left = float(angles_deg[bubble_end_idx - 1])
+    else:
+        bubble_half_angle_deg = 0.0
+        bubble_right = 0.0
+        bubble_left = 0.0
 
     return v, w, target_angle, {
         "score": best_score,
@@ -820,6 +832,9 @@ def choose_fgm_cmd(
         "closest": closest_dist,
         "closest_angle": closest_angle,
         "bubble_bins": bubble_bins,
+        "bubble_half_angle_deg": bubble_half_angle_deg,
+        "bubble_right": bubble_right,
+        "bubble_left": bubble_left,
         "collision": target_dist < COLLISION_DIST or closest_dist < COLLISION_DIST,
         "raw_w": raw_w,
         "has_safe_gap": has_safe_gap,
@@ -1290,7 +1305,9 @@ def main():
                         f"gr={info['gap_right']:.0f} gl={info['gap_left']:.0f} "
                         f"gaps={info['gaps']} safe={int(info['has_safe_gap'])} "
                         f"close={info['closest']:.2f}@{info['closest_angle']:.0f} "
-                        f"bb={info['bubble_bins']} score={info['score']:.2f} "
+                        f"bub={info['bubble_half_angle_deg']:.1f}deg/{info['bubble_bins']} "
+                        f"br={info['bubble_right']:.0f} bl={info['bubble_left']:.0f} "
+                        f"score={info['score']:.2f} "
                         f"pts={info['points']} coll={int(info['collision'])} "
                         f"sbias={info['side_bias_deg']:.1f}deg "
                         f"slim={info['side_turn_limit_deg']:.0f}deg "
