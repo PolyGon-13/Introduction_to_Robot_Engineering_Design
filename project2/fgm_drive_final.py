@@ -67,6 +67,7 @@ FGM_MIN_PHYSICAL_GAP_WIDTH_M = 2.0 * ROBOT_RADIUS + 0.05
 FGM_SMOOTH_WINDOW = 5 # 이동평균 윈도우 크기 (5칸 = +-2도) : 튀는 값 방지 휘해 2도 간격으로 값들의 평균값으로 값을 대체
 
 FGM_TURN_GAIN = 1.05 # 목표 각도->회전명령 가중치
+FGM_TARGET_RATE_LIMIT_DEG = 12.0 # 목표각이 한 스캔에서 바뀔 수 있는 최대 각도
 FGM_PREV_TARGET_WEIGHT = 0.6 # 직전 목표 방향 연속성 가중치
 FGM_GOAL_WEIGHT_SAFE = 0.8 # 안전할 때 목표 방향 가중치
 FGM_GOAL_WEIGHT_DANGER = 0.30 # 위험할 때 목표 방향 가중치
@@ -664,6 +665,13 @@ def rate_limit_w(prev_w, target_w, urgent=False):
     return prev_w + delta
 
 
+def rate_limit_target_angle(prev_target_angle, target_angle):
+    limit = math.radians(FGM_TARGET_RATE_LIMIT_DEG)
+    delta = angle_error_rad(target_angle, prev_target_angle)
+    delta = float(np.clip(delta, -limit, limit))
+    return normalize_angle_rad(prev_target_angle + delta)
+
+
 # FGM이 고른 최종 목표 방향으로 얼마나 빠르게 전진할지 결정
 # target_dist : 목표 방향의 장애물까지의 거리, target_angle : 목표 각도, has_safe_gap : 안전한 gap이 있는지 여부
 def choose_speed(target_dist, target_angle, has_safe_gap):
@@ -734,6 +742,10 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose, accumulated_turn_rad=0
             target_angle = max(0.0, target_angle)
         elif fgm_target_angle < 0.0:
             target_angle = min(0.0, target_angle)
+    target_angle = rate_limit_target_angle(prev_target_angle, target_angle)
+    target_angle = float(np.clip(target_angle, -side_turn_limit, side_turn_limit))
+    if has_safe_gap and best_gap[1] > best_gap[0]:
+        target_angle = float(np.clip(target_angle, gap_right_rad, gap_left_rad))
     target_idx = int(np.argmin(np.abs(angles_deg - math.degrees(target_angle))))
     target_dist = float(smooth_ranges[target_idx])
     raw_w = float(np.clip(FGM_TURN_GAIN * target_angle, -MAX_ABS_W, MAX_ABS_W))
