@@ -25,6 +25,8 @@ FGM_MIN_ANGLE_DEG = -90.0
 FGM_MAX_ANGLE_DEG = 90.0
 FGM_CENTER_INDEX = 90.0
 FGM_FREE_THRESHOLD_MM = 400.0
+FGM_MIN_GAP_WIDTH_DEG = 8.0
+MIN_SCAN_POINTS = 40
 
 BASE_V = 0.20
 MIN_V = 0.15
@@ -84,6 +86,10 @@ def stop_lidar(lidar_ser):
         pass
 
 
+def new_distance_array():
+    return [MAX_LIDAR_DIST_MM] * 181
+
+
 def parse_lidar_packet(data):
     if len(data) != 5:
         return None
@@ -107,13 +113,14 @@ def parse_lidar_packet(data):
 
     distance_q2 = data[3] | (data[4] << 8)
     distance = (distance_q2 / 4.0) + DIST_OFFSET_MM
-    if distance < MIN_LIDAR_DIST_MM or distance > MAX_LIDAR_DIST_MM:
+    if distance < MIN_LIDAR_DIST_MM:
         return None
+    distance = min(distance, MAX_LIDAR_DIST_MM)
 
     if angle < FGM_MIN_ANGLE_DEG or angle > FGM_MAX_ANGLE_DEG:
         return None
 
-    return angle, distance
+    return s_flag, angle, distance
 
 
 def Follow_the_Gap_Method(distances, threshold):
@@ -140,7 +147,8 @@ def Follow_the_Gap_Method(distances, threshold):
         best_start = current_start
         best_end = len(distances) - 1
 
-    if max_tmp <= 0:
+    min_gap_bins = max(1, int(math.ceil(FGM_MIN_GAP_WIDTH_DEG)))
+    if max_tmp < min_gap_bins:
         return FGM_CENTER_INDEX, False, 0
 
     mid_angle = (best_start + best_end) / 2.0
@@ -170,7 +178,8 @@ def main():
     writer = Thread(target=arduino_writer, args=(arduino_ser, data_queue), daemon=True)
     writer.start()
 
-    distance_array = [0.0] * 181
+    distance_array = new_distance_array()
+    points_in_scan = 0
     last_log = 0.0
 
     try:
@@ -184,31 +193,37 @@ def main():
             if parsed is None:
                 continue
 
-            angle, distance = parsed
+            s_flag, angle, distance = parsed
+
+            if s_flag == 1 and points_in_scan >= MIN_SCAN_POINTS:
+                desired_angle, has_gap, gap_width = Follow_the_Gap_Method(
+                    distance_array,
+                    FGM_FREE_THRESHOLD_MM,
+                )
+                target_angle = desired_angle - FGM_CENTER_INDEX
+                target_index = int(round(desired_angle))
+                target_distance = distance_array[target_index]
+
+                v, w = choose_drive_command(target_angle, target_distance, has_gap)
+                put_latest(data_queue, (v, w))
+
+                now = time.time()
+                if now - last_log >= LOG_INTERVAL_S:
+                    print(
+                        f"[FGM_ADD] tgt={target_angle:.1f}deg "
+                        f"dist={target_distance / 1000.0:.2f} "
+                        f"gap={gap_width} safe={int(has_gap)} "
+                        f"v={v:.2f} w={w:.2f}"
+                    )
+                    last_log = now
+
+                distance_array = new_distance_array()
+                points_in_scan = 0
+
             angle_index = int(round(angle - FGM_MIN_ANGLE_DEG))
             if 0 <= angle_index < len(distance_array):
                 distance_array[angle_index] = distance
-
-            desired_angle, has_gap, gap_width = Follow_the_Gap_Method(
-                distance_array,
-                FGM_FREE_THRESHOLD_MM,
-            )
-            target_angle = desired_angle - FGM_CENTER_INDEX
-            target_index = int(round(desired_angle))
-            target_distance = distance_array[target_index]
-
-            v, w = choose_drive_command(target_angle, target_distance, has_gap)
-            put_latest(data_queue, (v, w))
-
-            now = time.time()
-            if now - last_log >= LOG_INTERVAL_S:
-                print(
-                    f"[FGM_ADD] tgt={target_angle:.1f}deg "
-                    f"dist={target_distance / 1000.0:.2f} "
-                    f"gap={gap_width} safe={int(has_gap)} "
-                    f"v={v:.2f} w={w:.2f}"
-                )
-                last_log = now
+                points_in_scan += 1
 
     except KeyboardInterrupt:
         pass
