@@ -789,8 +789,6 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose, accumulated_turn_rad=0
     hard_stop = front_dist < FRONT_DANGER_DIST or target_drive_depth < FRONT_DANGER_DIST
     if hard_stop:
         v = 0.0
-        w = 0.0
-        raw_w = 0.0
 
     closest_angle = float(angles_deg[closest_idx]) if closest_idx >= 0 else 0.0
     if closest_idx >= 0:
