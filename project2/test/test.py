@@ -17,7 +17,6 @@ def arduino_writer():
         arduino_ser.write(msg)
         time.sleep(0.01)
 
-
 thread = Thread(target=arduino_writer, daemon=True)
 thread.start()
 
@@ -36,8 +35,8 @@ def compute_wheel_phis(target_angle_deg: float):
         print("v is best!")
     if target_angle_deg != 0 :
         if target_angle_deg < 0 :
-            target_angle_deg - 10
-        else : target_angle_deg + 10
+            target_angle_deg -= 10
+        else : target_angle_deg += 10
         
     if  -35 < target_angle_deg < 35 :
         Kp_ang = 7.26
