@@ -26,7 +26,7 @@ SCAN_HOLD_S = 0.30 # 최근 라이다 스캔을 유효하다고 판단할 시간
 
 # 속도/거리 관련
 BASE_V = 0.25 # FGM 기본 직진속도
-MIN_V = 0.16 # FGM 장애물 회피속도
+MIN_V = 0.15 # FGM 장애물 회피속도
 MAX_ABS_W = 0.70 # FGM 최대 회전속도
 
 RECOVERY_MAX_W = 1.00 # Recovery 회전속도
@@ -42,8 +42,6 @@ ROBOT_RADIUS = 0.13 # 로봇 반지름
 COLLISION_DIST = ROBOT_RADIUS + 0.05 # 충돌위험 거리
 ACTIVE_FRONT_DIST = 0.30 # 정면 장애물 반응 시작 거리
 FRONT_DANGER_DIST = 0.19 # 정면 위험 거리
-FRONT_SLOW_DIST = 0.11 # 정면 초근접 감속 시작 거리
-FRONT_STOP_DIST = 0.08 # 정면 초근접 정지 거리
 FRONT_CORRIDOR_HALF = COLLISION_DIST + 0.30 # FGM 장애물로 인식할 Y축 범위의 절반
 
 INITIAL_HEADING_RAD = 0.0 # 출발 기준 방향
@@ -86,8 +84,8 @@ SIDE_GAP_BIAS_MAX_DEG = 10.0 # 조향 보정 최대각도
 SIDE_GAP_BIAS_GAIN_DEG_PER_M = 60.0 # 좌우 거리차
 SIDE_TIGHT_TURN_LIMIT_DEG = 20.0 # 옆이 매우 좁을 때 회전한계
 SIDE_NARROW_TURN_LIMIT_DEG = 35.0 # 옆이 좁을 때 회전한계
-SIDE_NARROW_V = 0.15 # 옆이 좁을 때 FGM 속도 상한
-SIDE_TIGHT_V = 0.12 # 옆이 매우 좁을 때 FGM 속도 상한
+SIDE_NARROW_V = 0.12 # 옆이 좁을 때 FGM 속도 상한
+SIDE_TIGHT_V = 0.10 # 옆이 매우 좁을 때 FGM 속도 상한
 
 
 # Recovery Mode
@@ -668,7 +666,7 @@ def rate_limit_w(prev_w, target_w, urgent=False):
 
 # FGM이 고른 최종 목표 방향으로 얼마나 빠르게 전진할지 결정
 # target_dist : 목표 방향의 장애물까지의 거리, target_angle : 목표 각도, has_safe_gap : 안전한 gap이 있는지 여부
-def choose_speed(target_dist, target_angle, has_safe_gap, front_dist=MAX_LIDAR_DIST_M):
+def choose_speed(target_dist, target_angle, has_safe_gap):
     if not has_safe_gap: # 안전한 Gap이 없으면 정지
         return 0.0
 
@@ -681,14 +679,6 @@ def choose_speed(target_dist, target_angle, has_safe_gap, front_dist=MAX_LIDAR_D
 
     if target_dist < COLLISION_DIST:
         v = 0.0
-
-    if front_dist < FRONT_SLOW_DIST:
-        front_ratio = np.clip(
-            (front_dist - FRONT_STOP_DIST) / max(1e-6, FRONT_SLOW_DIST - FRONT_STOP_DIST),
-            0.0,
-            1.0,
-        )
-        v = min(v, MIN_V * float(front_ratio))
 
     return float(np.clip(v, 0.0, BASE_V))
 
@@ -753,7 +743,7 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose, accumulated_turn_rad=0
     )
     urgent = front_dist < URGENT_FRONT_DIST or not has_safe_gap
     w = rate_limit_w(prev_w, raw_w, urgent=urgent)
-    v = choose_speed(target_dist, target_angle, has_safe_gap, front_dist)
+    v = choose_speed(target_dist, target_angle, has_safe_gap)
     v = min(v, side_gap_speed_limit(info_left, info_right))
 
     closest_angle = float(angles_deg[closest_idx]) if closest_idx >= 0 else 0.0
