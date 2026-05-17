@@ -68,7 +68,7 @@ FGM_SMOOTH_WINDOW = 5 # 이동평균 윈도우 크기 (5칸 = +-2도) : 튀는 �
 
 FGM_TURN_GAIN = 1.05 # 목표 각도->회전명령 가중치
 FGM_PREV_TARGET_WEIGHT = 0.6 # 직전 목표 방향 연속성 가중치
-FGM_GOAL_WEIGHT_SAFE = 0.7 # 안전할 때 목표 방향 가중치
+FGM_GOAL_WEIGHT_SAFE = 0.8 # 안전할 때 목표 방향 가중치
 FGM_GOAL_WEIGHT_DANGER = 0.30 # 위험할 때 목표 방향 가중치
 FGM_STRAIGHT_WEIGHT = 0.70 # 정면 선호 가중치
 FGM_CLEARANCE_WEIGHT = 1.40 # 넓게 뚫린 방향 선호 가중치
