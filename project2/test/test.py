@@ -5,7 +5,7 @@ from threading import Thread
 from queue import Queue
 
 lidar_ser = serial.Serial("/dev/ttyUSB0", 460800, timeout=0.1)
-arduino_ser = serial.Serial("/dev/ttyS0", 115200, timeout=0.1)
+arduino_ser = serial.Serial("/dev/ttyS0", 9600, timeout=0.1)
 
 data_queue = Queue(maxsize=10)
 send_enable = False
@@ -35,8 +35,9 @@ def compute_wheel_phis(target_angle_deg: float):
         print("v is best!")
     if target_angle_deg != 0 :
         if target_angle_deg < 0 :
-            target_angle_deg - 10
-        else : target_angle_deg + 10
+            target_angle_deg -= 10
+        else : 
+            target_angle_deg += 10
         
     if  -35 < target_angle_deg < 35 :
         Kp_ang = 7.26
@@ -49,14 +50,14 @@ def compute_wheel_phis(target_angle_deg: float):
     phi_r = (v / wheel_R) + ((w * wheel_l) / (2 * wheel_R))
     
     
-    if phi_l < 10.0:
-        if phi_l < 0: phi_l = 10.0
-        else : phi_l = 10.0
+    if phi_l < 4.1:
+        if phi_l < 0: phi_l = 2.25
+        else : phi_l = 4.1
         
     
-    if phi_r < 10.0:
-        if phi_r < 0: phi_r = 10.0
-        else : phi_r = 10.0
+    if phi_r < 4.1:
+        if phi_r < 0: phi_r = 2.25
+        else : phi_r = 4.1
         
     return phi_l, phi_r
 
