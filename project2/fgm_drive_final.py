@@ -1077,12 +1077,12 @@ def main():
                     if recovery_turn_dir > 0.0:
                         print(
                             f"[NARROW] {trigger_name}. "
-                            "Start LEFT recovery turn. Follow RIGHT wall."
+                            "Start LEFT recovery turn."
                         )
                     else:
                         print(
                             f"[NARROW] {trigger_name}. "
-                            "Start RIGHT recovery turn. Follow LEFT wall."
+                            "Start RIGHT recovery turn."
                         )
 
             if (
@@ -1116,15 +1116,36 @@ def main():
 
                 recovery_wall_seen_count = 1 if recovery_open_detected else 0
 
-                recovery_ready_to_wall_follow = recovery_open_detected
+                recovery_ready_to_fgm = recovery_open_detected
 
                 recovery_prev_front_dist = recovery_front_dist
 
-                if (
-                    recovery_ready_to_wall_follow
-                    or recovery_max_turn_reached
-                    or recovery_timeout
-                ):
+                if recovery_ready_to_fgm:
+                    recovery_turn_active = False
+                    wall_follow_active = False
+                    wall_prev_dist = None
+                    wall_open_count = 0
+                    recovery_wall_seen_count = 0
+                    recovery_prev_front_dist = None
+
+                    recovery_mode_name = "FGM_RETURN_FROM_RECOVERY"
+
+                    print(
+                        f"[RECOVERY] front opened after {recovery_turned_deg_log:.1f}deg. "
+                        f"wall90={recovery_wall_dist:.2f} "
+                        f"front={recovery_front_dist:.2f}. "
+                        "Return to FGM driving."
+                    )
+
+                    v, w, target_angle, info = choose_fgm_cmd(
+                        scan,
+                        last_w,
+                        last_target_angle,
+                        pose,
+                        accumulated_turn_rad,
+                    )
+
+                elif recovery_max_turn_reached or recovery_timeout:
                     recovery_turn_active = False
                     wall_follow_active = True
                     wall_follow_side = recovery_follow_side
@@ -1144,14 +1165,7 @@ def main():
                     else:
                         recovery_mode_name = "RECOVERY_TO_RIGHT_WALL"
 
-                    if recovery_ready_to_wall_follow:
-                        print(
-                            f"[RECOVERY] wall found after {recovery_turned_deg_log:.1f}deg. "
-                            f"wall90={recovery_wall_dist:.2f} "
-                            f"front={recovery_front_dist:.2f}. "
-                            "Start wall following."
-                        )
-                    elif recovery_max_turn_reached:
+                    if recovery_max_turn_reached:
                         print(
                             f"[RECOVERY] max turn reached. "
                             f"turned={recovery_turned_deg_log:.1f}deg. "
@@ -1246,7 +1260,7 @@ def main():
 
                 elif info is not None:
                     print(
-                        f"[FGM] x={pose.x:.2f} y={pose.y:.2f} "
+                        f"[{recovery_mode_name}] x={pose.x:.2f} y={pose.y:.2f} "
                         f"th={pose.theta:.2f} "
                         f"v={v:.2f} w={w:.2f} raw={info['raw_w']:.2f} "
                         f"ct={accumulated_turn_deg_log:.1f}deg "
