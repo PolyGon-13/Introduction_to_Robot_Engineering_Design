@@ -10,6 +10,9 @@ arduino_ser = serial.Serial("/dev/ttyS0", 115200, timeout=0.1)
 
 data_queue = Queue(maxsize=10)
 send_enable = False
+initial_direction_angle = None
+ROBOT_FRONT_ANGLE = 90.0
+GAP_SIZE_RATIO_FOR_DIRECTION_CHOICE = 0.7
 
 def arduino_writer():
     while True:
@@ -21,10 +24,11 @@ def arduino_writer():
         time.sleep(0.01)
 
 def wait_for_start_signal():
-    global send_enable
+    global send_enable, initial_direction_angle
     input("Press Enter to start driving calculations and Arduino commands...")
+    initial_direction_angle = ROBOT_FRONT_ANGLE
     send_enable = True
-    print("Driving calculations and Arduino command sending started.")
+    print(f"Driving calculations and Arduino command sending started. Initial direction: {initial_direction_angle:.2f} deg")
 
 thread = Thread(target=arduino_writer, daemon=True)
 thread.start()
@@ -103,28 +107,42 @@ def corridor_center_correction(distances):
     return max(-18.0, min(18.0, correction)), right_wall, left_wall
 
 
-def Follow_the_Gap_Method(distances, threshold):
-    max_tmp = 0
+def Follow_the_Gap_Method(distances, threshold, preferred_angle=None):
+    gap_candidates = []
     tmp = 0
-    best_start = 0
-    best_end = 0
     current_start = 0
+
     for angle in range(181):
         if distances[angle] >= threshold:
             if tmp == 0:
                 current_start = angle
             tmp += 1
         else:
-            if tmp > max_tmp:
-                max_tmp = tmp
-                best_start = current_start
-                best_end = angle - 1
+            if tmp > 0:
+                gap_candidates.append((current_start, angle - 1, tmp))
             tmp = 0
-    if tmp > max_tmp:
-        max_tmp = tmp
-        best_start = current_start
-        best_end = 180
-        
+
+    if tmp > 0:
+        gap_candidates.append((current_start, 180, tmp))
+
+    if not gap_candidates:
+        return preferred_angle if preferred_angle is not None else ROBOT_FRONT_ANGLE
+
+    max_gap_size = max(gap_size for _, _, gap_size in gap_candidates)
+    selectable_min_size = max_gap_size * GAP_SIZE_RATIO_FOR_DIRECTION_CHOICE
+    selectable_gaps = [
+        gap for gap in gap_candidates
+        if gap[2] >= selectable_min_size
+    ]
+
+    if preferred_angle is None:
+        best_start, best_end, _ = max(gap_candidates, key=lambda gap: gap[2])
+    else:
+        best_start, best_end, _ = min(
+            selectable_gaps,
+            key=lambda gap: (abs(((gap[0] + gap[1]) / 2.0) - preferred_angle), -gap[2])
+        )
+
     mid_angle = (best_start + best_end) / 2.0
     return mid_angle
 
@@ -169,7 +187,7 @@ while True:
     if not send_enable:
         continue
         
-    desired_angle = Follow_the_Gap_Method(distance_array, threshold=400)
+    desired_angle = Follow_the_Gap_Method(distance_array, threshold=400, preferred_angle=initial_direction_angle)
 
     target_angle = desired_angle - 90
     center_correction, right_wall, left_wall = corridor_center_correction(distance_array)
