@@ -437,6 +437,7 @@ def apply_safety_bubble(ranges, counts):
     return working, closest_idx, closest_dist, half_bins
 
 
+# 연속된 True 구간(=Gap) 찾는 함수
 def find_free_gaps(free_mask):
     gaps = []
     start = None
@@ -451,6 +452,7 @@ def find_free_gaps(free_mask):
     return gaps
 
 
+# 너무 좁은 Gap 제거
 def filter_gaps_by_width(gaps):
     min_bins = max(1, int(math.ceil(FGM_MIN_GAP_WIDTH_DEG / FGM_ANGLE_STEP_DEG)))
     return [(start, end) for start, end in gaps if end - start >= min_bins]
@@ -616,13 +618,16 @@ def choose_target_from_gaps(angles_deg, ranges, discontinuity_ranges, gaps, pose
     return best_idx, best_gap, best_score, candidate_summaries
 
 
+# 정상적인 gap 선택 실패 시, 임시 목표 방향 선택
+# angles_deg : 각도 배열, ranges : 거리 배열, left_dist : 좌측 벽과의 거리, right_dist : 우측 벽과의 거리
 def choose_fallback_target(angles_deg, ranges, left_dist=MAX_LIDAR_DIST_M, right_dist=MAX_LIDAR_DIST_M):
-    usable = ranges > MIN_LIDAR_DIST_M
+    usable = ranges > MIN_LIDAR_DIST_M # 각도별 거리값이 최소 유효 거리보다 큰지 검사
     if not usable.any():
-        return len(ranges) // 2
+        return len(ranges) // 2 # 배열의 가운데 인덱스 반환 (정면)
 
-    usable_ranges = np.where(usable, ranges, -np.inf)
-    return int(np.argmax(usable_ranges))
+    usable_ranges = np.where(usable, ranges, -np.inf) # 사용 가능한 거리값은 그대로 두고, 사용할 수 없는 값은 무한대로 변환
+
+    return int(np.argmax(usable_ranges)) # 가장 큰 거리값을 가진 인덱스 반환
 
 
 def rate_limit_w(prev_w, target_w, urgent=False):
@@ -669,16 +674,18 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose, accumulated_turn_rad=0
     # bubble_ranges : 안전 버블 적용된 거리 배열, closest_idx : 가장 가까운 장애물의 각도 인덱스, closest_dist : 가장 가까운 장애물의 거리, bubble_bins : 그 장애물 주변 몇 칸을 막았는지
     bubble_ranges, closest_idx, closest_dist, bubble_bins = apply_safety_bubble(smooth_ranges, counts) # 안전 버블 적용
 
-    free_mask = bubble_ranges >= FGM_FREE_DIST
-    gaps = filter_gaps_by_width(find_free_gaps(free_mask))
-    has_safe_gap = len(gaps) > 0
+    free_mask = bubble_ranges >= FGM_FREE_DIST # 지나갈 수 있는 칸인지 확인
+    gaps = filter_gaps_by_width(find_free_gaps(free_mask)) # 연속된 안전한 구간(=Gap) 찾고, 너무 좁은 Gap 제거
+    has_safe_gap = len(gaps) > 0 # 안전한 Gap이 있는지 여부
 
-    target_idx, best_gap, best_score, gap_candidates = choose_target_from_gaps(
-        angles_deg, bubble_ranges, smooth_ranges, gaps, pose, prev_target_angle, front_factor, accumulated_turn_rad
-    )
+    # 최종적으로 어느 gap의 어느 각도를 목표로 할지 선택
+    # target_idx : 목표 각도 인덱스, best_gap : 그 각도가 속한 Gap의 시작과 끝 인덱스, best_score : 그 후보의 점수, gap_candidates : 후보 요약 문자열 리스트
+    target_idx, best_gap, best_score, gap_candidates = choose_target_from_gaps(angles_deg, bubble_ranges, smooth_ranges, gaps, pose, prev_target_angle, front_factor, accumulated_turn_rad)
 
+    # safe gap이 없거나, 그 안에서 선택 가능한 후보가 없는 경우
     if target_idx < 0:
-        target_idx = choose_fallback_target(angles_deg, smooth_ranges, info_left, info_right)
+        target_idx = len(angles_deg) // 2
+        # choose_fallback_target(angles_deg, smooth_ranges, info_left, info_right)
         best_gap = (target_idx, target_idx + 1)
         best_score = 0.0
         gap_candidates = []
