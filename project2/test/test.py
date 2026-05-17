@@ -12,7 +12,7 @@ data_queue = Queue(maxsize=10)
 send_enable = False
 initial_direction_angle = None
 ROBOT_FRONT_ANGLE = 90.0
-GAP_SIZE_RATIO_FOR_DIRECTION_CHOICE = 0.7
+GAP_SIZE_RATIO_FOR_DIRECTION_CHOICE = 0.3
 
 def arduino_writer():
     while True:
