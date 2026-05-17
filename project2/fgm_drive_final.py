@@ -18,7 +18,7 @@ DIST_OFFSET_MM = 0.0 # 라이다 거리 보정값
 LIDAR_ANGLE_SIGN = -1.0 # 라이다 각도 방향 반전 여부
 
 MIN_LIDAR_DIST_M = 0.05 # 라이다 유효 최소 거리
-MAX_LIDAR_DIST_M = 1.5 # 라이다 유효 최대 거리
+MAX_LIDAR_DIST_M = 2.5 # 라이다 유효 최대 거리
 MIN_QUALITY = 1 # 라이다 품질 최소값
 MIN_X_FOR_PLANNING = 0.10 # FGM에 넣을 최소 전방 거리
 MAX_EVAL_POINTS = 720 # 계산에 사용할 라이다 포인트 최대 개수
@@ -31,6 +31,10 @@ MAX_ABS_W = 0.70 # FGM 최대 회전속도
 
 RECOVERY_MAX_W = 1.00 # Recovery 회전속도
 
+WALL_FOLLOW_V = 0.15 # Wall follow 기본속도
+WALL_SLOW_V = 0.10 # # Wall follow 최소속도
+WALL_MAX_W = 0.65 # Wall follow 최대 회전속도
+
 CLEARANCE_CAP = 0.6 # FGM - 해당 거리 이상 뚫려 있으면 동일 취급
 W_CMD_RATE_LIMIT = 0.30 # 루프당 최대 회전속도 변화량
 W_CMD_RATE_LIMIT_URGENT = 0.40 # 긴급 시 허용 변화량
@@ -38,8 +42,8 @@ URGENT_FRONT_DIST = 0.30 # 정면이 이 안이면 긴급모드
 
 
 # 로봇 크기 & 충돌 거리
-ROBOT_RADIUS = 0.13 # 로봇 반지름
-COLLISION_DIST = ROBOT_RADIUS + 0.08 # 충돌위험 거리
+ROBOT_RADIUS = 0.16 # 로봇 반지름
+COLLISION_DIST = ROBOT_RADIUS + 0.05 # 충돌위험 거리
 ACTIVE_FRONT_DIST = 0.30 # 정면 장애물 반응 시작 거리
 FRONT_DANGER_DIST = 0.19 # 정면 위험 거리
 FRONT_CORRIDOR_HALF = COLLISION_DIST + 0.30 # FGM 장애물로 인식할 Y축 범위의 절반
@@ -59,10 +63,9 @@ CUM_TURN_HARD_PENALTY_WEIGHT = 50.0 # 각속도 누적 페널티 강도
 FGM_MIN_ANGLE_DEG = -90.0 # 우측 라이다 스캔 각도
 FGM_MAX_ANGLE_DEG = 90.0 # 좌측 라이다 스캔 각도
 FGM_ANGLE_STEP_DEG = 1.0 # 격자 생성 각도
-FGM_BUBBLE_RADIUS = ROBOT_RADIUS + 0.05 # 장애물 부풀리는 반경
+FGM_BUBBLE_RADIUS = ROBOT_RADIUS + 0.08 # 장애물 부풀리는 반경
 FGM_FREE_DIST = COLLISION_DIST + 0.04 # 이 이상 뚫려 있어야 지나갈 수 있는 칸으로 인식
 FGM_MIN_GAP_WIDTH_DEG = 8.0 # 인식한 Gap의 최소 허용각도
-FGM_MIN_PHYSICAL_GAP_WIDTH_M = 2.0 * ROBOT_RADIUS + 0.05
 
 FGM_SMOOTH_WINDOW = 5 # 이동평균 윈도우 크기 (5칸 = +-2도) : 튀는 값 방지 휘해 2도 간격으로 값들의 평균값으로 값을 대체
 
@@ -73,77 +76,81 @@ FGM_GOAL_WEIGHT_DANGER = 0.30 # 위험할 때 목표 방향 가중치
 FGM_STRAIGHT_WEIGHT = 0.70 # 정면 선호 가중치
 FGM_CLEARANCE_WEIGHT = 1.80 # 넓게 뚫린 방향 선호 가중치
 FGM_EDGE_WEIGHT = 0.85 # Gap 중앙 선호 가중치
-FGM_GAP_WIDTH_WEIGHT = 0.25 # Gap 폭 가중치
 FGM_RANGE_DISCONTINUITY_WEIGHT = 0.70
 FGM_RANGE_DISCONTINUITY_CAP = 0.50
 FGM_RANGE_DISCONTINUITY_EDGE_WINDOW_DEG = 3.0
 
 SIDE_GAP_WARN_DIST = 0.175 # 옆 경고 시작 거리
-SIDE_GAP_BLOCK_DIST = 0.14 # 강하게 거부할 옆 거리
+SIDE_GAP_BLOCK_DIST = 0.16 # 강하게 거부할 옆 거리
 SIDE_GAP_BIAS_MAX_DEG = 10.0 # 조향 보정 최대각도
 SIDE_GAP_BIAS_GAIN_DEG_PER_M = 125.0 # 좌우 거리차
 SIDE_TIGHT_TURN_LIMIT_DEG = 20.0 # 옆이 매우 좁을 때 회전한계
 SIDE_NARROW_TURN_LIMIT_DEG = 35.0 # 옆이 좁을 때 회전한계
 SIDE_NARROW_V = 0.12 # 옆이 좁을 때 FGM 속도 상한
-SIDE_TIGHT_V = 0.08 #0.08 # 옆이 매우 좁을 때 FGM 속도 상한
+SIDE_TIGHT_V = 0.08 # 옆이 매우 좁을 때 FGM 속도 상한
 
 
 # Recovery Mode
 RECOVERY_TURN_W = 1.00 # Recovery 제자리 회전 속도
 RECOVERY_MAX_TURN_RAD = math.radians(200.0) # Recovery 최대 회전각도
-RECOVERY_TURN_TIMEOUT_S = 15.0
+RECOVERY_TURN_TIMEOUT_S = 15.0 # Recovery 해당 초 지나면 강제로 벽 따라가기
 
 RECOVERY_TURN_ENABLE = True # Recovery 기능 on/off 스위치
 RECOVERY_FRONT_OPEN_JUMP_DIST = 0.09
 RECOVERY_FRONT_OPEN_PREV_MAX_DIST = 0.45
-RECOVERY_FRONT_OPEN_CONFIRM_FRAMES = 1 # Recovery 탈출 조건 프레임 수
-RECOVERY_FRONT_CHECK_DIST = 0.30
-RECOVERY_FRONT_Y_HALF = 0.16
+
+
+# Wall Follow
+WALL_TARGET_DIST = 0.22 # 벽과 유지하려는 목표거리
+WALL_KP = 6.0 # 벽 거리 오차
+WALL_MIN_TURN_W = 0.16 # 오차가 있는데 명령이 너무 작으면 이만큼 보장
+WALL_FRONT_SLOW_DIST = 0.14 # 정면이 이 안에 들어오면 감속
+WALL_FRONT_HARD_STOP_DIST = 0.08 # 정면이 이 안에 들어오면 강제 회전
+WALL_LOST_DIST = 0.30 # 벽 거리가 이 이상이면 벽 놓침
+WALL_JUMP_DIST = 0.10 # 벽 거리가 한 번이 이만큼 늘어나면 벽 종료
+WALL_OPEN_COUNT_N = 3 # N번 연속 트여있어야 FGM 복귀
+
+WALL_FOLLOW_ENABLE = True # Wall follow on/off 스위치
+WALL_SEARCH_W = 0.28 # 벽을 놓쳤을 때 벽 쪽으로 탐색하는 회전속도
+WALL_MIN_TURN_ERR = 0.025 # 이 오차 이하이면 WALL_MIN_TURN_W 보장X
+WALL_FRONT_CHECK_DIST = 0.30 # Wall follow 정면 장애물 반응 거리
+WALL_ANGLE_HALF_WIDTH_DEG = 1.0 # Wall을 90도 하나가 아니라 +-1도 간격으로 더 확인
+WALL_FRONT_Y_HALF = 0.16 # Wall follow 장애물로 인식할 Y 거리의 절반
+WALL_MIN_FOLLOW_TIME_S = 0.80 # 진입 후 최소 N초는 종료 판정X
+LEFT_WALL_ANGLE_CENTER_DEG = 90.0 # 왼쪽 벽 감지 기준 각도
+RIGHT_WALL_ANGLE_CENTER_DEG = -90.0 # 오른쪽 벽 감지 기준 각도
+WALL_MIN_POINTS = 2 # 벽으로 인정하는 최소 라이다 포인트 수
 
 
 LOOP_DT_S = 0.05 # 메인 제어 루프 주기
 
 
-# 각도를 -180 ~ +180 범위로 정규화
 def normalize_angle_deg(angle):
     return (angle + 180.0) % 360.0 - 180.0
 
-# 각도를 -pi ~ +pi 범위로 정규화
+
 def normalize_angle_rad(angle):
     return math.atan2(math.sin(angle), math.cos(angle))
 
-# 두 각도의 차이를 -pi ~ +pi 범위로 계산
+
 def angle_error_rad(a, b):
     return normalize_angle_rad(a - b)
 
-
-# Recovery mode에 들어갈 때 제자리 회전 방향 결정
-# theta : 현재 로봇 heading, accumulated_turn_rad : 누적 회전량, prev_w : 직전 회전속도
-def choose_initial_based_recovery_dir(theta, accumulated_turn_rad=0.0, prev_w=0.0):
+def choose_initial_based_recovery_dir(theta, prev_w=0.0):
     heading_from_initial = normalize_angle_rad(theta - INITIAL_HEADING_RAD)
 
-    # 누적 회전량이 왼쪽으로 쌓인 경우 우회전
-    if accumulated_turn_rad > RECOVERY_INITIAL_DEADBAND_RAD:
-        return -1.0
-    # 누적 회전량이 오른쪽으로 쌓인 경우 좌회전
-    elif accumulated_turn_rad < -RECOVERY_INITIAL_DEADBAND_RAD:
-        return +1.0
-
-    # 왼쪽으로 돌아있는 경우 우회전
     if heading_from_initial > RECOVERY_INITIAL_DEADBAND_RAD:
         return -1.0
-    # 오른쪽으로 돌아있는 경우 좌회전
-    elif heading_from_initial < -RECOVERY_INITIAL_DEADBAND_RAD:
+
+    if heading_from_initial < -RECOVERY_INITIAL_DEADBAND_RAD:
         return +1.0
 
-    # 직전 회전속도가 왼쪽이면 우회전
     if prev_w > 0.0:
         return -1.0
-    # 직전 회전속도가 오른쪽이면 좌회전
-    elif prev_w < 0.0:
+
+    if prev_w < 0.0:
         return +1.0
 
-    # 위 조건 모두 만족하지 않으면 우회전 (사실상 발동할 일 없음)
     return -1.0
 
 
@@ -163,8 +170,6 @@ class RobotPose:
         self.y += v * math.sin(self.theta) * dt
         self.theta = normalize_angle_rad(self.theta + w * dt)
 
-
-# RPLidar 초기화
 class RPLidarC1:
     def __init__(self, port, baud):
         self.ser = serial.Serial(port, baud, timeout=0.1)
@@ -245,7 +250,6 @@ class RPLidarC1:
         self.ser.close()
 
 
-# LiDAR 스캔 데이터를 (x,y) 포인트 배열로 변환
 def lidar_points_to_xy(scan):
     if scan is None:
         return np.empty((0, 2), dtype=np.float32)
@@ -278,7 +282,6 @@ def lidar_points_to_xy(scan):
         points = points[order[:MAX_EVAL_POINTS]]
     return points
 
-
 def lidar_points_to_xy_all(scan):
     if scan is None:
         return np.empty((0, 2), dtype=np.float32)
@@ -306,14 +309,89 @@ def lidar_points_to_xy_all(scan):
     return np.column_stack((x, y)).astype(np.float32)
 
 
-def recovery_front_distance(points_all):
+def side_wall_distance_from_scan(scan, follow_side):
+    if scan is None:
+        return MAX_LIDAR_DIST_M
+
+    angles, dists, qualities = scan
+
+    dist_m = (dists.astype(np.float32) + DIST_OFFSET_MM) / 1000.0
+    angle_deg = normalize_angle_deg(angles.astype(np.float32) + ANGLE_OFFSET_DEG)
+    angle_deg = LIDAR_ANGLE_SIGN * angle_deg
+
+    if follow_side > 0.0:
+        center = LEFT_WALL_ANGLE_CENTER_DEG
+    else:
+        center = RIGHT_WALL_ANGLE_CENTER_DEG
+
+    min_angle = center - WALL_ANGLE_HALF_WIDTH_DEG
+    max_angle = center + WALL_ANGLE_HALF_WIDTH_DEG
+
+    mask = (
+        (dist_m >= MIN_LIDAR_DIST_M)
+        & (dist_m <= MAX_LIDAR_DIST_M)
+        & (qualities >= MIN_QUALITY)
+        & (angle_deg >= min_angle)
+        & (angle_deg <= max_angle)
+    )
+
+    if np.count_nonzero(mask) < WALL_MIN_POINTS:
+        return MAX_LIDAR_DIST_M
+
+    return float(np.percentile(dist_m[mask], 20))
+
+
+def side_wall_average_distance_from_scan(scan, follow_side):
+    if scan is None:
+        return MAX_LIDAR_DIST_M
+
+    angles, dists, qualities = scan
+
+    dist_m = (dists.astype(np.float32) + DIST_OFFSET_MM) / 1000.0
+    angle_deg = normalize_angle_deg(angles.astype(np.float32) + ANGLE_OFFSET_DEG)
+    angle_deg = LIDAR_ANGLE_SIGN * angle_deg
+
+    if follow_side > 0.0:
+        min_angle = 30.0
+        max_angle = 90.0
+    else:
+        min_angle = -90.0
+        max_angle = -30.0
+
+    mask = (
+        (dist_m >= MIN_LIDAR_DIST_M)
+        & (dist_m <= MAX_LIDAR_DIST_M)
+        & (qualities >= MIN_QUALITY)
+        & (angle_deg >= min_angle)
+        & (angle_deg <= max_angle)
+    )
+
+    if np.count_nonzero(mask) < WALL_MIN_POINTS:
+        return MAX_LIDAR_DIST_M
+
+    angle_rad = np.deg2rad(angle_deg[mask])
+    side_y = dist_m[mask] * np.sin(angle_rad)
+
+    if follow_side > 0.0:
+        side_dist = side_y
+    else:
+        side_dist = -side_y
+
+    valid_side_dist = side_dist[side_dist > 0.0]
+    if len(valid_side_dist) < WALL_MIN_POINTS:
+        return MAX_LIDAR_DIST_M
+
+    return float(np.mean(valid_side_dist))
+
+
+def wall_follow_front_distance(points_all):
     if len(points_all) == 0:
         return MAX_LIDAR_DIST_M
 
     mask = (
         (points_all[:, 0] > 0.03)
-        & (points_all[:, 0] < RECOVERY_FRONT_CHECK_DIST)
-        & (np.abs(points_all[:, 1]) < RECOVERY_FRONT_Y_HALF)
+        & (points_all[:, 0] < WALL_FRONT_CHECK_DIST)
+        & (np.abs(points_all[:, 1]) < WALL_FRONT_Y_HALF)
     )
 
     if not mask.any():
@@ -347,23 +425,21 @@ def compute_front_factor(front_dist):
     )
 
 
-# 좌우 벽 가까운 거리 계산
 def compute_side_info(points):
-    info_left = 1.0 # 좌측거리 기본값
-    info_right = 1.0 # 우측거리 기본값
+    info_left = 1.0
+    info_right = 1.0
     if len(points) == 0:
         return info_left, info_right
 
-    side_band = (np.abs(points[:, 0]) < 0.15) & (np.abs(points[:, 1]) < 0.30) # LiDAR 기준으로 전방 15cm, 좌우 30cm 범위의 포인트 선택 (좌우 거리 계산용임 - 정면 거리용 아님)
+    side_band = (np.abs(points[:, 0]) < 0.15) & (np.abs(points[:, 1]) < 0.30)
     if side_band.any():
-        ys = points[side_band, 1] # 포인트의 y값
-        left = ys[ys > 0.05] # 왼쪽 포인트만 선택
-        right = ys[ys < -0.05] # 오른쪽 포인트만 선택
+        ys = points[side_band, 1]
+        left = ys[ys > 0.05]
+        right = ys[ys < -0.05]
         if len(left) > 0:
             info_left = float(np.min(left))
         if len(right) > 0:
             info_right = float(-np.max(right))
-    
     return info_left, info_right
 
 
@@ -420,29 +496,25 @@ def smooth_ranges_conservative(ranges):
     return np.minimum(ranges, averaged)
 
 
-# 가장 가까운 장애물 주변 각도 범위를 강제로 막는 함수 (안전 버블)
-# ranges : 각도별 거리 배열, counts : 각도별 포인트 수
 def apply_safety_bubble(ranges, counts):
     working = ranges.copy()
-    valid = counts > 0 # 각도별로 실제 측정값이 있는지 확인
-    valid_obstacles = valid & (ranges < MAX_LIDAR_DIST_M) # 실제 측정값이 있고, MAX_LIDAR_DIST_M보다 작은 칸만 선택
+    valid = counts > 0
+    valid_obstacles = valid & (ranges < MAX_LIDAR_DIST_M)
     if not valid_obstacles.any():
         return working, -1, MAX_LIDAR_DIST_M, 0
 
-    obstacle_ranges = np.where(valid_obstacles, ranges, np.inf) # 장애물 후보인 칸은 실제 거리값을 유지하고, 후보가 아닌 칸은 inf(무한대)로 바꿈
-    closest_idx = int(np.argmin(obstacle_ranges)) # 가장 가까운 장애물의 인덱스
-    closest_dist = float(ranges[closest_idx]) # 가장 가까운 장애물까지의 거리
-    half_angle_rad = math.atan2(FGM_BUBBLE_RADIUS, max(closest_dist, MIN_LIDAR_DIST_M)) # 가장 가까운 장애물 주변을 안전 반경만큼 부풀렸을 때, 그 장애물이 LiDAR 기준으로 중심방향에서 좌우 몇 라디안까지 차지하는지 계산
-    half_bins = int(math.ceil(math.degrees(half_angle_rad) / FGM_ANGLE_STEP_DEG)) # half_angle_rad를 각도 격자 칸 수로 변환
+    obstacle_ranges = np.where(valid_obstacles, ranges, np.inf)
+    closest_idx = int(np.argmin(obstacle_ranges))
+    closest_dist = float(ranges[closest_idx])
+    half_angle_rad = math.atan2(FGM_BUBBLE_RADIUS, max(closest_dist, MIN_LIDAR_DIST_M))
+    half_bins = int(math.ceil(math.degrees(half_angle_rad) / FGM_ANGLE_STEP_DEG))
 
-    start = max(0, closest_idx - half_bins) # 막을 시작 인덱스
-    end = min(len(working), closest_idx + half_bins + 1) # 막을 끝 인덱스
-    working[start:end] = 0.0 # 버블 적용
-
+    start = max(0, closest_idx - half_bins)
+    end = min(len(working), closest_idx + half_bins + 1)
+    working[start:end] = 0.0
     return working, closest_idx, closest_dist, half_bins
 
 
-# 연속된 True 구간(=Gap) 찾는 함수
 def find_free_gaps(free_mask):
     gaps = []
     start = None
@@ -457,32 +529,9 @@ def find_free_gaps(free_mask):
     return gaps
 
 
-# 너무 좁은 Gap 제거
-def gap_physical_width_m(start, end, ranges):
-    gap_ranges = ranges[start:end]
-    valid = (
-        np.isfinite(gap_ranges)
-        & (gap_ranges > MIN_LIDAR_DIST_M)
-        & (gap_ranges <= MAX_LIDAR_DIST_M)
-    )
-    if not valid.any():
-        return 0.0
-
-    gap_dist = float(np.percentile(gap_ranges[valid], 40))
-    gap_width_rad = math.radians((end - start) * FGM_ANGLE_STEP_DEG)
-    return float(2.0 * gap_dist * math.tan(0.5 * gap_width_rad))
-
-
-def filter_gaps_by_width(gaps, ranges):
+def filter_gaps_by_width(gaps):
     min_bins = max(1, int(math.ceil(FGM_MIN_GAP_WIDTH_DEG / FGM_ANGLE_STEP_DEG)))
-    filtered = []
-    for start, end in gaps:
-        if end - start < min_bins:
-            continue
-        if gap_physical_width_m(start, end, ranges) < FGM_MIN_PHYSICAL_GAP_WIDTH_M:
-            continue
-        filtered.append((start, end))
-    return filtered
+    return [(start, end) for start, end in gaps if end - start >= min_bins]
 
 
 def side_gap_steering_bias(left_dist, right_dist):
@@ -494,14 +543,13 @@ def side_gap_steering_bias(left_dist, right_dist):
     return float(np.clip(bias, -max_bias, max_bias))
 
 
-# 좌우 벽 거리를 보고 최종 조향각 제한값을 정함
 def side_narrow_turn_limit(left_dist, right_dist):
-    side_min = min(left_dist, right_dist) # 왼쪽/오른쪽 중 더 가까운 거리 선택
+    side_min = min(left_dist, right_dist)
 
-    if left_dist <= SIDE_GAP_BLOCK_DIST and right_dist <= SIDE_GAP_BLOCK_DIST: # 양쪽이 가까운 경우
+    if side_min <= SIDE_GAP_BLOCK_DIST:
         return math.radians(SIDE_TIGHT_TURN_LIMIT_DEG)
 
-    if side_min < SIDE_GAP_WARN_DIST: # 한쪽이 가까운 경우
+    if side_min < SIDE_GAP_WARN_DIST:
         return math.radians(SIDE_NARROW_TURN_LIMIT_DEG)
 
     return TURN_HARD_LIMIT_RAD
@@ -570,19 +618,17 @@ def gap_edge_discontinuity_score(ranges, start, end):
     return max(scores) if scores else 0.0
 
 
-# 여러 Gap 중에서 최적의 목표각을 선택하는 함수
 def choose_target_from_gaps(angles_deg, ranges, discontinuity_ranges, gaps, pose, prev_target_angle, front_factor, accumulated_turn_rad):
     if not gaps:
-        return -1, (0, 0), -float("inf"), []
+        return -1, (0, 0), -float("inf")
 
-    goal_angle = normalize_angle_rad(INITIAL_HEADING_RAD - pose.theta) # 출발 방향 기준으로 현재 로봇이 어느 방향에 있는지 계산
-    goal_angle = float(np.clip(goal_angle, -TURN_HARD_LIMIT_RAD, TURN_HARD_LIMIT_RAD)) # 최대 목표각 범위 안으로 자르기
-    prev_angle = float(np.clip(prev_target_angle, -TURN_HARD_LIMIT_RAD, TURN_HARD_LIMIT_RAD)) # 직전 목표각 범위 안으로 자르기
+    goal_angle = normalize_angle_rad(INITIAL_HEADING_RAD - pose.theta)
+    goal_angle = float(np.clip(goal_angle, -TURN_HARD_LIMIT_RAD, TURN_HARD_LIMIT_RAD))
+    prev_angle = float(np.clip(prev_target_angle, -TURN_HARD_LIMIT_RAD, TURN_HARD_LIMIT_RAD))
 
     best_idx = -1
     best_gap = (0, 0)
     best_score = -float("inf")
-    candidate_summaries = []
     max_target_angle = TURN_HARD_LIMIT_RAD
     goal_weight = (
         FGM_GOAL_WEIGHT_SAFE * (1.0 - front_factor)
@@ -624,7 +670,7 @@ def choose_target_from_gaps(angles_deg, ranges, discontinuity_ranges, gaps, pose
             + FGM_STRAIGHT_WEIGHT * straight_score
             + goal_weight * goal_score
             + FGM_PREV_TARGET_WEIGHT * prev_score
-            + FGM_GAP_WIDTH_WEIGHT * width_score
+            + 0.25 * width_score
             + FGM_RANGE_DISCONTINUITY_WEIGHT * discontinuity_score
             - turn_penalty
         )
@@ -633,29 +679,21 @@ def choose_target_from_gaps(angles_deg, ranges, discontinuity_ranges, gaps, pose
 
         local_best = int(np.argmax(scores))
         score = float(scores[local_best])
-        local_best_idx = int(idxs[local_best])
-        candidate_summaries.append(
-            f"{angles_deg[start]:.0f}:{angles_deg[end - 1]:.0f}@"
-            f"{angles_deg[local_best_idx]:.0f}/{score:.2f}"
-        )
         if score > best_score:
             best_score = score
-            best_idx = local_best_idx
+            best_idx = int(idxs[local_best])
             best_gap = (start, end)
 
-    return best_idx, best_gap, best_score, candidate_summaries
+    return best_idx, best_gap, best_score
 
 
-# 정상적인 gap 선택 실패 시, 임시 목표 방향 선택
-# angles_deg : 각도 배열, ranges : 거리 배열, left_dist : 좌측 벽과의 거리, right_dist : 우측 벽과의 거리
 def choose_fallback_target(angles_deg, ranges, left_dist=MAX_LIDAR_DIST_M, right_dist=MAX_LIDAR_DIST_M):
-    usable = ranges > MIN_LIDAR_DIST_M # 각도별 거리값이 최소 유효 거리보다 큰지 검사
+    usable = ranges > MIN_LIDAR_DIST_M
     if not usable.any():
-        return len(ranges) // 2 # 배열의 가운데 인덱스 반환 (정면)
+        return len(ranges) // 2
 
-    usable_ranges = np.where(usable, ranges, -np.inf) # 사용 가능한 거리값은 그대로 두고, 사용할 수 없는 값은 무한대로 변환
-
-    return int(np.argmax(usable_ranges)) # 가장 큰 거리값을 가진 인덱스 반환
+    usable_ranges = np.where(usable, ranges, -np.inf)
+    return int(np.argmax(usable_ranges))
 
 
 def rate_limit_w(prev_w, target_w, urgent=False):
@@ -664,18 +702,21 @@ def rate_limit_w(prev_w, target_w, urgent=False):
     return prev_w + delta
 
 
-# FGM이 고른 최종 목표 방향으로 얼마나 빠르게 전진할지 결정
-# target_dist : 목표 방향의 장애물까지의 거리, target_angle : 목표 각도, has_safe_gap : 안전한 gap이 있는지 여부
 def choose_speed(target_dist, target_angle, has_safe_gap):
-    if not has_safe_gap: # 안전한 Gap이 없으면 정지
+    if not has_safe_gap:
         return 0.0
 
-    turn_ratio = min(1.0, abs(target_angle) / TURN_HARD_LIMIT_RAD) # 목표각이 얼마나 큰지 비율
-    v = BASE_V * (1.0 - 0.45 * turn_ratio) # 목표각이 클수록 감속
+    turn_ratio = min(1.0, abs(target_angle) / TURN_HARD_LIMIT_RAD)
+    v = BASE_V * (1.0 - 0.45 * turn_ratio)
 
-    if target_dist < ACTIVE_FRONT_DIST: # 목표 방향과 가까운지 확인
-        slow_ratio = np.clip((target_dist - FRONT_DANGER_DIST) / max(1e-6, ACTIVE_FRONT_DIST - FRONT_DANGER_DIST), 0.0, 1.0) # 추가 감속
-        v = min(v, MIN_V + (BASE_V - MIN_V) * float(slow_ratio)) # 목표 방향이 가까우면 속도 상한 낮추기
+    if target_dist < ACTIVE_FRONT_DIST:
+        slow_ratio = np.clip(
+            (target_dist - FRONT_DANGER_DIST)
+            / max(1e-6, ACTIVE_FRONT_DIST - FRONT_DANGER_DIST),
+            0.0,
+            1.0,
+        )
+        v = min(v, MIN_V + (BASE_V - MIN_V) * float(slow_ratio))
 
     if target_dist < COLLISION_DIST:
         v = 0.0
@@ -683,41 +724,39 @@ def choose_speed(target_dist, target_angle, has_safe_gap):
     return float(np.clip(v, 0.0, BASE_V))
 
 
-# scan : 현재 LiDAR 스캔 데이터, prev_w : 직전 회전속도, prev_target_angle : 직전 목표 각도, pose : 현재 로봇 위치와 방향, accumulated_turn_rad : 누적 회전량
-def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose, accumulated_turn_rad=0.0):
-    points = lidar_points_to_xy(scan) # LiDAR 스캔을 (x,y) 포인트 배열로 변환
-    points_all = lidar_points_to_xy_all(scan) # 모든 LiDAR 스캔을 (x,y) 포인트 배열로 변환
-    front_dist = front_distance(points) # 전방 장애물 거리 계산
-    front_factor = compute_front_factor(front_dist) # 전방 위험도 계산
-    info_left, info_right = compute_side_info(points_all) # 좌우 가까운 벽 거리 계산
+def choose_fgm_cmd(
+    scan,
+    prev_w,
+    prev_target_angle,
+    pose,
+    accumulated_turn_rad=0.0,
+):
+    points = lidar_points_to_xy(scan)
+    points_all = lidar_points_to_xy_all(scan)
+    front_dist = front_distance(points)
+    front_factor = compute_front_factor(front_dist)
+    info_left, info_right = compute_side_info(points_all)
 
-    # LiDAR 스캔을 -90~+90 범위의 1도 간격 배열로 변환
-    # angles_deg : 각도 배열, raw_ranges : 각도별 최소 거리 배열, counts : 각도별 포인트 수
     angles_deg, raw_ranges, counts = scan_to_angle_ranges(scan)
-    smooth_ranges = smooth_ranges_conservative(raw_ranges) # 거리 배열 평활화
+    smooth_ranges = smooth_ranges_conservative(raw_ranges)
+    bubble_ranges, closest_idx, closest_dist, bubble_bins = apply_safety_bubble(
+        smooth_ranges, counts
+    )
 
-    # bubble_ranges : 안전 버블 적용된 거리 배열, closest_idx : 가장 가까운 장애물의 각도 인덱스, closest_dist : 가장 가까운 장애물의 거리, bubble_bins : 그 장애물 주변 몇 칸을 막았는지
-    bubble_ranges, closest_idx, closest_dist, bubble_bins = apply_safety_bubble(smooth_ranges, counts) # 안전 버블 적용
+    free_mask = bubble_ranges >= FGM_FREE_DIST
+    gaps = filter_gaps_by_width(find_free_gaps(free_mask))
+    has_safe_gap = len(gaps) > 0
 
-    free_mask = bubble_ranges >= FGM_FREE_DIST # 지나갈 수 있는 칸인지 확인
-    gaps = filter_gaps_by_width(find_free_gaps(free_mask), smooth_ranges) # 연속된 안전한 구간(=Gap) 찾고, 너무 좁은 Gap 제거
-    has_safe_gap = len(gaps) > 0 # 안전한 Gap이 있는지 여부
+    target_idx, best_gap, best_score = choose_target_from_gaps(
+        angles_deg, bubble_ranges, smooth_ranges, gaps, pose, prev_target_angle, front_factor, accumulated_turn_rad
+    )
 
-    # 최종적으로 어느 gap의 어느 각도를 목표로 할지 선택
-    # target_idx : 목표 각도 인덱스, best_gap : 그 각도가 속한 Gap의 시작과 끝 인덱스, best_score : 그 후보의 점수, gap_candidates : 후보 요약 문자열 리스트
-    target_idx, best_gap, best_score, gap_candidates = choose_target_from_gaps(angles_deg, bubble_ranges, smooth_ranges, gaps, pose, prev_target_angle, front_factor, accumulated_turn_rad)
-
-    # safe gap이 없거나, 그 안에서 선택 가능한 후보가 없는 경우
     if target_idx < 0:
         target_idx = choose_fallback_target(angles_deg, smooth_ranges, info_left, info_right)
-        # len(angles_deg) // 2
-        
         best_gap = (target_idx, target_idx + 1)
         best_score = 0.0
-        gap_candidates = []
 
     gap_width = (best_gap[1] - best_gap[0]) * FGM_ANGLE_STEP_DEG
-    gap_physical_width = gap_physical_width_m(best_gap[0], best_gap[1], smooth_ranges)
     gap_left = float(angles_deg[best_gap[1] - 1]) if best_gap[1] > best_gap[0] else float(angles_deg[target_idx])
     gap_right = float(angles_deg[best_gap[0]]) if best_gap[1] > best_gap[0] else float(angles_deg[target_idx])
     gap_left_rad = math.radians(gap_left)
@@ -737,7 +776,7 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose, accumulated_turn_rad=0
     target_idx = int(np.argmin(np.abs(angles_deg - math.degrees(target_angle))))
     target_dist = float(smooth_ranges[target_idx])
     raw_w = float(np.clip(FGM_TURN_GAIN * target_angle, -MAX_ABS_W, MAX_ABS_W))
-    selected_turn_penalty, _ = cumulative_turn_penalty(
+    selected_turn_penalty, selected_projected_turn = cumulative_turn_penalty(
         np.array([target_angle], dtype=np.float32),
         accumulated_turn_rad,
     )
@@ -747,45 +786,103 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose, accumulated_turn_rad=0
     v = min(v, side_gap_speed_limit(info_left, info_right))
 
     closest_angle = float(angles_deg[closest_idx]) if closest_idx >= 0 else 0.0
-    if closest_idx >= 0:
-        bubble_half_angle_deg = math.degrees(
-            math.atan2(FGM_BUBBLE_RADIUS, max(closest_dist, MIN_LIDAR_DIST_M))
-        )
-        bubble_start_idx = max(0, closest_idx - bubble_bins)
-        bubble_end_idx = min(len(angles_deg), closest_idx + bubble_bins + 1)
-        bubble_right = float(angles_deg[bubble_start_idx])
-        bubble_left = float(angles_deg[bubble_end_idx - 1])
-    else:
-        bubble_half_angle_deg = 0.0
-        bubble_right = 0.0
-        bubble_left = 0.0
 
     return v, w, target_angle, {
         "score": best_score,
         "target_deg": math.degrees(target_angle),
         "target_dist": target_dist,
         "front": front_dist,
+        "front_factor": front_factor,
         "left": info_left,
         "right": info_right,
+        "points": len(points),
         "gaps": len(gaps),
-        "gap_candidates": ",".join(gap_candidates) if gap_candidates else "none",
         "gap_width": gap_width,
-        "gap_physical_width": gap_physical_width,
         "gap_right": gap_right,
         "gap_left": gap_left,
         "closest": closest_dist,
         "closest_angle": closest_angle,
         "bubble_bins": bubble_bins,
-        "bubble_half_angle_deg": bubble_half_angle_deg,
-        "bubble_right": bubble_right,
-        "bubble_left": bubble_left,
         "collision": target_dist < COLLISION_DIST or closest_dist < COLLISION_DIST,
         "raw_w": raw_w,
         "has_safe_gap": has_safe_gap,
         "side_bias_deg": math.degrees(side_bias),
         "side_turn_limit_deg": math.degrees(side_turn_limit),
         "turn_penalty": float(selected_turn_penalty[0]),
+        "projected_turn_deg": math.degrees(float(selected_projected_turn[0])),
     }
+
+
+def choose_wall_follow_cmd(scan, prev_w, follow_side):
+    points_all = lidar_points_to_xy_all(scan)
+
+    wall_dist = side_wall_average_distance_from_scan(scan, follow_side)
+    front_dist = wall_follow_front_distance(points_all)
+
+    wall_valid = wall_dist < WALL_LOST_DIST
+
+    if wall_valid:
+        error = wall_dist - WALL_TARGET_DIST
+        target_w = follow_side * WALL_KP * error
+
+        if abs(error) > WALL_MIN_TURN_ERR and abs(target_w) < WALL_MIN_TURN_W:
+            if error > 0.0:
+                target_w = follow_side * WALL_MIN_TURN_W
+            else:
+                target_w = -follow_side * WALL_MIN_TURN_W
+
+    else:
+        target_w = follow_side * WALL_SEARCH_W
+
+    if wall_valid and wall_dist < WALL_TARGET_DIST:
+        target_v = WALL_SLOW_V
+    
+        close_error = WALL_TARGET_DIST - wall_dist
+        target_w = -follow_side * WALL_KP * close_error
+    
+        if abs(target_w) < WALL_MIN_TURN_W:
+            target_w = -follow_side * WALL_MIN_TURN_W
+    
+    elif front_dist < WALL_FRONT_HARD_STOP_DIST:
+        target_v = WALL_SLOW_V
+    
+        front_error = WALL_FRONT_HARD_STOP_DIST - front_dist
+        target_w = -follow_side * WALL_KP * front_error
+    
+        if abs(target_w) < WALL_MIN_TURN_W:
+            target_w = -follow_side * WALL_MIN_TURN_W
+    
+    elif front_dist < WALL_FRONT_SLOW_DIST:
+        target_v = WALL_SLOW_V
+    
+        front_error = WALL_FRONT_SLOW_DIST - front_dist
+        target_w = -follow_side * WALL_KP * front_error
+    
+        if abs(target_w) < WALL_MIN_TURN_W:
+            target_w = -follow_side * WALL_MIN_TURN_W
+    
+    else:
+        target_v = WALL_FOLLOW_V
+
+    target_w = float(np.clip(target_w, -WALL_MAX_W, WALL_MAX_W))
+    w = rate_limit_w(prev_w, target_w, urgent=True)
+
+    return float(target_v), float(w), float(wall_dist), bool(wall_valid), float(front_dist)
+
+
+def is_wall_open(wall_dist, prev_wall_dist, follow_start_time):
+    if time.time() - follow_start_time < WALL_MIN_FOLLOW_TIME_S:
+        return False
+
+    open_by_lost = wall_dist >= WALL_LOST_DIST
+
+    open_by_jump = (
+        prev_wall_dist is not None
+        and prev_wall_dist < WALL_LOST_DIST
+        and (wall_dist - prev_wall_dist) >= WALL_JUMP_DIST
+    )
+
+    return bool(open_by_lost or open_by_jump)
 
 
 def main():
@@ -821,13 +918,25 @@ def main():
 
     recovery_turn_active = False
     recovery_turn_dir = 0.0
+    recovery_follow_side = +1.0
     recovery_start_time = 0.0
+    recovery_wall_seen_count = 0
     recovery_accum_turn = 0.0
     recovery_prev_front_dist = None
-    recovery_front_open_count = 0
 
     recovery_turned_deg_log = 0.0
-    recovery_front_dist_log = MAX_LIDAR_DIST_M
+    recovery_wall_dist_log = MAX_LIDAR_DIST_M
+    recovery_front_start_log = MAX_LIDAR_DIST_M
+
+    wall_follow_active = False
+    wall_follow_side = +1.0
+    wall_follow_start_time = 0.0
+    wall_prev_dist = None
+    wall_open_count = 0
+
+    wall_dist_log = MAX_LIDAR_DIST_M
+    wall_front_log = MAX_LIDAR_DIST_M
+    wall_valid_log = False
 
     try:
         while True:
@@ -875,11 +984,63 @@ def main():
             target_angle = 0.0
             info = None
             recovery_mode_name = "FGM"
+            returned_from_wall_this_loop = False
 
+            wall_dist_log = MAX_LIDAR_DIST_M
+            wall_front_log = MAX_LIDAR_DIST_M
+            wall_valid_log = False
             recovery_turned_deg_log = math.degrees(recovery_accum_turn)
-            recovery_front_dist_log = MAX_LIDAR_DIST_M
+            recovery_wall_dist_log = MAX_LIDAR_DIST_M
+            recovery_front_start_log = MAX_LIDAR_DIST_M
 
-            if not recovery_turn_active:
+            if WALL_FOLLOW_ENABLE and wall_follow_active:
+                wall_v, wall_w, wall_dist, wall_valid, wall_front = choose_wall_follow_cmd(
+                    scan,
+                    last_w,
+                    wall_follow_side,
+                )
+
+                wall_dist_log = wall_dist
+                wall_front_log = wall_front
+                wall_valid_log = wall_valid
+
+                if is_wall_open(wall_dist, wall_prev_dist, wall_follow_start_time):
+                    wall_open_count += 1
+                else:
+                    wall_open_count = 0
+
+                if wall_open_count >= WALL_OPEN_COUNT_N:
+                    wall_follow_active = False
+                    wall_prev_dist = None
+                    wall_open_count = 0
+                    recovery_mode_name = "FGM_RETURN_FROM_WALL"
+                    returned_from_wall_this_loop = True
+
+                    print(
+                        "[WALL] wall distance opened suddenly. "
+                        "Return to FGM driving."
+                    )
+
+                    v, w, target_angle, info = choose_fgm_cmd(
+                    scan,
+                    last_w,
+                    last_target_angle,
+                    pose,
+                    accumulated_turn_rad,
+                )
+                else:
+                    v = wall_v
+                    w = wall_w
+                    target_angle = 0.0
+
+                    if wall_follow_side > 0.0:
+                        recovery_mode_name = "LEFT_WALL_FOLLOW"
+                    else:
+                        recovery_mode_name = "RIGHT_WALL_FOLLOW"
+
+                    wall_prev_dist = wall_dist
+
+            if (not recovery_turn_active) and (not wall_follow_active) and (not returned_from_wall_this_loop):
                 v, w, target_angle, info = choose_fgm_cmd(
                     scan,
                     last_w,
@@ -888,16 +1049,24 @@ def main():
                     accumulated_turn_rad,
                 )
 
-                blocked_now = info["collision"] and v <= 0.01 and abs(w) <= 0.01 # 충돌 위험을 감지했고, 속도와 회전이 거의 0인 경우
-                no_safe_gap_now = not info["has_safe_gap"] # safe gap이 없는 경우
-                recovery_trigger = (blocked_now or no_safe_gap_now) # recovery 켤지 결정
+                blocked_now = info["collision"] and v <= 0.01
+                no_safe_gap_now = not info["has_safe_gap"]
+                narrow_wall_trigger = (blocked_now or no_safe_gap_now)
 
-                if (RECOVERY_TURN_ENABLE and (not recovery_turn_active) and recovery_trigger):
-                    recovery_turn_dir = choose_initial_based_recovery_dir(pose.theta, accumulated_turn_rad, last_w) # 제자리 회전 방향 결정
+                if (
+                    RECOVERY_TURN_ENABLE
+                    and (not recovery_turn_active)
+                    and narrow_wall_trigger
+                ):
+                    recovery_turn_dir = choose_initial_based_recovery_dir(
+                        pose.theta,
+                        last_w,
+                    )
+                    recovery_follow_side = -recovery_turn_dir
                     recovery_start_time = time.time()
+                    recovery_wall_seen_count = 0
                     recovery_accum_turn = 0.0
                     recovery_prev_front_dist = None
-                    recovery_front_open_count = 0
                     recovery_turn_active = True
 
                     if blocked_now:
@@ -908,24 +1077,36 @@ def main():
                     if recovery_turn_dir > 0.0:
                         print(
                             f"[NARROW] {trigger_name}. "
-                            "Start LEFT recovery turn."
+                            "Start LEFT recovery turn. Follow RIGHT wall."
                         )
                     else:
                         print(
                             f"[NARROW] {trigger_name}. "
-                            "Start RIGHT recovery turn."
+                            "Start RIGHT recovery turn. Follow LEFT wall."
                         )
 
-            if (RECOVERY_TURN_ENABLE and recovery_turn_active):
-                recovery_timeout = (time.time() - recovery_start_time) > RECOVERY_TURN_TIMEOUT_S
+            if (
+                RECOVERY_TURN_ENABLE
+                and recovery_turn_active
+                and (not wall_follow_active)
+            ):
+                recovery_timeout = (
+                    time.time() - recovery_start_time
+                ) > RECOVERY_TURN_TIMEOUT_S
 
                 recovery_max_turn_reached = recovery_accum_turn >= RECOVERY_MAX_TURN_RAD
 
+                recovery_wall_dist = side_wall_distance_from_scan(
+                    scan,
+                    recovery_follow_side,
+                )
+
                 recovery_points_all = lidar_points_to_xy_all(scan)
-                recovery_front_dist = recovery_front_distance(recovery_points_all)
+                recovery_front_dist = wall_follow_front_distance(recovery_points_all)
 
                 recovery_turned_deg_log = math.degrees(recovery_accum_turn)
-                recovery_front_dist_log = recovery_front_dist
+                recovery_wall_dist_log = recovery_wall_dist
+                recovery_front_start_log = recovery_front_dist
 
                 recovery_open_detected = (
                     recovery_prev_front_dist is not None
@@ -933,66 +1114,54 @@ def main():
                     and (recovery_front_dist - recovery_prev_front_dist) >= RECOVERY_FRONT_OPEN_JUMP_DIST
                 )
 
-                if recovery_open_detected:
-                    recovery_front_open_count += 1
-                elif (
-                    recovery_front_open_count > 0
-                    and recovery_front_dist > RECOVERY_FRONT_OPEN_PREV_MAX_DIST
-                ):
-                    recovery_front_open_count += 1
-                else:
-                    recovery_front_open_count = 0
+                recovery_wall_seen_count = 1 if recovery_open_detected else 0
 
-                recovery_ready_to_fgm = recovery_front_open_count >= RECOVERY_FRONT_OPEN_CONFIRM_FRAMES
+                recovery_ready_to_wall_follow = recovery_open_detected
 
                 recovery_prev_front_dist = recovery_front_dist
 
-                if recovery_ready_to_fgm:
+                if (
+                    recovery_ready_to_wall_follow
+                    or recovery_max_turn_reached
+                    or recovery_timeout
+                ):
                     recovery_turn_active = False
+                    wall_follow_active = True
+                    wall_follow_side = recovery_follow_side
+
+                    wall_follow_start_time = time.time()
+                    wall_prev_dist = None
+                    wall_open_count = 0
+                    recovery_wall_seen_count = 0
                     recovery_prev_front_dist = None
-                    recovery_front_open_count = 0
 
-                    recovery_mode_name = "FGM_RETURN_FROM_RECOVERY"
+                    v = 0.0
+                    w = 0.0
+                    target_angle = 0.0
 
-                    print(
-                        f"[RECOVERY] front opened after {recovery_turned_deg_log:.1f}deg. "
-                        f"front={recovery_front_dist:.2f}. "
-                        "Return to FGM driving."
-                    )
+                    if wall_follow_side > 0.0:
+                        recovery_mode_name = "RECOVERY_TO_LEFT_WALL"
+                    else:
+                        recovery_mode_name = "RECOVERY_TO_RIGHT_WALL"
 
-                    v, w, target_angle, info = choose_fgm_cmd(
-                        scan,
-                        last_w,
-                        last_target_angle,
-                        pose,
-                        accumulated_turn_rad,
-                    )
-                elif recovery_max_turn_reached or recovery_timeout:
-                    recovery_turn_active = False
-                    recovery_prev_front_dist = None
-                    recovery_front_open_count = 0
-
-                    recovery_mode_name = "FGM_RETURN_FROM_RECOVERY"
-
-                    if recovery_max_turn_reached:
+                    if recovery_ready_to_wall_follow:
+                        print(
+                            f"[RECOVERY] wall found after {recovery_turned_deg_log:.1f}deg. "
+                            f"wall90={recovery_wall_dist:.2f} "
+                            f"front={recovery_front_dist:.2f}. "
+                            "Start wall following."
+                        )
+                    elif recovery_max_turn_reached:
                         print(
                             f"[RECOVERY] max turn reached. "
                             f"turned={recovery_turned_deg_log:.1f}deg. "
-                            "Return to FGM driving."
+                            "Start wall following."
                         )
                     else:
                         print(
                             "[RECOVERY] recovery turn timeout. "
-                            "Return to FGM driving."
+                            "Start wall following anyway."
                         )
-
-                    v, w, target_angle, info = choose_fgm_cmd(
-                        scan,
-                        last_w,
-                        last_target_angle,
-                        pose,
-                        accumulated_turn_rad,
-                    )
 
                 else:
                     v = 0.0
@@ -1018,7 +1187,7 @@ def main():
             accumulated_turn_rad += w * dt
             last_v, last_w = v, w
 
-            if not recovery_turn_active:
+            if (not recovery_turn_active) and (not wall_follow_active):
                 last_target_angle = target_angle
 
             accumulated_turn_deg_log = math.degrees(accumulated_turn_rad)
@@ -1048,31 +1217,49 @@ def main():
                         f"v={v:.2f} w={w:.2f} "
                         f"ct={accumulated_turn_deg_log:.1f}deg "
                         f"turned={recovery_turned_deg_log:.1f}deg "
-                        f"rfront={recovery_front_dist_log:.2f} "
+                        f"wall90={recovery_wall_dist_log:.2f} "
+                        f"wall_front={recovery_front_start_log:.2f} "
+                        f"seen_cnt={recovery_wall_seen_count} "
                         f"front={front_log:.2f} "
                         f"gaps={gaps_log} safe={safe_log} "
                         f"close={close_log:.2f}@{close_angle_log:.0f} "                        
                         f"L={left_log:.2f} R={right_log:.2f}"
                     )
 
-                elif info is not None:
+                elif wall_follow_active:
+                    if wall_follow_side > 0.0:
+                        wall_name = "left_wall_30_90_avg"
+                    else:
+                        wall_name = "right_wall_90_30_avg"
+
                     print(
                         f"[{recovery_mode_name}] x={pose.x:.2f} y={pose.y:.2f} "
+                        f"th={math.degrees(pose.theta):.1f}deg "
+                        f"v={v:.2f} w={w:.2f} "
+                        f"ct={accumulated_turn_deg_log:.1f}deg "
+                        f"{wall_name}={wall_dist_log:.2f} "
+                        f"wall_front={wall_front_log:.2f} "
+                        f"valid={int(wall_valid_log)} "
+                        f"open_cnt={wall_open_count} "
+                        f"FGM=OFF"
+                    )
+
+                elif info is not None:
+                    print(
+                        f"[FGM] x={pose.x:.2f} y={pose.y:.2f} "
                         f"th={pose.theta:.2f} "
                         f"v={v:.2f} w={w:.2f} raw={info['raw_w']:.2f} "
                         f"ct={accumulated_turn_deg_log:.1f}deg "
+                        f"pt={info['projected_turn_deg']:.1f}deg "
                         f"tp={info['turn_penalty']:.2f} "
                         f"tgt={info['target_deg']:.1f} td={info['target_dist']:.2f} "
-                        f"front={info['front']:.2f} "
-                        f"gap={info['gap_width']:.0f} gphys={info['gap_physical_width']:.2f} "
+                        f"front={info['front']:.2f} ff={info['front_factor']:.2f} "
+                        f"gap={info['gap_width']:.0f} "
                         f"gr={info['gap_right']:.0f} gl={info['gap_left']:.0f} "
                         f"gaps={info['gaps']} safe={int(info['has_safe_gap'])} "
-                        f"cands={info['gap_candidates']} "
                         f"close={info['closest']:.2f}@{info['closest_angle']:.0f} "
-                        f"bub={info['bubble_half_angle_deg']:.1f}deg/{info['bubble_bins']} "
-                        f"br={info['bubble_right']:.0f} bl={info['bubble_left']:.0f} "
-                        f"score={info['score']:.2f} "
-                        f"coll={int(info['collision'])} "
+                        f"bb={info['bubble_bins']} score={info['score']:.2f} "
+                        f"pts={info['points']} coll={int(info['collision'])} "
                         f"sbias={info['side_bias_deg']:.1f}deg "
                         f"slim={info['side_turn_limit_deg']:.0f}deg "
                         f"L={info['left']:.2f} R={info['right']:.2f}"
