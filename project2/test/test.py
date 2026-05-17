@@ -39,9 +39,9 @@ def compute_wheel_phis(target_angle_deg: float):
         else : target_angle_deg + 10
         
     if  -35 < target_angle_deg < 35 :
-        Kp_ang = 4.5
+        Kp_ang = 5.5
     
-    else : Kp_ang = 3.5
+    else : Kp_ang = 4.5
         
     angle_err_rad = math.radians(target_angle_deg)
     w = -Kp_ang * angle_err_rad
@@ -125,7 +125,7 @@ while True:
     if 0 <= angle_index <= 180:
         distance_array[angle_index] = distance
         
-    desired_angle = Follow_the_Gap_Method(distance_array, threshold=400)
+    desired_angle = Follow_the_Gap_Method(distance_array, threshold=500)
 
     target_angle = desired_angle - 90
     
