@@ -470,7 +470,7 @@ def side_gap_steering_bias(left_dist, right_dist):
 def side_narrow_turn_limit(left_dist, right_dist):
     side_min = min(left_dist, right_dist)
 
-    if side_min <= SIDE_GAP_BLOCK_DIST:
+    if left_dist <= SIDE_GAP_BLOCK_DIST and right_dist <= SIDE_GAP_BLOCK_DIST:
         return math.radians(SIDE_TIGHT_TURN_LIMIT_DEG)
 
     if side_min < SIDE_GAP_WARN_DIST:
