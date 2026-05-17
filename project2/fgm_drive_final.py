@@ -786,6 +786,11 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose, accumulated_turn_rad=0
     w = rate_limit_w(prev_w, raw_w, urgent=urgent)
     v = choose_speed(effective_target_dist, target_angle, has_safe_gap)
     v = min(v, side_gap_speed_limit(info_left, info_right))
+    hard_stop = front_dist < FRONT_DANGER_DIST or target_drive_depth < FRONT_DANGER_DIST
+    if hard_stop:
+        v = 0.0
+        w = 0.0
+        raw_w = 0.0
 
     closest_angle = float(angles_deg[closest_idx]) if closest_idx >= 0 else 0.0
     if closest_idx >= 0:
@@ -823,6 +828,7 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose, accumulated_turn_rad=0
         "bubble_left": bubble_left,
         "collision": target_dist < COLLISION_DIST or target_drive_depth < COLLISION_DIST or closest_dist < COLLISION_DIST,
         "raw_w": raw_w,
+        "hard_stop": hard_stop,
         "has_safe_gap": has_safe_gap,
         "side_bias_deg": math.degrees(side_bias),
         "side_turn_limit_deg": math.degrees(side_turn_limit),
@@ -1115,6 +1121,7 @@ def main():
                         f"br={info['bubble_right']:.0f} bl={info['bubble_left']:.0f} "
                         f"score={info['score']:.2f} "
                         f"coll={int(info['collision'])} "
+                        f"hstop={int(info['hard_stop'])} "
                         f"sbias={info['side_bias_deg']:.1f}deg "
                         f"slim={info['side_turn_limit_deg']:.0f}deg "
                         f"L={info['left']:.2f} R={info['right']:.2f}"
