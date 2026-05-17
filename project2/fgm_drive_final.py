@@ -684,8 +684,9 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose, accumulated_turn_rad=0
 
     # safe gap이 없거나, 그 안에서 선택 가능한 후보가 없는 경우
     if target_idx < 0:
-        target_idx = len(angles_deg) // 2
-        # choose_fallback_target(angles_deg, smooth_ranges, info_left, info_right)
+        target_idx = choose_fallback_target(angles_deg, smooth_ranges, info_left, info_right)
+        # len(angles_deg) // 2
+        
         best_gap = (target_idx, target_idx + 1)
         best_score = 0.0
         gap_candidates = []
