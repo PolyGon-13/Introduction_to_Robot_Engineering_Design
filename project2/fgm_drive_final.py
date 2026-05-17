@@ -125,30 +125,35 @@ WALL_MIN_POINTS = 2 # 벽으로 인정하는 최소 라이다 포인트 수
 LOOP_DT_S = 0.05 # 메인 제어 루프 주기
 
 
+# 각도를 -180 ~ +180 범위로 정규화
 def normalize_angle_deg(angle):
     return (angle + 180.0) % 360.0 - 180.0
 
-
+# 각도를 -pi ~ +pi 범위로 정규화
 def normalize_angle_rad(angle):
     return math.atan2(math.sin(angle), math.cos(angle))
 
-
+# 두 각도의 차이를 -pi ~ +pi 범위로 계산
 def angle_error_rad(a, b):
     return normalize_angle_rad(a - b)
 
-def choose_initial_based_recovery_dir(theta, prev_w=0.0):
+# Recovery mode에 들어갈 때 제자리 회전 방향 결정
+# theta : 현재 로봇 heading, accumulated_turn_rad : 누적 회전량
+def choose_initial_based_recovery_dir(theta, accumulated_turn_rad=0.0):
     heading_from_initial = normalize_angle_rad(theta - INITIAL_HEADING_RAD)
 
+    # 왼쪽으로 돌아있는 경우 우회전
     if heading_from_initial > RECOVERY_INITIAL_DEADBAND_RAD:
         return -1.0
-
-    if heading_from_initial < -RECOVERY_INITIAL_DEADBAND_RAD:
+    # 오른쪽으로 돌아있는 경우 좌회전
+    elif heading_from_initial < -RECOVERY_INITIAL_DEADBAND_RAD:
         return +1.0
-
-    if prev_w > 0.0:
+    
+    # 누적 회전량이 왼쪽으로 쌓인 경우 우회전
+    if accumulated_turn_rad > RECOVERY_INITIAL_DEADBAND_RAD:
         return -1.0
-
-    if prev_w < 0.0:
+    # 누적 회전량이 오른쪽으로 쌓인 경우 좌회전
+    elif accumulated_turn_rad < -RECOVERY_INITIAL_DEADBAND_RAD:
         return +1.0
 
     return -1.0
@@ -170,6 +175,8 @@ class RobotPose:
         self.y += v * math.sin(self.theta) * dt
         self.theta = normalize_angle_rad(self.theta + w * dt)
 
+
+# RPLidar 초기화
 class RPLidarC1:
     def __init__(self, port, baud):
         self.ser = serial.Serial(port, baud, timeout=0.1)
@@ -250,6 +257,7 @@ class RPLidarC1:
         self.ser.close()
 
 
+# LiDAR 스캔 데이터를 (x,y) 포인트 배열로 변환
 def lidar_points_to_xy(scan):
     if scan is None:
         return np.empty((0, 2), dtype=np.float32)
@@ -281,6 +289,7 @@ def lidar_points_to_xy(scan):
         order = np.argsort(points[:, 0] ** 2 + points[:, 1] ** 2)
         points = points[order[:MAX_EVAL_POINTS]]
     return points
+
 
 def lidar_points_to_xy_all(scan):
     if scan is None:
@@ -1060,7 +1069,7 @@ def main():
                 ):
                     recovery_turn_dir = choose_initial_based_recovery_dir(
                         pose.theta,
-                        last_w,
+                        accumulated_turn_rad,
                     )
                     recovery_follow_side = -recovery_turn_dir
                     recovery_start_time = time.time()
