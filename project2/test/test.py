@@ -24,6 +24,44 @@ lidar_ser.write(bytes([0xA5, 0x40]))
 time.sleep(1)
 lidar_ser.write(bytes([0xA5, 0x20]))
 
+print("[INFO] Warming up for 2 seconds...")
+time.sleep(2.0)
+
+print("[INFO] Initializing LiDAR scan...")
+lidar_init_start = time.time()
+
+while True:
+    init_data = lidar_ser.read(5)
+
+    if len(init_data) == 5:
+        s_flag = init_data[0] & 0x01
+        s_inv_flag = (init_data[0] & 0x02) >> 1
+        check_bit = init_data[1] & 0x01
+        quality = init_data[0] >> 2
+        distance_q2 = init_data[3] | (init_data[4] << 8)
+
+        if (
+            s_inv_flag == (1 - s_flag)
+            and check_bit == 1
+            and quality > 0
+            and distance_q2 > 0
+        ):
+            print("[INFO] LiDAR ready.")
+            break
+
+    if time.time() - lidar_init_start > 5.0:
+        print("[WARN] LiDAR scan not ready yet. Continuing anyway.")
+        break
+
+    time.sleep(0.05)
+
+print("[INFO] Initialization Complete. Press Enter to start!")
+try:
+    input()
+except EOFError:
+    print("[WARN] Could not read standard input. Starting immediately.")
+print("[INFO] Go!!")
+
 wheel_R = 0.034
 wheel_l = 0.179
 
