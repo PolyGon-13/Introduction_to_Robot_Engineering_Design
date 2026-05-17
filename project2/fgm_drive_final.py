@@ -94,7 +94,7 @@ RECOVERY_MAX_TURN_RAD = math.radians(200.0) # Recovery 최대 회전각도
 RECOVERY_TURN_TIMEOUT_S = 15.0
 
 RECOVERY_TURN_ENABLE = True # Recovery 기능 on/off 스위치
-RECOVERY_FRONT_OPEN_JUMP_DIST = 0.09
+RECOVERY_FRONT_OPEN_JUMP_DIST = 0.07
 RECOVERY_FRONT_OPEN_PREV_MAX_DIST = 0.45
 RECOVERY_FRONT_OPEN_CONFIRM_FRAMES = 1 # Recovery 탈출 조건 프레임 수
 RECOVERY_FRONT_CHECK_DIST = 0.30
@@ -469,8 +469,9 @@ def gap_physical_width_m(start, end, ranges):
         return 0.0
 
     gap_dist = float(np.percentile(gap_ranges[valid], 40))
-    gap_width_rad = math.radians((end - start) * FGM_ANGLE_STEP_DEG)
-    return float(2.0 * gap_dist * math.tan(0.5 * gap_width_rad))
+    gap_width_deg = max(0.0, (end - start - 1) * FGM_ANGLE_STEP_DEG)
+    gap_width_rad = math.radians(min(gap_width_deg, 180.0))
+    return float(2.0 * gap_dist * math.sin(0.5 * gap_width_rad))
 
 
 def filter_gaps_by_width(gaps, ranges):
@@ -927,18 +928,14 @@ def main():
                 recovery_turned_deg_log = math.degrees(recovery_accum_turn)
                 recovery_front_dist_log = recovery_front_dist
 
+                recovery_front_already_open = recovery_front_dist > RECOVERY_FRONT_OPEN_PREV_MAX_DIST
                 recovery_open_detected = (
                     recovery_prev_front_dist is not None
                     and recovery_prev_front_dist <= RECOVERY_FRONT_OPEN_PREV_MAX_DIST
                     and (recovery_front_dist - recovery_prev_front_dist) >= RECOVERY_FRONT_OPEN_JUMP_DIST
                 )
 
-                if recovery_open_detected:
-                    recovery_front_open_count += 1
-                elif (
-                    recovery_front_open_count > 0
-                    and recovery_front_dist > RECOVERY_FRONT_OPEN_PREV_MAX_DIST
-                ):
+                if recovery_front_already_open or recovery_open_detected:
                     recovery_front_open_count += 1
                 else:
                     recovery_front_open_count = 0
