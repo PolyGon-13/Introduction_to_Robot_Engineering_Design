@@ -39,9 +39,9 @@ def compute_wheel_phis(target_angle_deg: float):
         else : target_angle_deg + 10
         
     if  -35 < target_angle_deg < 35 :
-        Kp_ang = 5.5
+        Kp_ang = 4.5
     
-    else : Kp_ang = 4.5
+    else : Kp_ang = 3.5
         
     angle_err_rad = math.radians(target_angle_deg)
     w = -Kp_ang * angle_err_rad
@@ -62,6 +62,35 @@ def compute_wheel_phis(target_angle_deg: float):
 
 
 distance_array = [0] * 181
+
+
+def average_valid_distance(distances, start_angle, end_angle, max_wall_distance=2000):
+    valid_distances = []
+
+    for angle in range(start_angle, end_angle + 1):
+        distance = distances[angle]
+        if 50 <= distance <= max_wall_distance:
+            valid_distances.append(distance)
+
+    if len(valid_distances) < 3:
+        return None
+
+    return sum(valid_distances) / len(valid_distances)
+
+
+def corridor_center_correction(distances):
+    right_wall = average_valid_distance(distances, 25, 75)
+    left_wall = average_valid_distance(distances, 105, 155)
+
+    if right_wall is None or left_wall is None:
+        return 0.0
+
+    wall_error = left_wall - right_wall
+    correction = wall_error * 0.025
+
+    return max(-18.0, min(18.0, correction))
+
+
 def Follow_the_Gap_Method(distances, threshold):
     max_tmp = 0
     tmp = 0
@@ -125,9 +154,11 @@ while True:
     if 0 <= angle_index <= 180:
         distance_array[angle_index] = distance
         
-    desired_angle = Follow_the_Gap_Method(distance_array, threshold=500)
+    desired_angle = Follow_the_Gap_Method(distance_array, threshold=400)
 
     target_angle = desired_angle - 90
+    target_angle += corridor_center_correction(distance_array)
+    target_angle = max(-70.0, min(70.0, target_angle))
     
     phi_l, phi_r = compute_wheel_phis(target_angle)
     
