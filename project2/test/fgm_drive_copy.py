@@ -105,12 +105,40 @@ LOOP_DT_S = 0.05 # 메인 제어 루프 주기
 
 
 # 각도를 -180 ~ +180 범위로 정규화
+FGM_ANGLES_DEG = np.arange(
+    FGM_MIN_ANGLE_DEG,
+    FGM_MAX_ANGLE_DEG + 0.5 * FGM_ANGLE_STEP_DEG,
+    FGM_ANGLE_STEP_DEG,
+    dtype=np.float32,
+)
+FGM_ANGLES_RAD = np.deg2rad(FGM_ANGLES_DEG).astype(np.float32)
+FGM_GRID_LEN = len(FGM_ANGLES_DEG)
+FGM_MIN_GAP_BINS = max(1, int(math.ceil(FGM_MIN_GAP_WIDTH_DEG / FGM_ANGLE_STEP_DEG)))
+FGM_RANGE_EDGE_WINDOW_BINS = max(
+    1,
+    int(round(FGM_RANGE_DISCONTINUITY_EDGE_WINDOW_DEG / FGM_ANGLE_STEP_DEG)),
+)
+_FGM_SMOOTH_WINDOW = int(FGM_SMOOTH_WINDOW)
+if _FGM_SMOOTH_WINDOW % 2 == 0:
+    _FGM_SMOOTH_WINDOW += 1
+FGM_SMOOTH_PAD = _FGM_SMOOTH_WINDOW // 2
+FGM_SMOOTH_KERNEL = (
+    np.ones(_FGM_SMOOTH_WINDOW, dtype=np.float32) / float(_FGM_SMOOTH_WINDOW)
+    if _FGM_SMOOTH_WINDOW > 1
+    else None
+)
+
+
 def normalize_angle_deg(angle):
     return (angle + 180.0) % 360.0 - 180.0
 
 # 각도를 -pi ~ +pi 범위로 정규화
 def normalize_angle_rad(angle):
     return math.atan2(math.sin(angle), math.cos(angle))
+
+
+def normalize_angle_rad_np(angle):
+    return np.arctan2(np.sin(angle), np.cos(angle))
 
 # 두 각도의 차이를 -pi ~ +pi 범위로 계산
 def angle_error_rad(a, b):
@@ -368,17 +396,11 @@ def compute_side_info(points):
 
 
 def scan_to_angle_ranges(scan):
-    angles_grid = np.arange(
-        FGM_MIN_ANGLE_DEG,
-        FGM_MAX_ANGLE_DEG + 0.5 * FGM_ANGLE_STEP_DEG,
-        FGM_ANGLE_STEP_DEG,
-        dtype=np.float32,
-    )
-    ranges = np.full(len(angles_grid), MAX_LIDAR_DIST_M, dtype=np.float32)
-    counts = np.zeros(len(angles_grid), dtype=np.int16)
+    ranges = np.full(FGM_GRID_LEN, MAX_LIDAR_DIST_M, dtype=np.float32)
+    counts = np.zeros(FGM_GRID_LEN, dtype=np.int16)
 
     if scan is None:
-        return angles_grid, ranges, counts
+        return FGM_ANGLES_DEG, ranges, counts
 
     angles, dists, qualities = scan
     dist_m = (dists.astype(np.float32) + DIST_OFFSET_MM) / 1000.0
@@ -391,32 +413,27 @@ def scan_to_angle_ranges(scan):
         & (qualities >= MIN_QUALITY)
     )
     if not valid.any():
-        return angles_grid, ranges, counts
+        return FGM_ANGLES_DEG, ranges, counts
 
     dist_m = dist_m[valid]
     angle_deg = angle_deg[valid]
     bins = np.rint((angle_deg - FGM_MIN_ANGLE_DEG) / FGM_ANGLE_STEP_DEG).astype(np.int32)
-    in_sector = (bins >= 0) & (bins < len(angles_grid))
+    in_sector = (bins >= 0) & (bins < FGM_GRID_LEN)
+    if in_sector.any():
+        bins = bins[in_sector]
+        dist_m = dist_m[in_sector]
+        np.minimum.at(ranges, bins, dist_m)
+        np.add.at(counts, bins, 1)
 
-    for bin_idx, dist in zip(bins[in_sector], dist_m[in_sector]):
-        if dist < ranges[bin_idx]:
-            ranges[bin_idx] = dist
-        counts[bin_idx] += 1
-
-    return angles_grid, ranges, counts
+    return FGM_ANGLES_DEG, ranges, counts
 
 
 def smooth_ranges_conservative(ranges):
-    if FGM_SMOOTH_WINDOW <= 1:
+    if FGM_SMOOTH_KERNEL is None:
         return ranges.copy()
 
-    window = int(FGM_SMOOTH_WINDOW)
-    if window % 2 == 0:
-        window += 1
-    pad = window // 2
-    kernel = np.ones(window, dtype=np.float32) / float(window)
-    padded = np.pad(ranges, (pad, pad), mode="edge")
-    averaged = np.convolve(padded, kernel, mode="valid").astype(np.float32)
+    padded = np.pad(ranges, (FGM_SMOOTH_PAD, FGM_SMOOTH_PAD), mode="edge")
+    averaged = np.convolve(padded, FGM_SMOOTH_KERNEL, mode="valid").astype(np.float32)
     return np.minimum(ranges, averaged)
 
 
@@ -444,17 +461,12 @@ def apply_safety_bubble(ranges, counts):
 
 # 연속된 True 구간(=Gap) 찾는 함수
 def find_free_gaps(free_mask):
-    gaps = []
-    start = None
-    for idx, free in enumerate(free_mask):
-        if free and start is None:
-            start = idx
-        elif not free and start is not None:
-            gaps.append((start, idx))
-            start = None
-    if start is not None:
-        gaps.append((start, len(free_mask)))
-    return gaps
+    if not free_mask.any():
+        return []
+
+    padded = np.concatenate(([False], free_mask, [False]))
+    changes = np.flatnonzero(padded[1:] != padded[:-1])
+    return [(int(start), int(end)) for start, end in zip(changes[0::2], changes[1::2])]
 
 
 # 너무 좁은 Gap 제거
@@ -474,10 +486,9 @@ def gap_physical_width_m(start, end, ranges):
 
 
 def filter_gaps_by_width(gaps, ranges):
-    min_bins = max(1, int(math.ceil(FGM_MIN_GAP_WIDTH_DEG / FGM_ANGLE_STEP_DEG)))
     filtered = []
     for start, end in gaps:
-        if end - start < min_bins:
+        if end - start < FGM_MIN_GAP_BINS:
             continue
         if gap_physical_width_m(start, end, ranges) < FGM_MIN_PHYSICAL_GAP_WIDTH_M:
             continue
@@ -560,10 +571,9 @@ def edge_jump_score(ranges, left_idx, right_idx):
 
 
 def gap_edge_discontinuity_score(ranges, start, end):
-    edge_window = max(1, int(round(FGM_RANGE_DISCONTINUITY_EDGE_WINDOW_DEG / FGM_ANGLE_STEP_DEG)))
     scores = []
 
-    for offset in range(edge_window):
+    for offset in range(FGM_RANGE_EDGE_WINDOW_BINS):
         scores.append(edge_jump_score(ranges, start - 1 - offset, start + offset))
         scores.append(edge_jump_score(ranges, end - 1 - offset, end + offset))
 
@@ -591,7 +601,7 @@ def choose_target_from_gaps(angles_deg, ranges, discontinuity_ranges, gaps, pose
 
     for start, end in gaps:
         idxs = np.arange(start, end)
-        angle_rad = np.deg2rad(angles_deg[idxs])
+        angle_rad = FGM_ANGLES_RAD[idxs]
         targetable = np.abs(angle_rad) <= max_target_angle
         if not targetable.any():
             continue
@@ -606,12 +616,12 @@ def choose_target_from_gaps(angles_deg, ranges, discontinuity_ranges, gaps, pose
         clearance_score = np.clip(ranges[idxs] / CLEARANCE_CAP, 0.0, 1.0)
         straight_score = 1.0 - np.clip(np.abs(angle_rad) / max_target_angle, 0.0, 1.0)
         goal_score = 1.0 - np.clip(
-            np.abs([angle_error_rad(a, goal_angle) for a in angle_rad]) / max_target_angle,
+            np.abs(normalize_angle_rad_np(angle_rad - goal_angle)) / max_target_angle,
             0.0,
             1.0,
         )
         prev_score = 1.0 - np.clip(
-            np.abs([angle_error_rad(a, prev_angle) for a in angle_rad]) / max_target_angle,
+            np.abs(normalize_angle_rad_np(angle_rad - prev_angle)) / max_target_angle,
             0.0,
             1.0,
         )
