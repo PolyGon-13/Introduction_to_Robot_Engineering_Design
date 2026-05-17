@@ -91,8 +91,8 @@ def average_valid_distance(distances, start_angle, end_angle, max_wall_distance=
 
 
 def corridor_center_correction(distances):
-    right_wall = average_valid_distance(distances, 25, 75)
-    left_wall = average_valid_distance(distances, 105, 155)
+    right_wall = average_valid_distance(distances, 25, 90)
+    left_wall = average_valid_distance(distances, 90, 155)
 
     if right_wall is None or left_wall is None:
         return 0.0, right_wall, left_wall
