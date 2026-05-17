@@ -668,7 +668,7 @@ def rate_limit_w(prev_w, target_w, urgent=False):
 
 # FGM이 고른 최종 목표 방향으로 얼마나 빠르게 전진할지 결정
 # target_dist : 목표 방향의 장애물까지의 거리, target_angle : 목표 각도, has_safe_gap : 안전한 gap이 있는지 여부
-def choose_speed(target_dist, target_angle, has_safe_gap):
+def choose_speed(target_dist, target_angle, has_safe_gap, front_dist=MAX_LIDAR_DIST_M):
     if not has_safe_gap: # 안전한 Gap이 없으면 정지
         return 0.0
 
@@ -680,6 +680,9 @@ def choose_speed(target_dist, target_angle, has_safe_gap):
         v = min(v, MIN_V + (BASE_V - MIN_V) * float(slow_ratio)) # 목표 방향이 가까우면 속도 상한 낮추기
 
     if target_dist < COLLISION_DIST:
+        v = 0.0
+
+    if front_dist < FRONT_DANGER_DIST: # 정면이 위험 거리 이내이면 무조건 정지
         v = 0.0
 
     return float(np.clip(v, 0.0, BASE_V))
@@ -745,7 +748,7 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose, accumulated_turn_rad=0
     )
     urgent = front_dist < URGENT_FRONT_DIST or not has_safe_gap
     w = rate_limit_w(prev_w, raw_w, urgent=urgent)
-    v = choose_speed(target_dist, target_angle, has_safe_gap)
+    v = choose_speed(target_dist, target_angle, has_safe_gap, front_dist)
     v = min(v, side_gap_speed_limit(info_left, info_right))
 
     closest_angle = float(angles_deg[closest_idx]) if closest_idx >= 0 else 0.0
@@ -870,7 +873,7 @@ def main():
                     accumulated_turn_rad,
                 )
 
-                blocked_now = info["collision"] and v <= 0.01 and abs(w) <= 0.01 # 충돌 위험을 감지했고, 속도가 거의 0인 경우
+                blocked_now = info["collision"] and v <= 0.01 # 충돌 위험을 감지했고, 전진 속도가 거의 0인 경우
                 no_safe_gap_now = not info["has_safe_gap"] # safe gap이 없는 경우
                 recovery_trigger = (blocked_now or no_safe_gap_now) # recovery 켤지 결정
 
