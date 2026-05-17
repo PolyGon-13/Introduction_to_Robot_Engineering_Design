@@ -344,23 +344,21 @@ def compute_front_factor(front_dist):
     )
 
 
-# 좌우 벽 가까운 거리 계산
 def compute_side_info(points):
-    info_left = 1.0 # 좌측거리 기본값
-    info_right = 1.0 # 우측거리 기본값
+    info_left = 1.0
+    info_right = 1.0
     if len(points) == 0:
         return info_left, info_right
 
-    side_band = (np.abs(points[:, 0]) < 0.15) & (np.abs(points[:, 1]) < 0.30) # LiDAR 기준으로 전방 15cm, 좌우 30cm 범위의 포인트 선택 (좌우 거리 계산용임 - 정면 거리용 아님)
+    side_band = (np.abs(points[:, 0]) < 0.15) & (np.abs(points[:, 1]) < 0.30)
     if side_band.any():
-        ys = points[side_band, 1] # 포인트의 y값
-        left = ys[ys > 0.05] # 왼쪽 포인트만 선택
-        right = ys[ys < -0.05] # 오른쪽 포인트만 선택
+        ys = points[side_band, 1]
+        left = ys[ys > 0.05]
+        right = ys[ys < -0.05]
         if len(left) > 0:
             info_left = float(np.min(left))
         if len(right) > 0:
             info_right = float(-np.max(right))
-    
     return info_left, info_right
 
 
@@ -469,14 +467,13 @@ def side_gap_steering_bias(left_dist, right_dist):
     return float(np.clip(bias, -max_bias, max_bias))
 
 
-# 좌우 벽 거리를 보고 최종 조향각 제한값을 정함
 def side_narrow_turn_limit(left_dist, right_dist):
-    side_min = min(left_dist, right_dist) # 왼쪽/오른쪽 중 더 가까운 거리 선택
+    side_min = min(left_dist, right_dist)
 
-    if left_dist <= SIDE_GAP_BLOCK_DIST and right_dist <= SIDE_GAP_BLOCK_DIST: # 양쪽이 가까운 경우
+    if side_min <= SIDE_GAP_BLOCK_DIST:
         return math.radians(SIDE_TIGHT_TURN_LIMIT_DEG)
 
-    if side_min < SIDE_GAP_WARN_DIST: # 한쪽이 가까운 경우
+    if side_min < SIDE_GAP_WARN_DIST:
         return math.radians(SIDE_NARROW_TURN_LIMIT_DEG)
 
     return TURN_HARD_LIMIT_RAD
@@ -639,18 +636,21 @@ def rate_limit_w(prev_w, target_w, urgent=False):
     return prev_w + delta
 
 
-# FGM이 고른 최종 목표 방향으로 얼마나 빠르게 전진할지 결정
-# target_dist : 목표 방향의 장애물까지의 거리, target_angle : 목표 각도, has_safe_gap : 안전한 gap이 있는지 여부
 def choose_speed(target_dist, target_angle, has_safe_gap):
-    if not has_safe_gap: # 안전한 Gap이 없으면 정지
+    if not has_safe_gap:
         return 0.0
 
-    turn_ratio = min(1.0, abs(target_angle) / TURN_HARD_LIMIT_RAD) # 목표각이 얼마나 큰지 비율
-    v = BASE_V * (1.0 - 0.45 * turn_ratio) # 목표각이 클수록 감속
+    turn_ratio = min(1.0, abs(target_angle) / TURN_HARD_LIMIT_RAD)
+    v = BASE_V * (1.0 - 0.45 * turn_ratio)
 
-    if target_dist < ACTIVE_FRONT_DIST: # 목표 방향과 가까운지 확인
-        slow_ratio = np.clip((target_dist - FRONT_DANGER_DIST) / max(1e-6, ACTIVE_FRONT_DIST - FRONT_DANGER_DIST), 0.0, 1.0) # 추가 감속
-        v = min(v, MIN_V + (BASE_V - MIN_V) * float(slow_ratio)) # 목표 방향이 가까우면 속도 상한 낮추기
+    if target_dist < ACTIVE_FRONT_DIST:
+        slow_ratio = np.clip(
+            (target_dist - FRONT_DANGER_DIST)
+            / max(1e-6, ACTIVE_FRONT_DIST - FRONT_DANGER_DIST),
+            0.0,
+            1.0,
+        )
+        v = min(v, MIN_V + (BASE_V - MIN_V) * float(slow_ratio))
 
     if target_dist < COLLISION_DIST:
         v = 0.0
