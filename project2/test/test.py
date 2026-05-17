@@ -24,6 +24,10 @@ lidar_ser.write(bytes([0xA5, 0x40]))
 time.sleep(1)
 lidar_ser.write(bytes([0xA5, 0x20]))
 
+print("[INFO] Initial setup complete. Press Enter to start.")
+input()
+print("[INFO] Go!")
+
 wheel_R = 0.034
 wheel_l = 0.200
 
