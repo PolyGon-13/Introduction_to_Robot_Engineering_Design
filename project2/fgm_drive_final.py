@@ -25,7 +25,7 @@ MAX_EVAL_POINTS = 720 # 계산에 사용할 라이다 포인트 최대 개수
 SCAN_HOLD_S = 0.30 # 최근 라이다 스캔을 유효하다고 판단할 시간 (마지막 정상 스캔이 N초 이내면 그냥 사용)
 
 # 속도/거리 관련
-BASE_V = 0.23 # FGM 기본 직진속도
+BASE_V = 0.2 # FGM 기본 직진속도
 MIN_V = 0.15 # FGM 장애물 회피속도
 MAX_ABS_W = 0.70 # FGM 최대 회전속도
 
@@ -84,8 +84,8 @@ SIDE_GAP_BIAS_MAX_DEG = 10.0 # 조향 보정 최대각도
 SIDE_GAP_BIAS_GAIN_DEG_PER_M = 60.0 # 좌우 거리차
 SIDE_TIGHT_TURN_LIMIT_DEG = 20.0 # 옆이 매우 좁을 때 회전한계
 SIDE_NARROW_TURN_LIMIT_DEG = 35.0 # 옆이 좁을 때 회전한계
-SIDE_NARROW_V = 0.15 # 옆이 좁을 때 FGM 속도 상한
-SIDE_TIGHT_V = 0.12 # 옆이 매우 좁을 때 FGM 속도 상한
+SIDE_NARROW_V = 0.12 # 옆이 좁을 때 FGM 속도 상한
+SIDE_TIGHT_V = 0.08 # 옆이 매우 좁을 때 FGM 속도 상한
 
 
 # Recovery Mode
