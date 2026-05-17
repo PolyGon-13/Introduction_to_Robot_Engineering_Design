@@ -25,7 +25,7 @@ time.sleep(1)
 lidar_ser.write(bytes([0xA5, 0x20]))
 
 wheel_R = 0.034
-wheel_l = 0.170
+wheel_l = 0.200
 
 
 def compute_wheel_phis(target_angle_deg: float):
