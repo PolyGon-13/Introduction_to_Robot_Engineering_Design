@@ -42,9 +42,6 @@ ROBOT_RADIUS = 0.13 # 로봇 반지름
 COLLISION_DIST = ROBOT_RADIUS + 0.05 # 충돌위험 거리
 ACTIVE_FRONT_DIST = 0.30 # 정면 장애물 반응 시작 거리
 FRONT_DANGER_DIST = 0.19 # 정면 위험 거리
-FRONT_HARD_STOP_DIST = 0.10 # 정면 초근접 정지 거리
-FRONT_HARD_STOP_Y_HALF = ROBOT_RADIUS + 0.02
-FRONT_HARD_STOP_SIDE_OPEN_DIST = 0.20
 FRONT_CORRIDOR_HALF = COLLISION_DIST + 0.30 # FGM 장애물로 인식할 Y축 범위의 절반
 
 INITIAL_HEADING_RAD = 0.0 # 출발 기준 방향
@@ -341,20 +338,6 @@ def front_distance(points):
     if not mask.any():
         return MAX_LIDAR_DIST_M
     return float(np.min(points[mask, 0]))
-
-
-def hard_stop_front_distance(points_all):
-    if len(points_all) == 0:
-        return MAX_LIDAR_DIST_M
-
-    mask = (
-        (points_all[:, 0] > 0.03)
-        & (points_all[:, 0] < FRONT_HARD_STOP_DIST)
-        & (np.abs(points_all[:, 1]) < FRONT_HARD_STOP_Y_HALF)
-    )
-    if not mask.any():
-        return MAX_LIDAR_DIST_M
-    return float(np.min(points_all[mask, 0]))
 
 
 def compute_front_factor(front_dist):
@@ -741,7 +724,6 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose, accumulated_turn_rad=0
     points = lidar_points_to_xy(scan) # LiDAR 스캔을 (x,y) 포인트 배열로 변환
     points_all = lidar_points_to_xy_all(scan) # 모든 LiDAR 스캔을 (x,y) 포인트 배열로 변환
     front_dist = front_distance(points) # 전방 장애물 거리 계산
-    hard_front_dist = hard_stop_front_distance(points_all)
     front_factor = compute_front_factor(front_dist) # 전방 위험도 계산
     info_left, info_right = compute_side_info(points_all) # 좌우 가까운 벽 거리 계산
 
@@ -804,13 +786,6 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose, accumulated_turn_rad=0
     w = rate_limit_w(prev_w, raw_w, urgent=urgent)
     v = choose_speed(effective_target_dist, target_angle, has_safe_gap)
     v = min(v, side_gap_speed_limit(info_left, info_right))
-    hard_stop = (
-        hard_front_dist < FRONT_HARD_STOP_DIST
-        and info_left >= FRONT_HARD_STOP_SIDE_OPEN_DIST
-        and info_right >= FRONT_HARD_STOP_SIDE_OPEN_DIST
-    )
-    if hard_stop:
-        v = 0.0
 
     closest_angle = float(angles_deg[closest_idx]) if closest_idx >= 0 else 0.0
     if closest_idx >= 0:
@@ -832,7 +807,6 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose, accumulated_turn_rad=0
         "target_dist": target_dist,
         "drive_depth": target_drive_depth,
         "front": front_dist,
-        "hard_front": hard_front_dist,
         "left": info_left,
         "right": info_right,
         "gaps": len(gaps),
@@ -849,7 +823,6 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose, accumulated_turn_rad=0
         "bubble_left": bubble_left,
         "collision": target_dist < COLLISION_DIST or target_drive_depth < COLLISION_DIST or closest_dist < COLLISION_DIST,
         "raw_w": raw_w,
-        "hard_stop": hard_stop,
         "has_safe_gap": has_safe_gap,
         "side_bias_deg": math.degrees(side_bias),
         "side_turn_limit_deg": math.degrees(side_turn_limit),
@@ -1132,7 +1105,7 @@ def main():
                         f"ct={accumulated_turn_deg_log:.1f}deg "
                         f"tp={info['turn_penalty']:.2f} "
                         f"tgt={info['target_deg']:.1f} td={info['target_dist']:.2f} dd={info['drive_depth']:.2f} "
-                        f"front={info['front']:.2f} hf={info['hard_front']:.2f} "
+                        f"front={info['front']:.2f} "
                         f"gap={info['gap_width']:.0f} gphys={info['gap_physical_width']:.2f} "
                         f"gr={info['gap_right']:.0f} gl={info['gap_left']:.0f} "
                         f"gaps={info['gaps']} safe={int(info['has_safe_gap'])} "
@@ -1142,7 +1115,6 @@ def main():
                         f"br={info['bubble_right']:.0f} bl={info['bubble_left']:.0f} "
                         f"score={info['score']:.2f} "
                         f"coll={int(info['collision'])} "
-                        f"hstop={int(info['hard_stop'])} "
                         f"sbias={info['side_bias_deg']:.1f}deg "
                         f"slim={info['side_turn_limit_deg']:.0f}deg "
                         f"L={info['left']:.2f} R={info['right']:.2f}"
