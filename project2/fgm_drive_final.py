@@ -77,11 +77,19 @@ FGM_GAP_WIDTH_WEIGHT = 0.25 # Gap 폭 가중치
 FGM_RANGE_DISCONTINUITY_WEIGHT = 0.70
 FGM_RANGE_DISCONTINUITY_CAP = 0.50
 FGM_RANGE_DISCONTINUITY_EDGE_WINDOW_DEG = 3.0
+FGM_TAPER_PENALTY_WEIGHT = 1.20 # 앞쪽으로 갈수록 좁아지는 후보 페널티 강도
+FGM_TAPER_NEAR_X_M = 0.20 # 쐐기 판단용 가까운 단면 위치
+FGM_TAPER_FAR_X_M = 0.45 # 쐐기 판단용 먼 단면 위치
+FGM_TAPER_SLICE_HALF_M = 0.06 # 단면 폭 측정용 앞뒤 허용 범위
+FGM_TAPER_SIDE_MIN_Y_M = 0.04 # 좌우 벽으로 볼 최소 횡방향 거리
+FGM_TAPER_MIN_WIDTH_M = 2.0 * ROBOT_RADIUS + 0.08 # 먼 단면 최소 폭 기준
+FGM_TAPER_SHRINK_WARN_M = 0.08 # 가까운 단면 대비 먼 단면 폭 감소 허용량
+FGM_TAPER_SHRINK_FULL_M = 0.18 # 이만큼 줄어들면 최대 페널티
 
 SIDE_GAP_WARN_DIST = 0.19 # 옆 경고 시작 거리
 SIDE_GAP_BLOCK_DIST = 0.15 # 강하게 거부할 옆 거리
 SIDE_GAP_BIAS_MAX_DEG = 10.0 # 조향 보정 최대각도
-SIDE_GAP_BIAS_GAIN_DEG_PER_M = 100.0 # 좌우 거리차
+SIDE_GAP_BIAS_GAIN_DEG_PER_M = 60.0 # 좌우 거리차
 SIDE_TIGHT_TURN_LIMIT_DEG = 20.0 # 옆이 매우 좁을 때 회전한계
 SIDE_NARROW_TURN_LIMIT_DEG = 35.0 # 옆이 좁을 때 회전한계
 SIDE_NARROW_V = 0.15 # 옆이 좁을 때 FGM 속도 상한
@@ -570,10 +578,65 @@ def gap_edge_discontinuity_score(ranges, start, end):
     return max(scores) if scores else 0.0
 
 
+def taper_penalty_for_angles(angles_deg, ranges, candidate_angles_rad):
+    candidate_angles_rad = np.atleast_1d(np.asarray(candidate_angles_rad, dtype=np.float32))
+    penalties = np.zeros(len(candidate_angles_rad), dtype=np.float32)
+    valid = (
+        np.isfinite(ranges)
+        & (ranges > MIN_LIDAR_DIST_M)
+        & (ranges < MAX_LIDAR_DIST_M)
+    )
+    if np.count_nonzero(valid) < 4:
+        return penalties
+
+    obstacle_ranges = ranges[valid].astype(np.float32)
+    obstacle_angles = np.deg2rad(angles_deg[valid].astype(np.float32))
+
+    def slice_width(x_vals, y_vals, x_center):
+        in_slice = np.abs(x_vals - x_center) <= FGM_TAPER_SLICE_HALF_M
+        if not in_slice.any():
+            return None
+        slice_y = y_vals[in_slice]
+        left = slice_y[slice_y > FGM_TAPER_SIDE_MIN_Y_M]
+        right = slice_y[slice_y < -FGM_TAPER_SIDE_MIN_Y_M]
+        if len(left) == 0 or len(right) == 0:
+            return None
+        left_clear = float(np.percentile(left, 20))
+        right_clear = float(np.percentile(-right, 20))
+        return left_clear + right_clear
+
+    for out_idx, candidate_angle in enumerate(candidate_angles_rad):
+        rel = obstacle_angles - float(candidate_angle)
+        x_vals = obstacle_ranges * np.cos(rel)
+        y_vals = obstacle_ranges * np.sin(rel)
+        near_width = slice_width(x_vals, y_vals, FGM_TAPER_NEAR_X_M)
+        far_width = slice_width(x_vals, y_vals, FGM_TAPER_FAR_X_M)
+        if near_width is None or far_width is None:
+            continue
+
+        shrink = near_width - far_width
+        if shrink <= FGM_TAPER_SHRINK_WARN_M:
+            continue
+
+        shrink_score = np.clip(
+            (shrink - FGM_TAPER_SHRINK_WARN_M) / max(1e-6, FGM_TAPER_SHRINK_FULL_M),
+            0.0,
+            1.0,
+        )
+        narrow_score = np.clip(
+            (FGM_TAPER_MIN_WIDTH_M - far_width) / max(1e-6, FGM_TAPER_MIN_WIDTH_M),
+            0.0,
+            1.0,
+        )
+        penalties[out_idx] = float(np.clip(shrink_score + 0.5 * narrow_score, 0.0, 1.0))
+
+    return penalties
+
+
 # 여러 Gap 중에서 최적의 목표각을 선택하는 함수
 def choose_target_from_gaps(angles_deg, ranges, discontinuity_ranges, gaps, pose, prev_target_angle, front_factor, accumulated_turn_rad):
     if not gaps:
-        return -1, (0, 0), -float("inf"), []
+        return -1, (0, 0), -float("inf"), [], 0.0
 
     goal_angle = normalize_angle_rad(INITIAL_HEADING_RAD - pose.theta) # 출발 방향 기준으로 현재 로봇이 어느 방향에 있는지 계산
     goal_angle = float(np.clip(goal_angle, -TURN_HARD_LIMIT_RAD, TURN_HARD_LIMIT_RAD)) # 최대 목표각 범위 안으로 자르기
@@ -582,6 +645,7 @@ def choose_target_from_gaps(angles_deg, ranges, discontinuity_ranges, gaps, pose
     best_idx = -1
     best_gap = (0, 0)
     best_score = -float("inf")
+    best_taper_penalty = 0.0
     candidate_summaries = []
     max_target_angle = TURN_HARD_LIMIT_RAD
     goal_weight = (
@@ -617,6 +681,7 @@ def choose_target_from_gaps(angles_deg, ranges, discontinuity_ranges, gaps, pose
         )
         width_score = min(1.0, local_width * FGM_ANGLE_STEP_DEG / 60.0)
         turn_penalty, _ = cumulative_turn_penalty(angle_rad, accumulated_turn_rad)
+        taper_penalty = taper_penalty_for_angles(angles_deg, discontinuity_ranges, angle_rad)
 
         scores = (
             FGM_CLEARANCE_WEIGHT * clearance_score
@@ -627,6 +692,7 @@ def choose_target_from_gaps(angles_deg, ranges, discontinuity_ranges, gaps, pose
             + FGM_GAP_WIDTH_WEIGHT * width_score
             + FGM_RANGE_DISCONTINUITY_WEIGHT * discontinuity_score
             - turn_penalty
+            - FGM_TAPER_PENALTY_WEIGHT * taper_penalty
         )
         if not np.isfinite(scores).any():
             continue
@@ -634,6 +700,7 @@ def choose_target_from_gaps(angles_deg, ranges, discontinuity_ranges, gaps, pose
         local_best = int(np.argmax(scores))
         score = float(scores[local_best])
         local_best_idx = int(idxs[local_best])
+        local_taper_penalty = float(taper_penalty[local_best])
         candidate_summaries.append(
             f"{angles_deg[start]:.0f}:{angles_deg[end - 1]:.0f}@"
             f"{angles_deg[local_best_idx]:.0f}/{score:.2f}"
@@ -642,8 +709,9 @@ def choose_target_from_gaps(angles_deg, ranges, discontinuity_ranges, gaps, pose
             best_score = score
             best_idx = local_best_idx
             best_gap = (start, end)
+            best_taper_penalty = local_taper_penalty
 
-    return best_idx, best_gap, best_score, candidate_summaries
+    return best_idx, best_gap, best_score, candidate_summaries, best_taper_penalty
 
 
 # 정상적인 gap 선택 실패 시, 임시 목표 방향 선택
@@ -705,7 +773,7 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose, accumulated_turn_rad=0
 
     # 최종적으로 어느 gap의 어느 각도를 목표로 할지 선택
     # target_idx : 목표 각도 인덱스, best_gap : 그 각도가 속한 Gap의 시작과 끝 인덱스, best_score : 그 후보의 점수, gap_candidates : 후보 요약 문자열 리스트
-    target_idx, best_gap, best_score, gap_candidates = choose_target_from_gaps(angles_deg, bubble_ranges, smooth_ranges, gaps, pose, prev_target_angle, front_factor, accumulated_turn_rad)
+    target_idx, best_gap, best_score, gap_candidates, taper_penalty = choose_target_from_gaps(angles_deg, bubble_ranges, smooth_ranges, gaps, pose, prev_target_angle, front_factor, accumulated_turn_rad)
 
     # safe gap이 없거나, 그 안에서 선택 가능한 후보가 없는 경우
     if target_idx < 0:
@@ -715,6 +783,7 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose, accumulated_turn_rad=0
         best_gap = (target_idx, target_idx + 1)
         best_score = 0.0
         gap_candidates = []
+        taper_penalty = 0.0
 
     gap_width = (best_gap[1] - best_gap[0]) * FGM_ANGLE_STEP_DEG
     gap_physical_width = gap_physical_width_m(best_gap[0], best_gap[1], smooth_ranges)
@@ -785,6 +854,7 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose, accumulated_turn_rad=0
         "side_bias_deg": math.degrees(side_bias),
         "side_turn_limit_deg": math.degrees(side_turn_limit),
         "turn_penalty": float(selected_turn_penalty[0]),
+        "taper_penalty": taper_penalty,
     }
 
 
@@ -1042,42 +1112,42 @@ def main():
                         left_log = 1.0
                         right_log = 1.0
 
-                    # print(
-                    #     f"[{recovery_mode_name}] x={pose.x:.2f} y={pose.y:.2f} "
-                    #     f"th={math.degrees(pose.theta):.1f}deg "
-                    #     f"v={v:.2f} w={w:.2f} "
-                    #     f"ct={accumulated_turn_deg_log:.1f}deg "
-                    #     f"turned={recovery_turned_deg_log:.1f}deg "
-                    #     f"rfront={recovery_front_dist_log:.2f} "
-                    #     f"front={front_log:.2f} "
-                    #     f"gaps={gaps_log} safe={safe_log} "
-                    #     f"close={close_log:.2f}@{close_angle_log:.0f} "
-                    #     f"L={left_log:.2f} R={right_log:.2f}"
-                    # )
+                    print(
+                        f"[{recovery_mode_name}] x={pose.x:.2f} y={pose.y:.2f} "
+                        f"th={math.degrees(pose.theta):.1f}deg "
+                        f"v={v:.2f} w={w:.2f} "
+                        f"ct={accumulated_turn_deg_log:.1f}deg "
+                        f"turned={recovery_turned_deg_log:.1f}deg "
+                        f"rfront={recovery_front_dist_log:.2f} "
+                        f"front={front_log:.2f} "
+                        f"gaps={gaps_log} safe={safe_log} "
+                        f"close={close_log:.2f}@{close_angle_log:.0f} "
+                        f"L={left_log:.2f} R={right_log:.2f}"
+                    )
 
                 elif info is not None:
-                    pass
-                    # print(
-                    #     f"[{recovery_mode_name}] x={pose.x:.2f} y={pose.y:.2f} "
-                    #     f"th={pose.theta:.2f} "
-                    #     f"v={v:.2f} w={w:.2f} raw={info['raw_w']:.2f} "
-                    #     f"ct={accumulated_turn_deg_log:.1f}deg "
-                    #     f"tp={info['turn_penalty']:.2f} "
-                    #     f"tgt={info['target_deg']:.1f} td={info['target_dist']:.2f} "
-                    #     f"front={info['front']:.2f} "
-                    #     f"gap={info['gap_width']:.0f} gphys={info['gap_physical_width']:.2f} "
-                    #     f"gr={info['gap_right']:.0f} gl={info['gap_left']:.0f} "
-                    #     f"gaps={info['gaps']} safe={int(info['has_safe_gap'])} "
-                    #     f"cands={info['gap_candidates']} "
-                    #     f"close={info['closest']:.2f}@{info['closest_angle']:.0f} "
-                    #     f"bub={info['bubble_half_angle_deg']:.1f}deg/{info['bubble_bins']} "
-                    #     f"br={info['bubble_right']:.0f} bl={info['bubble_left']:.0f} "
-                    #     f"score={info['score']:.2f} "
-                    #     f"coll={int(info['collision'])} "
-                    #     f"sbias={info['side_bias_deg']:.1f}deg "
-                    #     f"slim={info['side_turn_limit_deg']:.0f}deg "
-                    #     f"L={info['left']:.2f} R={info['right']:.2f}"
-                    # )
+                    print(
+                        f"[{recovery_mode_name}] x={pose.x:.2f} y={pose.y:.2f} "
+                        f"th={pose.theta:.2f} "
+                        f"v={v:.2f} w={w:.2f} raw={info['raw_w']:.2f} "
+                        f"ct={accumulated_turn_deg_log:.1f}deg "
+                        f"tp={info['turn_penalty']:.2f} "
+                        f"taper={info['taper_penalty']:.2f} "
+                        f"tgt={info['target_deg']:.1f} td={info['target_dist']:.2f} "
+                        f"front={info['front']:.2f} "
+                        f"gap={info['gap_width']:.0f} gphys={info['gap_physical_width']:.2f} "
+                        f"gr={info['gap_right']:.0f} gl={info['gap_left']:.0f} "
+                        f"gaps={info['gaps']} safe={int(info['has_safe_gap'])} "
+                        f"cands={info['gap_candidates']} "
+                        f"close={info['closest']:.2f}@{info['closest_angle']:.0f} "
+                        f"bub={info['bubble_half_angle_deg']:.1f}deg/{info['bubble_bins']} "
+                        f"br={info['bubble_right']:.0f} bl={info['bubble_left']:.0f} "
+                        f"score={info['score']:.2f} "
+                        f"coll={int(info['collision'])} "
+                        f"sbias={info['side_bias_deg']:.1f}deg "
+                        f"slim={info['side_turn_limit_deg']:.0f}deg "
+                        f"L={info['left']:.2f} R={info['right']:.2f}"
+                    )
 
                 last_log = time.time()
 
