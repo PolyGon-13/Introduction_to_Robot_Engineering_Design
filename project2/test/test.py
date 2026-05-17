@@ -11,7 +11,6 @@ data_queue = Queue(maxsize=10)
 send_enable = False
 
 def arduino_writer():
-    global send_enable
     while True:
         angle, distance = data_queue.get()
         if not send_enable:
@@ -20,12 +19,17 @@ def arduino_writer():
         arduino_ser.write(msg)
         time.sleep(0.01)
 
+def wait_for_start_signal():
+    global send_enable
+    input("Press Enter to start driving calculations and Arduino commands...")
+    send_enable = True
+    print("Driving calculations and Arduino command sending started.")
+
 thread = Thread(target=arduino_writer, daemon=True)
 thread.start()
 
-input("Press Enter to start sending commands to Arduino...")
-send_enable = True
-print("Arduino command sending started.")
+start_thread = Thread(target=wait_for_start_signal, daemon=True)
+start_thread.start()
 
 lidar_ser.write(bytes([0xA5, 0x40]))
 time.sleep(1)
@@ -160,6 +164,9 @@ while True:
     
     if 0 <= angle_index <= 180:
         distance_array[angle_index] = distance
+
+    if not send_enable:
+        continue
         
     desired_angle = Follow_the_Gap_Method(distance_array, threshold=400)
 
