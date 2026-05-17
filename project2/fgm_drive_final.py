@@ -81,7 +81,7 @@ FGM_RANGE_DISCONTINUITY_EDGE_WINDOW_DEG = 3.0
 SIDE_GAP_WARN_DIST = 0.19 # 옆 경고 시작 거리
 SIDE_GAP_BLOCK_DIST = 0.15 # 강하게 거부할 옆 거리
 SIDE_GAP_BIAS_MAX_DEG = 10.0 # 조향 보정 최대각도
-SIDE_GAP_BIAS_GAIN_DEG_PER_M = 60.0 # 좌우 거리차
+SIDE_GAP_BIAS_GAIN_DEG_PER_M = 70.0 # 좌우 거리차
 SIDE_TIGHT_TURN_LIMIT_DEG = 20.0 # 옆이 매우 좁을 때 회전한계
 SIDE_NARROW_TURN_LIMIT_DEG = 35.0 # 옆이 좁을 때 회전한계
 SIDE_NARROW_V = 0.12 # 옆이 좁을 때 FGM 속도 상한
@@ -486,15 +486,12 @@ def filter_gaps_by_width(gaps, ranges):
 
 
 def side_gap_steering_bias(left_dist, right_dist):
-    return 0.0
-    '''
     if min(left_dist, right_dist) >= SIDE_GAP_WARN_DIST:
         return 0.0
 
     max_bias = math.radians(SIDE_GAP_BIAS_MAX_DEG)
     bias = math.radians(SIDE_GAP_BIAS_GAIN_DEG_PER_M) * (left_dist - right_dist)
     return float(np.clip(bias, -max_bias, max_bias))
-    '''
 
 
 # 좌우 벽 거리를 보고 최종 조향각 제한값을 정함
