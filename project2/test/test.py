@@ -39,9 +39,9 @@ def compute_wheel_phis(target_angle_deg: float):
         else : target_angle_deg + 10
         
     if  -35 < target_angle_deg < 35 :
-        Kp_ang = 4.5
+        Kp_ang = 6.5
     
-    else : Kp_ang = 3.5
+    else : Kp_ang = 5.5
         
     angle_err_rad = math.radians(target_angle_deg)
     w = -Kp_ang * angle_err_rad
@@ -83,12 +83,12 @@ def corridor_center_correction(distances):
     left_wall = average_valid_distance(distances, 105, 155)
 
     if right_wall is None or left_wall is None:
-        return 0.0
+        return 0.0, right_wall, left_wall
 
-    wall_error = left_wall - right_wall
+    wall_error = right_wall - left_wall
     correction = wall_error * 0.025
 
-    return max(-18.0, min(18.0, correction))
+    return max(-18.0, min(18.0, correction)), right_wall, left_wall
 
 
 def Follow_the_Gap_Method(distances, threshold):
@@ -157,12 +157,13 @@ while True:
     desired_angle = Follow_the_Gap_Method(distance_array, threshold=400)
 
     target_angle = desired_angle - 90
-    target_angle += corridor_center_correction(distance_array)
+    center_correction, right_wall, left_wall = corridor_center_correction(distance_array)
+    target_angle += center_correction
     target_angle = max(-70.0, min(70.0, target_angle))
     
     phi_l, phi_r = compute_wheel_phis(target_angle)
     
-    print(f"[DETECT] Angle: {target_angle:.2f}, phi_l: {phi_l:.2f}mm, phi_r: {phi_r:.2f} mm")
+    print(f"[DETECT] Angle: {target_angle:.2f}, correction: {center_correction:.2f}, right: {right_wall}, left: {left_wall}, phi_l: {phi_l:.2f}mm, phi_r: {phi_r:.2f} mm")
     
     try:
         data_queue.put_nowait((phi_l, phi_r))
