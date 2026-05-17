@@ -9,7 +9,7 @@ import numpy as np
 LIDAR_PORT = "/dev/ttyUSB0"
 LIDAR_BAUD = 460800
 ARDU_PORT = "/dev/ttyS0"
-ARDU_BAUD = 115200
+ARDU_BAUD = 9600
 
 
 # LiDAR
