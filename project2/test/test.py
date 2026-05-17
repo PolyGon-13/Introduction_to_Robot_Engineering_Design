@@ -10,7 +10,6 @@ arduino_ser = serial.Serial("/dev/ttyS0", 115200, timeout=0.1)
 
 data_queue = Queue(maxsize=10)
 send_enable = False
-remembered_direction = None
 
 def arduino_writer():
     while True:
@@ -104,22 +103,18 @@ def corridor_center_correction(distances):
     return max(-18.0, min(18.0, correction)), right_wall, left_wall
 
 
-def Follow_the_Gap_Method(distances, threshold, preferred_angle=None):
+def Follow_the_Gap_Method(distances, threshold):
     max_tmp = 0
     tmp = 0
     best_start = 0
     best_end = 0
     current_start = 0
-    gaps = []
-
     for angle in range(181):
         if distances[angle] >= threshold:
             if tmp == 0:
                 current_start = angle
             tmp += 1
         else:
-            if tmp > 0:
-                gaps.append((current_start, angle - 1))
             if tmp > max_tmp:
                 max_tmp = tmp
                 best_start = current_start
@@ -129,28 +124,6 @@ def Follow_the_Gap_Method(distances, threshold, preferred_angle=None):
         max_tmp = tmp
         best_start = current_start
         best_end = 180
-    if tmp > 0:
-        gaps.append((current_start, 180))
-
-    if preferred_angle is not None and gaps:
-        preferred_angle = max(0.0, min(180.0, preferred_angle))
-        closest_angle = None
-        closest_error = None
-
-        for start, end in gaps:
-            if start <= preferred_angle <= end:
-                candidate = preferred_angle
-            elif preferred_angle < start:
-                candidate = start
-            else:
-                candidate = end
-
-            error = abs(candidate - preferred_angle)
-            if closest_error is None or error < closest_error:
-                closest_angle = candidate
-                closest_error = error
-
-        return closest_angle
         
     mid_angle = (best_start + best_end) / 2.0
     return mid_angle
@@ -196,15 +169,7 @@ while True:
     if not send_enable:
         continue
         
-    if remembered_direction is None:
-        remembered_direction = Follow_the_Gap_Method(distance_array, threshold=400)
-        print(f"[START] remembered direction: {remembered_direction:.2f}")
-
-    desired_angle = Follow_the_Gap_Method(
-        distance_array,
-        threshold=400,
-        preferred_angle=remembered_direction,
-    )
+    desired_angle = Follow_the_Gap_Method(distance_array, threshold=400)
 
     target_angle = desired_angle - 90
     center_correction, right_wall, left_wall = corridor_center_correction(distance_array)
