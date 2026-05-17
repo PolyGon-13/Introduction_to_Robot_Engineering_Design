@@ -62,6 +62,7 @@ FGM_ANGLE_STEP_DEG = 1.0 # 격자 생성 각도
 FGM_BUBBLE_RADIUS = ROBOT_RADIUS + 0.08 # 장애물 부풀리는 반경
 FGM_FREE_DIST = COLLISION_DIST + 0.04 # 이 이상 뚫려 있어야 지나갈 수 있는 칸으로 인식
 FGM_MIN_GAP_WIDTH_DEG = 8.0 # 인식한 Gap의 최소 허용각도
+FGM_MIN_PHYSICAL_GAP_WIDTH_M = 2.0 * ROBOT_RADIUS + 0.05
 
 FGM_SMOOTH_WINDOW = 5 # 이동평균 윈도우 크기 (5칸 = +-2도) : 튀는 값 방지 휘해 2도 간격으로 값들의 평균값으로 값을 대체
 
@@ -72,6 +73,7 @@ FGM_GOAL_WEIGHT_DANGER = 0.30 # 위험할 때 목표 방향 가중치
 FGM_STRAIGHT_WEIGHT = 0.70 # 정면 선호 가중치
 FGM_CLEARANCE_WEIGHT = 1.80 # 넓게 뚫린 방향 선호 가중치
 FGM_EDGE_WEIGHT = 0.85 # Gap 중앙 선호 가중치
+FGM_GAP_WIDTH_WEIGHT = 0.80 # Gap 폭 가중치
 FGM_RANGE_DISCONTINUITY_WEIGHT = 0.70
 FGM_RANGE_DISCONTINUITY_CAP = 0.50
 FGM_RANGE_DISCONTINUITY_EDGE_WINDOW_DEG = 3.0
@@ -456,9 +458,31 @@ def find_free_gaps(free_mask):
 
 
 # 너무 좁은 Gap 제거
-def filter_gaps_by_width(gaps):
+def gap_physical_width_m(start, end, ranges):
+    gap_ranges = ranges[start:end]
+    valid = (
+        np.isfinite(gap_ranges)
+        & (gap_ranges > MIN_LIDAR_DIST_M)
+        & (gap_ranges <= MAX_LIDAR_DIST_M)
+    )
+    if not valid.any():
+        return 0.0
+
+    gap_dist = float(np.percentile(gap_ranges[valid], 40))
+    gap_width_rad = math.radians((end - start) * FGM_ANGLE_STEP_DEG)
+    return float(2.0 * gap_dist * math.tan(0.5 * gap_width_rad))
+
+
+def filter_gaps_by_width(gaps, ranges):
     min_bins = max(1, int(math.ceil(FGM_MIN_GAP_WIDTH_DEG / FGM_ANGLE_STEP_DEG)))
-    return [(start, end) for start, end in gaps if end - start >= min_bins]
+    filtered = []
+    for start, end in gaps:
+        if end - start < min_bins:
+            continue
+        if gap_physical_width_m(start, end, ranges) < FGM_MIN_PHYSICAL_GAP_WIDTH_M:
+            continue
+        filtered.append((start, end))
+    return filtered
 
 
 def side_gap_steering_bias(left_dist, right_dist):
@@ -600,7 +624,7 @@ def choose_target_from_gaps(angles_deg, ranges, discontinuity_ranges, gaps, pose
             + FGM_STRAIGHT_WEIGHT * straight_score
             + goal_weight * goal_score
             + FGM_PREV_TARGET_WEIGHT * prev_score
-            + 0.25 * width_score
+            + FGM_GAP_WIDTH_WEIGHT * width_score
             + FGM_RANGE_DISCONTINUITY_WEIGHT * discontinuity_score
             - turn_penalty
         )
@@ -676,7 +700,7 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose, accumulated_turn_rad=0
     bubble_ranges, closest_idx, closest_dist, bubble_bins = apply_safety_bubble(smooth_ranges, counts) # 안전 버블 적용
 
     free_mask = bubble_ranges >= FGM_FREE_DIST # 지나갈 수 있는 칸인지 확인
-    gaps = filter_gaps_by_width(find_free_gaps(free_mask)) # 연속된 안전한 구간(=Gap) 찾고, 너무 좁은 Gap 제거
+    gaps = filter_gaps_by_width(find_free_gaps(free_mask), smooth_ranges) # 연속된 안전한 구간(=Gap) 찾고, 너무 좁은 Gap 제거
     has_safe_gap = len(gaps) > 0 # 안전한 Gap이 있는지 여부
 
     # 최종적으로 어느 gap의 어느 각도를 목표로 할지 선택
@@ -693,6 +717,7 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose, accumulated_turn_rad=0
         gap_candidates = []
 
     gap_width = (best_gap[1] - best_gap[0]) * FGM_ANGLE_STEP_DEG
+    gap_physical_width = gap_physical_width_m(best_gap[0], best_gap[1], smooth_ranges)
     gap_left = float(angles_deg[best_gap[1] - 1]) if best_gap[1] > best_gap[0] else float(angles_deg[target_idx])
     gap_right = float(angles_deg[best_gap[0]]) if best_gap[1] > best_gap[0] else float(angles_deg[target_idx])
     gap_left_rad = math.radians(gap_left)
@@ -745,6 +770,7 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose, accumulated_turn_rad=0
         "gaps": len(gaps),
         "gap_candidates": ",".join(gap_candidates) if gap_candidates else "none",
         "gap_width": gap_width,
+        "gap_physical_width": gap_physical_width,
         "gap_right": gap_right,
         "gap_left": gap_left,
         "closest": closest_dist,
@@ -1038,7 +1064,7 @@ def main():
                         f"tp={info['turn_penalty']:.2f} "
                         f"tgt={info['target_deg']:.1f} td={info['target_dist']:.2f} "
                         f"front={info['front']:.2f} "
-                        f"gap={info['gap_width']:.0f} "
+                        f"gap={info['gap_width']:.0f} gphys={info['gap_physical_width']:.2f} "
                         f"gr={info['gap_right']:.0f} gl={info['gap_left']:.0f} "
                         f"gaps={info['gaps']} safe={int(info['has_safe_gap'])} "
                         f"cands={info['gap_candidates']} "
