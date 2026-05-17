@@ -39,9 +39,9 @@ def compute_wheel_phis(target_angle_deg: float):
         else : target_angle_deg + 10
         
     if  -35 < target_angle_deg < 35 :
-        Kp_ang = 7.26
+        Kp_ang = 5.3
     
-    else : Kp_ang = 6.91
+    else : Kp_ang = 3.4
         
     angle_err_rad = math.radians(target_angle_deg)
     w = -Kp_ang * angle_err_rad
