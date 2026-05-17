@@ -31,10 +31,6 @@ MAX_ABS_W = 0.70 # FGM 최대 회전속도
 
 RECOVERY_MAX_W = 1.00 # Recovery 회전속도
 
-WALL_FOLLOW_V = 0.15 # Wall follow 기본속도
-WALL_SLOW_V = 0.10 # # Wall follow 최소속도
-WALL_MAX_W = 0.65 # Wall follow 최대 회전속도
-
 CLEARANCE_CAP = 0.6 # FGM - 해당 거리 이상 뚫려 있으면 동일 취급
 W_CMD_RATE_LIMIT = 0.30 # 루프당 최대 회전속도 변화량
 W_CMD_RATE_LIMIT_URGENT = 0.40 # 긴급 시 허용 변화량
@@ -93,33 +89,13 @@ SIDE_TIGHT_V = 0.08 # 옆이 매우 좁을 때 FGM 속도 상한
 # Recovery Mode
 RECOVERY_TURN_W = 1.00 # Recovery 제자리 회전 속도
 RECOVERY_MAX_TURN_RAD = math.radians(200.0) # Recovery 최대 회전각도
-RECOVERY_TURN_TIMEOUT_S = 15.0 # Recovery 해당 초 지나면 강제로 벽 따라가기
+RECOVERY_TURN_TIMEOUT_S = 15.0
 
 RECOVERY_TURN_ENABLE = True # Recovery 기능 on/off 스위치
 RECOVERY_FRONT_OPEN_JUMP_DIST = 0.09
 RECOVERY_FRONT_OPEN_PREV_MAX_DIST = 0.45
-
-
-# Wall Follow
-WALL_TARGET_DIST = 0.22 # 벽과 유지하려는 목표거리
-WALL_KP = 6.0 # 벽 거리 오차
-WALL_MIN_TURN_W = 0.16 # 오차가 있는데 명령이 너무 작으면 이만큼 보장
-WALL_FRONT_SLOW_DIST = 0.14 # 정면이 이 안에 들어오면 감속
-WALL_FRONT_HARD_STOP_DIST = 0.08 # 정면이 이 안에 들어오면 강제 회전
-WALL_LOST_DIST = 0.30 # 벽 거리가 이 이상이면 벽 놓침
-WALL_JUMP_DIST = 0.10 # 벽 거리가 한 번이 이만큼 늘어나면 벽 종료
-WALL_OPEN_COUNT_N = 3 # N번 연속 트여있어야 FGM 복귀
-
-WALL_FOLLOW_ENABLE = True # Wall follow on/off 스위치
-WALL_SEARCH_W = 0.28 # 벽을 놓쳤을 때 벽 쪽으로 탐색하는 회전속도
-WALL_MIN_TURN_ERR = 0.025 # 이 오차 이하이면 WALL_MIN_TURN_W 보장X
-WALL_FRONT_CHECK_DIST = 0.30 # Wall follow 정면 장애물 반응 거리
-WALL_ANGLE_HALF_WIDTH_DEG = 1.0 # Wall을 90도 하나가 아니라 +-1도 간격으로 더 확인
-WALL_FRONT_Y_HALF = 0.16 # Wall follow 장애물로 인식할 Y 거리의 절반
-WALL_MIN_FOLLOW_TIME_S = 0.80 # 진입 후 최소 N초는 종료 판정X
-LEFT_WALL_ANGLE_CENTER_DEG = 90.0 # 왼쪽 벽 감지 기준 각도
-RIGHT_WALL_ANGLE_CENTER_DEG = -90.0 # 오른쪽 벽 감지 기준 각도
-WALL_MIN_POINTS = 2 # 벽으로 인정하는 최소 라이다 포인트 수
+RECOVERY_FRONT_CHECK_DIST = 0.30
+RECOVERY_FRONT_Y_HALF = 0.16
 
 
 LOOP_DT_S = 0.05 # 메인 제어 루프 주기
@@ -164,6 +140,7 @@ def choose_initial_based_recovery_dir(theta, accumulated_turn_rad=0.0, prev_w=0.
     elif prev_w < 0.0:
         return +1.0
 
+    # 위 조건 모두 만족하지 않으면 우회전 (사실상 발동할 일 없음)
     return -1.0
 
 
@@ -326,89 +303,14 @@ def lidar_points_to_xy_all(scan):
     return np.column_stack((x, y)).astype(np.float32)
 
 
-def side_wall_distance_from_scan(scan, follow_side):
-    if scan is None:
-        return MAX_LIDAR_DIST_M
-
-    angles, dists, qualities = scan
-
-    dist_m = (dists.astype(np.float32) + DIST_OFFSET_MM) / 1000.0
-    angle_deg = normalize_angle_deg(angles.astype(np.float32) + ANGLE_OFFSET_DEG)
-    angle_deg = LIDAR_ANGLE_SIGN * angle_deg
-
-    if follow_side > 0.0:
-        center = LEFT_WALL_ANGLE_CENTER_DEG
-    else:
-        center = RIGHT_WALL_ANGLE_CENTER_DEG
-
-    min_angle = center - WALL_ANGLE_HALF_WIDTH_DEG
-    max_angle = center + WALL_ANGLE_HALF_WIDTH_DEG
-
-    mask = (
-        (dist_m >= MIN_LIDAR_DIST_M)
-        & (dist_m <= MAX_LIDAR_DIST_M)
-        & (qualities >= MIN_QUALITY)
-        & (angle_deg >= min_angle)
-        & (angle_deg <= max_angle)
-    )
-
-    if np.count_nonzero(mask) < WALL_MIN_POINTS:
-        return MAX_LIDAR_DIST_M
-
-    return float(np.percentile(dist_m[mask], 20))
-
-
-def side_wall_average_distance_from_scan(scan, follow_side):
-    if scan is None:
-        return MAX_LIDAR_DIST_M
-
-    angles, dists, qualities = scan
-
-    dist_m = (dists.astype(np.float32) + DIST_OFFSET_MM) / 1000.0
-    angle_deg = normalize_angle_deg(angles.astype(np.float32) + ANGLE_OFFSET_DEG)
-    angle_deg = LIDAR_ANGLE_SIGN * angle_deg
-
-    if follow_side > 0.0:
-        min_angle = 30.0
-        max_angle = 90.0
-    else:
-        min_angle = -90.0
-        max_angle = -30.0
-
-    mask = (
-        (dist_m >= MIN_LIDAR_DIST_M)
-        & (dist_m <= MAX_LIDAR_DIST_M)
-        & (qualities >= MIN_QUALITY)
-        & (angle_deg >= min_angle)
-        & (angle_deg <= max_angle)
-    )
-
-    if np.count_nonzero(mask) < WALL_MIN_POINTS:
-        return MAX_LIDAR_DIST_M
-
-    angle_rad = np.deg2rad(angle_deg[mask])
-    side_y = dist_m[mask] * np.sin(angle_rad)
-
-    if follow_side > 0.0:
-        side_dist = side_y
-    else:
-        side_dist = -side_y
-
-    valid_side_dist = side_dist[side_dist > 0.0]
-    if len(valid_side_dist) < WALL_MIN_POINTS:
-        return MAX_LIDAR_DIST_M
-
-    return float(np.mean(valid_side_dist))
-
-
-def wall_follow_front_distance(points_all):
+def recovery_front_distance(points_all):
     if len(points_all) == 0:
         return MAX_LIDAR_DIST_M
 
     mask = (
         (points_all[:, 0] > 0.03)
-        & (points_all[:, 0] < WALL_FRONT_CHECK_DIST)
-        & (np.abs(points_all[:, 1]) < WALL_FRONT_Y_HALF)
+        & (points_all[:, 0] < RECOVERY_FRONT_CHECK_DIST)
+        & (np.abs(points_all[:, 1]) < RECOVERY_FRONT_Y_HALF)
     )
 
     if not mask.any():
@@ -845,78 +747,6 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose, accumulated_turn_rad=0
     }
 
 
-def choose_wall_follow_cmd(scan, prev_w, follow_side):
-    points_all = lidar_points_to_xy_all(scan)
-
-    wall_dist = side_wall_average_distance_from_scan(scan, follow_side)
-    front_dist = wall_follow_front_distance(points_all)
-
-    wall_valid = wall_dist < WALL_LOST_DIST
-
-    if wall_valid:
-        error = wall_dist - WALL_TARGET_DIST
-        target_w = follow_side * WALL_KP * error
-
-        if abs(error) > WALL_MIN_TURN_ERR and abs(target_w) < WALL_MIN_TURN_W:
-            if error > 0.0:
-                target_w = follow_side * WALL_MIN_TURN_W
-            else:
-                target_w = -follow_side * WALL_MIN_TURN_W
-
-    else:
-        target_w = follow_side * WALL_SEARCH_W
-
-    if wall_valid and wall_dist < WALL_TARGET_DIST:
-        target_v = WALL_SLOW_V
-    
-        close_error = WALL_TARGET_DIST - wall_dist
-        target_w = -follow_side * WALL_KP * close_error
-    
-        if abs(target_w) < WALL_MIN_TURN_W:
-            target_w = -follow_side * WALL_MIN_TURN_W
-    
-    elif front_dist < WALL_FRONT_HARD_STOP_DIST:
-        target_v = WALL_SLOW_V
-    
-        front_error = WALL_FRONT_HARD_STOP_DIST - front_dist
-        target_w = -follow_side * WALL_KP * front_error
-    
-        if abs(target_w) < WALL_MIN_TURN_W:
-            target_w = -follow_side * WALL_MIN_TURN_W
-    
-    elif front_dist < WALL_FRONT_SLOW_DIST:
-        target_v = WALL_SLOW_V
-    
-        front_error = WALL_FRONT_SLOW_DIST - front_dist
-        target_w = -follow_side * WALL_KP * front_error
-    
-        if abs(target_w) < WALL_MIN_TURN_W:
-            target_w = -follow_side * WALL_MIN_TURN_W
-    
-    else:
-        target_v = WALL_FOLLOW_V
-
-    target_w = float(np.clip(target_w, -WALL_MAX_W, WALL_MAX_W))
-    w = rate_limit_w(prev_w, target_w, urgent=True)
-
-    return float(target_v), float(w), float(wall_dist), bool(wall_valid), float(front_dist)
-
-
-def is_wall_open(wall_dist, prev_wall_dist, follow_start_time):
-    if time.time() - follow_start_time < WALL_MIN_FOLLOW_TIME_S:
-        return False
-
-    open_by_lost = wall_dist >= WALL_LOST_DIST
-
-    open_by_jump = (
-        prev_wall_dist is not None
-        and prev_wall_dist < WALL_LOST_DIST
-        and (wall_dist - prev_wall_dist) >= WALL_JUMP_DIST
-    )
-
-    return bool(open_by_lost or open_by_jump)
-
-
 def main():
     pose = RobotPose()
     lidar = RPLidarC1(LIDAR_PORT, LIDAR_BAUD)
@@ -950,25 +780,12 @@ def main():
 
     recovery_turn_active = False
     recovery_turn_dir = 0.0
-    recovery_follow_side = +1.0
     recovery_start_time = 0.0
-    recovery_wall_seen_count = 0
     recovery_accum_turn = 0.0
     recovery_prev_front_dist = None
 
     recovery_turned_deg_log = 0.0
-    recovery_wall_dist_log = MAX_LIDAR_DIST_M
-    recovery_front_start_log = MAX_LIDAR_DIST_M
-
-    wall_follow_active = False
-    wall_follow_side = +1.0
-    wall_follow_start_time = 0.0
-    wall_prev_dist = None
-    wall_open_count = 0
-
-    wall_dist_log = MAX_LIDAR_DIST_M
-    wall_front_log = MAX_LIDAR_DIST_M
-    wall_valid_log = False
+    recovery_front_dist_log = MAX_LIDAR_DIST_M
 
     try:
         while True:
@@ -1016,63 +833,11 @@ def main():
             target_angle = 0.0
             info = None
             recovery_mode_name = "FGM"
-            returned_from_wall_this_loop = False
 
-            wall_dist_log = MAX_LIDAR_DIST_M
-            wall_front_log = MAX_LIDAR_DIST_M
-            wall_valid_log = False
             recovery_turned_deg_log = math.degrees(recovery_accum_turn)
-            recovery_wall_dist_log = MAX_LIDAR_DIST_M
-            recovery_front_start_log = MAX_LIDAR_DIST_M
+            recovery_front_dist_log = MAX_LIDAR_DIST_M
 
-            if WALL_FOLLOW_ENABLE and wall_follow_active:
-                wall_v, wall_w, wall_dist, wall_valid, wall_front = choose_wall_follow_cmd(
-                    scan,
-                    last_w,
-                    wall_follow_side,
-                )
-
-                wall_dist_log = wall_dist
-                wall_front_log = wall_front
-                wall_valid_log = wall_valid
-
-                if is_wall_open(wall_dist, wall_prev_dist, wall_follow_start_time):
-                    wall_open_count += 1
-                else:
-                    wall_open_count = 0
-
-                if wall_open_count >= WALL_OPEN_COUNT_N:
-                    wall_follow_active = False
-                    wall_prev_dist = None
-                    wall_open_count = 0
-                    recovery_mode_name = "FGM_RETURN_FROM_WALL"
-                    returned_from_wall_this_loop = True
-
-                    print(
-                        "[WALL] wall distance opened suddenly. "
-                        "Return to FGM driving."
-                    )
-
-                    v, w, target_angle, info = choose_fgm_cmd(
-                    scan,
-                    last_w,
-                    last_target_angle,
-                    pose,
-                    accumulated_turn_rad,
-                )
-                else:
-                    v = wall_v
-                    w = wall_w
-                    target_angle = 0.0
-
-                    if wall_follow_side > 0.0:
-                        recovery_mode_name = "LEFT_WALL_FOLLOW"
-                    else:
-                        recovery_mode_name = "RIGHT_WALL_FOLLOW"
-
-                    wall_prev_dist = wall_dist
-
-            if (not recovery_turn_active) and (not wall_follow_active) and (not returned_from_wall_this_loop):
+            if not recovery_turn_active:
                 v, w, target_angle, info = choose_fgm_cmd(
                     scan,
                     last_w,
@@ -1081,23 +846,13 @@ def main():
                     accumulated_turn_rad,
                 )
 
-                blocked_now = info["collision"] and v <= 0.01
-                no_safe_gap_now = not info["has_safe_gap"]
-                narrow_wall_trigger = (blocked_now or no_safe_gap_now)
+                blocked_now = info["collision"] and v <= 0.01 # 충돌 위험을 감지했고, 속도가 거의 0인 경우
+                no_safe_gap_now = not info["has_safe_gap"] # safe gap이 없는 경우
+                recovery_trigger = (blocked_now or no_safe_gap_now) # recovery 켤지 결정
 
-                if (
-                    RECOVERY_TURN_ENABLE
-                    and (not recovery_turn_active)
-                    and narrow_wall_trigger
-                ):
-                    recovery_turn_dir = choose_initial_based_recovery_dir(
-                        pose.theta,
-                        accumulated_turn_rad,
-                        last_w,
-                    )
-                    recovery_follow_side = -recovery_turn_dir
+                if (RECOVERY_TURN_ENABLE and (not recovery_turn_active) and recovery_trigger):
+                    recovery_turn_dir = choose_initial_based_recovery_dir(pose.theta, accumulated_turn_rad, last_w) # 제자리 회전 방향 결정
                     recovery_start_time = time.time()
-                    recovery_wall_seen_count = 0
                     recovery_accum_turn = 0.0
                     recovery_prev_front_dist = None
                     recovery_turn_active = True
@@ -1121,7 +876,6 @@ def main():
             if (
                 RECOVERY_TURN_ENABLE
                 and recovery_turn_active
-                and (not wall_follow_active)
             ):
                 recovery_timeout = (
                     time.time() - recovery_start_time
@@ -1129,17 +883,11 @@ def main():
 
                 recovery_max_turn_reached = recovery_accum_turn >= RECOVERY_MAX_TURN_RAD
 
-                recovery_wall_dist = side_wall_distance_from_scan(
-                    scan,
-                    recovery_follow_side,
-                )
-
                 recovery_points_all = lidar_points_to_xy_all(scan)
-                recovery_front_dist = wall_follow_front_distance(recovery_points_all)
+                recovery_front_dist = recovery_front_distance(recovery_points_all)
 
                 recovery_turned_deg_log = math.degrees(recovery_accum_turn)
-                recovery_wall_dist_log = recovery_wall_dist
-                recovery_front_start_log = recovery_front_dist
+                recovery_front_dist_log = recovery_front_dist
 
                 recovery_open_detected = (
                     recovery_prev_front_dist is not None
@@ -1147,25 +895,18 @@ def main():
                     and (recovery_front_dist - recovery_prev_front_dist) >= RECOVERY_FRONT_OPEN_JUMP_DIST
                 )
 
-                recovery_wall_seen_count = 1 if recovery_open_detected else 0
-
                 recovery_ready_to_fgm = recovery_open_detected
 
                 recovery_prev_front_dist = recovery_front_dist
 
                 if recovery_ready_to_fgm:
                     recovery_turn_active = False
-                    wall_follow_active = False
-                    wall_prev_dist = None
-                    wall_open_count = 0
-                    recovery_wall_seen_count = 0
                     recovery_prev_front_dist = None
 
                     recovery_mode_name = "FGM_RETURN_FROM_RECOVERY"
 
                     print(
                         f"[RECOVERY] front opened after {recovery_turned_deg_log:.1f}deg. "
-                        f"wall90={recovery_wall_dist:.2f} "
                         f"front={recovery_front_dist:.2f}. "
                         "Return to FGM driving."
                     )
@@ -1180,35 +921,29 @@ def main():
 
                 elif recovery_max_turn_reached or recovery_timeout:
                     recovery_turn_active = False
-                    wall_follow_active = True
-                    wall_follow_side = recovery_follow_side
-
-                    wall_follow_start_time = time.time()
-                    wall_prev_dist = None
-                    wall_open_count = 0
-                    recovery_wall_seen_count = 0
                     recovery_prev_front_dist = None
 
-                    v = 0.0
-                    w = 0.0
-                    target_angle = 0.0
-
-                    if wall_follow_side > 0.0:
-                        recovery_mode_name = "RECOVERY_TO_LEFT_WALL"
-                    else:
-                        recovery_mode_name = "RECOVERY_TO_RIGHT_WALL"
+                    recovery_mode_name = "FGM_RETURN_FROM_RECOVERY"
 
                     if recovery_max_turn_reached:
                         print(
                             f"[RECOVERY] max turn reached. "
                             f"turned={recovery_turned_deg_log:.1f}deg. "
-                            "Start wall following."
+                            "Return to FGM driving."
                         )
                     else:
                         print(
                             "[RECOVERY] recovery turn timeout. "
-                            "Start wall following anyway."
+                            "Return to FGM driving."
                         )
+
+                    v, w, target_angle, info = choose_fgm_cmd(
+                        scan,
+                        last_w,
+                        last_target_angle,
+                        pose,
+                        accumulated_turn_rad,
+                    )
 
                 else:
                     v = 0.0
@@ -1234,7 +969,7 @@ def main():
             accumulated_turn_rad += w * dt
             last_v, last_w = v, w
 
-            if (not recovery_turn_active) and (not wall_follow_active):
+            if not recovery_turn_active:
                 last_target_angle = target_angle
 
             accumulated_turn_deg_log = math.degrees(accumulated_turn_rad)
@@ -1264,31 +999,11 @@ def main():
                         f"v={v:.2f} w={w:.2f} "
                         f"ct={accumulated_turn_deg_log:.1f}deg "
                         f"turned={recovery_turned_deg_log:.1f}deg "
-                        f"wall90={recovery_wall_dist_log:.2f} "
-                        f"wall_front={recovery_front_start_log:.2f} "
-                        f"seen_cnt={recovery_wall_seen_count} "
+                        f"rfront={recovery_front_dist_log:.2f} "
                         f"front={front_log:.2f} "
                         f"gaps={gaps_log} safe={safe_log} "
                         f"close={close_log:.2f}@{close_angle_log:.0f} "                        
                         f"L={left_log:.2f} R={right_log:.2f}"
-                    )
-
-                elif wall_follow_active:
-                    if wall_follow_side > 0.0:
-                        wall_name = "left_wall_30_90_avg"
-                    else:
-                        wall_name = "right_wall_90_30_avg"
-
-                    print(
-                        f"[{recovery_mode_name}] x={pose.x:.2f} y={pose.y:.2f} "
-                        f"th={math.degrees(pose.theta):.1f}deg "
-                        f"v={v:.2f} w={w:.2f} "
-                        f"ct={accumulated_turn_deg_log:.1f}deg "
-                        f"{wall_name}={wall_dist_log:.2f} "
-                        f"wall_front={wall_front_log:.2f} "
-                        f"valid={int(wall_valid_log)} "
-                        f"open_cnt={wall_open_count} "
-                        f"FGM=OFF"
                     )
 
                 elif info is not None:
