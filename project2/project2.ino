@@ -15,7 +15,6 @@ const byte DirPin2_l = 8; // 왼쪽 모터 방향 제어 핀 2
 const byte ENC_A_l = 3; // 왼쪽 엔코더 A채널
 const byte ENC_B_l = 5; // 왼쪽 엔코더 B채널
 
-
 // 방향 반전 설정
 const bool INVERT_ENC_R = true; // 오른쪽 엔코더 방향 반전 여부
 const bool INVERT_ENC_L = false; // 왼쪽 엔코더 방향 반전 여부
@@ -28,12 +27,10 @@ const float WHEEL_BASE = 0.179f; // 좌우 바퀴 사이 간격 (m)
 const float PPR = 1012.0f; // 바퀴 1회전당 엔코더 카운트 수
 const float COUNT_PER_RAD = PPR / (2.0f * PI_F); // 1 라디안 회전당 엔코더 카운트 수
 
-
 // 모터 드라이버 전압 제한
 const float V_MAX = 6.0f; // 최대 출력 전압
 const float V_MIN = -V_MAX; // 최소 출력 전압
 const float DRIVER_DEADBAND_V = 0.05f; // 데드밴드 전압 (이 이하는 0으로 처리)
-
 
 // PWM
 int PWMval_R = 0;
