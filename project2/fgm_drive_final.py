@@ -727,12 +727,16 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose, accumulated_turn_rad=0
     fgm_target_angle = float(np.clip(fgm_target_angle, -TURN_HARD_LIMIT_RAD, TURN_HARD_LIMIT_RAD))
     side_bias = side_gap_steering_bias(info_left, info_right)
     side_turn_limit = side_narrow_turn_limit(info_left, info_right)
+    allow_side_bias_flip = (
+        (side_bias < 0.0 and info_left <= SIDE_GAP_BLOCK_DIST)
+        or (side_bias > 0.0 and info_right <= SIDE_GAP_BLOCK_DIST)
+    )
     target_angle = float(np.clip(fgm_target_angle + side_bias, -side_turn_limit, side_turn_limit))
     if has_safe_gap and best_gap[1] > best_gap[0]:
         target_angle = float(np.clip(target_angle, gap_right_rad, gap_left_rad))
-        if fgm_target_angle > 0.0:
+        if fgm_target_angle > 0.0 and not allow_side_bias_flip:
             target_angle = max(0.0, target_angle)
-        elif fgm_target_angle < 0.0:
+        elif fgm_target_angle < 0.0 and not allow_side_bias_flip:
             target_angle = min(0.0, target_angle)
     target_idx = int(np.argmin(np.abs(angles_deg - math.degrees(target_angle))))
     target_dist = float(smooth_ranges[target_idx])
