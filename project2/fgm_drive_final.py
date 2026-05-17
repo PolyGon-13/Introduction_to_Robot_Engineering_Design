@@ -42,6 +42,7 @@ ROBOT_RADIUS = 0.13 # 로봇 반지름
 COLLISION_DIST = ROBOT_RADIUS + 0.05 # 충돌위험 거리
 ACTIVE_FRONT_DIST = 0.30 # 정면 장애물 반응 시작 거리
 FRONT_DANGER_DIST = 0.19 # 정면 위험 거리
+FRONT_HARD_STOP_DIST = 0.12 # 정면 초근접 정지 거리
 FRONT_CORRIDOR_HALF = COLLISION_DIST + 0.30 # FGM 장애물로 인식할 Y축 범위의 절반
 
 INITIAL_HEADING_RAD = 0.0 # 출발 기준 방향
@@ -786,7 +787,7 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose, accumulated_turn_rad=0
     w = rate_limit_w(prev_w, raw_w, urgent=urgent)
     v = choose_speed(effective_target_dist, target_angle, has_safe_gap)
     v = min(v, side_gap_speed_limit(info_left, info_right))
-    hard_stop = front_dist < FRONT_DANGER_DIST or target_drive_depth < FRONT_DANGER_DIST
+    hard_stop = front_dist < FRONT_HARD_STOP_DIST or target_drive_depth < FRONT_HARD_STOP_DIST
     if hard_stop:
         v = 0.0
 
