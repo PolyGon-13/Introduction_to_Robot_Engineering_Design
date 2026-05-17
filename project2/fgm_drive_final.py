@@ -888,7 +888,7 @@ def main():
                     accumulated_turn_rad,
                 )
 
-                blocked_now = info["collision"] and v <= 0.01 # 충돌 위험을 감지했고, 속도가 거의 0인 경우
+                blocked_now = info["collision"] and v <= 0.01 and abs(w) <= 0.01 # 충돌 위험을 감지했고, 속도와 회전이 거의 0인 경우
                 no_safe_gap_now = not info["has_safe_gap"] # safe gap이 없는 경우
                 recovery_trigger = (blocked_now or no_safe_gap_now) # recovery 켤지 결정
 
