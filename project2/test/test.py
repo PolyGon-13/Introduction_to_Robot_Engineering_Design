@@ -5,7 +5,7 @@ from threading import Thread
 from queue import Queue
 
 lidar_ser = serial.Serial("/dev/ttyUSB0", 460800, timeout=0.1)
-arduino_ser = serial.Serial("/dev/ttyS0", 115200, timeout=0.1)
+arduino_ser = serial.Serial("/dev/ttyS0", 9600, timeout=0.1)
 
 data_queue = Queue(maxsize=10)
 send_enable = False
@@ -24,44 +24,6 @@ lidar_ser.write(bytes([0xA5, 0x40]))
 time.sleep(1)
 lidar_ser.write(bytes([0xA5, 0x20]))
 
-print("[INFO] Warming up for 2 seconds...")
-time.sleep(2.0)
-
-print("[INFO] Initializing LiDAR scan...")
-lidar_init_start = time.time()
-
-while True:
-    init_data = lidar_ser.read(5)
-
-    if len(init_data) == 5:
-        s_flag = init_data[0] & 0x01
-        s_inv_flag = (init_data[0] & 0x02) >> 1
-        check_bit = init_data[1] & 0x01
-        quality = init_data[0] >> 2
-        distance_q2 = init_data[3] | (init_data[4] << 8)
-
-        if (
-            s_inv_flag == (1 - s_flag)
-            and check_bit == 1
-            and quality > 0
-            and distance_q2 > 0
-        ):
-            print("[INFO] LiDAR ready.")
-            break
-
-    if time.time() - lidar_init_start > 5.0:
-        print("[WARN] LiDAR scan not ready yet. Continuing anyway.")
-        break
-
-    time.sleep(0.05)
-
-print("[INFO] Initialization Complete. Press Enter to start!")
-try:
-    input()
-except EOFError:
-    print("[WARN] Could not read standard input. Starting immediately.")
-print("[INFO] Go!!")
-
 wheel_R = 0.034
 wheel_l = 0.179
 
@@ -73,8 +35,9 @@ def compute_wheel_phis(target_angle_deg: float):
         print("v is best!")
     if target_angle_deg != 0 :
         if target_angle_deg < 0 :
-            target_angle_deg - 10
-        else : target_angle_deg + 10
+            target_angle_deg -= 10
+        else : 
+            target_angle_deg += 10
         
     if  -35 < target_angle_deg < 35 :
         Kp_ang = 7.26
@@ -87,14 +50,14 @@ def compute_wheel_phis(target_angle_deg: float):
     phi_r = (v / wheel_R) + ((w * wheel_l) / (2 * wheel_R))
     
     
-    if phi_l < 10.0:
-        if phi_l < 0: phi_l = 10.0
-        else : phi_l = 10.0
+    if phi_l < 4.1:
+        if phi_l < 0: phi_l = 2.25
+        else : phi_l = 4.1
         
     
-    if phi_r < 10.0:
-        if phi_r < 0: phi_r = 10.0
-        else : phi_r = 10.0
+    if phi_r < 4.1:
+        if phi_r < 0: phi_r = 2.25
+        else : phi_r = 4.1
         
     return phi_l, phi_r
 
