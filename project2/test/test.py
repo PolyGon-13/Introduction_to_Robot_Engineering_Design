@@ -86,7 +86,7 @@ def corridor_center_correction(distances):
         return 0.0, right_wall, left_wall
 
     wall_error = right_wall - left_wall
-    correction = wall_error * 0.025
+    correction = wall_error * 0.050
 
     return max(-18.0, min(18.0, correction)), right_wall, left_wall
 
