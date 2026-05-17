@@ -80,8 +80,8 @@ SIDE_GAP_WARN_DIST = 0.175 # 옆 경고 시작 거리
 SIDE_GAP_BLOCK_DIST = 0.16 # 강하게 거부할 옆 거리
 SIDE_GAP_BIAS_MAX_DEG = 10.0 # 조향 보정 최대각도
 SIDE_GAP_BIAS_GAIN_DEG_PER_M = 125.0 # 좌우 거리차
-SIDE_TIGHT_TURN_LIMIT_DEG = 30.0 # 옆이 매우 좁을 때 회전한계
-SIDE_NARROW_TURN_LIMIT_DEG = 40.0 # 옆이 좁을 때 회전한계
+SIDE_TIGHT_TURN_LIMIT_DEG = 25.0 # 옆이 매우 좁을 때 회전한계
+SIDE_NARROW_TURN_LIMIT_DEG = 35.0 # 옆이 좁을 때 회전한계
 SIDE_NARROW_V = 0.12 # 옆이 좁을 때 FGM 속도 상한
 SIDE_TIGHT_V = 0.08 # 옆이 매우 좁을 때 FGM 속도 상한
 
