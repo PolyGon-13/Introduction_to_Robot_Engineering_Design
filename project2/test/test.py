@@ -22,7 +22,6 @@ thread.start()
 
 lidar_ser.write(bytes([0xA5, 0x40]))
 time.sleep(1)
-lidar_ser.read(7)  # RPLIDAR response descriptor 제거
 lidar_ser.write(bytes([0xA5, 0x20]))
 
 wheel_R = 0.034
@@ -37,8 +36,7 @@ def compute_wheel_phis(target_angle_deg: float):
     if target_angle_deg != 0 :
         if target_angle_deg < 0 :
             target_angle_deg - 10
-        else : 
-            target_angle_deg + 10
+        else : target_angle_deg + 10
         
     if  -35 < target_angle_deg < 35 :
         Kp_ang = 7.26
@@ -51,14 +49,14 @@ def compute_wheel_phis(target_angle_deg: float):
     phi_r = (v / wheel_R) + ((w * wheel_l) / (2 * wheel_R))
     
     
-    if phi_l < 4.1:
-        if phi_l < 0: phi_l = 2.25
-        else : phi_l = 4.1
+    if phi_l < 10:
+        if phi_l < 0: phi_l = 10
+        else : phi_l = 10
         
     
-    if phi_r < 4.1:
-        if phi_r < 0: phi_r = 2.25
-        else : phi_r = 4.1
+    if phi_r < 10:
+        if phi_r < 0: phi_r = 10
+        else : phi_r = 10
         
     return phi_l, phi_r
 
@@ -127,7 +125,7 @@ while True:
     if 0 <= angle_index <= 180:
         distance_array[angle_index] = distance
         
-    desired_angle = Follow_the_Gap_Method(distance_array, threshold=700)
+    desired_angle = Follow_the_Gap_Method(distance_array, threshold=400)
 
     target_angle = desired_angle - 90
     
