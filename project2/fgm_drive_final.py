@@ -59,7 +59,7 @@ CUM_TURN_HARD_PENALTY_WEIGHT = 50.0 # 각속도 누적 페널티 강도2
 FGM_MIN_ANGLE_DEG = -90.0 # 우측 라이다 스캔 각도
 FGM_MAX_ANGLE_DEG = 90.0 # 좌측 라이다 스캔 각도
 FGM_ANGLE_STEP_DEG = 1.0 # 격자 생성 각도
-FGM_BUBBLE_RADIUS = ROBOT_RADIUS + 0.08 # 장애물 부풀리는 반경
+FGM_BUBBLE_RADIUS = ROBOT_RADIUS + 0.05 # 장애물 부풀리는 반경
 FGM_FREE_DIST = COLLISION_DIST + 0.04 # 이 이상 뚫려 있어야 지나갈 수 있는 칸으로 인식
 FGM_MIN_GAP_WIDTH_DEG = 8.0 # 인식한 Gap의 최소 허용각도
 FGM_MIN_PHYSICAL_GAP_WIDTH_M = 2.0 * ROBOT_RADIUS + 0.05
@@ -80,12 +80,12 @@ FGM_RANGE_DISCONTINUITY_EDGE_WINDOW_DEG = 3.0
 
 SIDE_GAP_WARN_DIST = 0.175 # 옆 경고 시작 거리
 SIDE_GAP_BLOCK_DIST = 0.14 # 강하게 거부할 옆 거리
-SIDE_GAP_BIAS_MAX_DEG = 7.0 # 조향 보정 최대각도
+SIDE_GAP_BIAS_MAX_DEG = 5.0 # 조향 보정 최대각도
 SIDE_GAP_BIAS_GAIN_DEG_PER_M = 125.0 # 좌우 거리차
 SIDE_TIGHT_TURN_LIMIT_DEG = 20.0 # 옆이 매우 좁을 때 회전한계
 SIDE_NARROW_TURN_LIMIT_DEG = 35.0 # 옆이 좁을 때 회전한계
 SIDE_NARROW_V = 0.12 # 옆이 좁을 때 FGM 속도 상한
-SIDE_TIGHT_V = 0.15 #0.08 # 옆이 매우 좁을 때 FGM 속도 상한
+SIDE_TIGHT_V = 0.12 # 옆이 매우 좁을 때 FGM 속도 상한
 
 
 # Recovery Mode
