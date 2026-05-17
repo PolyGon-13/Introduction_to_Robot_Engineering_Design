@@ -233,9 +233,7 @@ class RPLidarC1:
 
     def get_scan(self):
         with self.lock:
-            scan = self.latest_scan
-            self.latest_scan = None
-            return scan, self.scan_seq, self.scan_time
+            return self.latest_scan, self.scan_seq, self.scan_time
 
     def close(self):
         self.running = False
@@ -668,7 +666,7 @@ def rate_limit_w(prev_w, target_w, urgent=False):
 
 # FGM이 고른 최종 목표 방향으로 얼마나 빠르게 전진할지 결정
 # target_dist : 목표 방향의 장애물까지의 거리, target_angle : 목표 각도, has_safe_gap : 안전한 gap이 있는지 여부
-def choose_speed(target_dist, target_angle, has_safe_gap, front_dist=MAX_LIDAR_DIST_M):
+def choose_speed(target_dist, target_angle, has_safe_gap):
     if not has_safe_gap: # 안전한 Gap이 없으면 정지
         return 0.0
 
@@ -680,9 +678,6 @@ def choose_speed(target_dist, target_angle, has_safe_gap, front_dist=MAX_LIDAR_D
         v = min(v, MIN_V + (BASE_V - MIN_V) * float(slow_ratio)) # 목표 방향이 가까우면 속도 상한 낮추기
 
     if target_dist < COLLISION_DIST:
-        v = 0.0
-
-    if front_dist < FRONT_DANGER_DIST: # 정면이 위험 거리 이내이면 무조건 정지
         v = 0.0
 
     return float(np.clip(v, 0.0, BASE_V))
@@ -748,7 +743,7 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose, accumulated_turn_rad=0
     )
     urgent = front_dist < URGENT_FRONT_DIST or not has_safe_gap
     w = rate_limit_w(prev_w, raw_w, urgent=urgent)
-    v = choose_speed(target_dist, target_angle, has_safe_gap, front_dist)
+    v = choose_speed(target_dist, target_angle, has_safe_gap)
     v = min(v, side_gap_speed_limit(info_left, info_right))
 
     closest_angle = float(angles_deg[closest_idx]) if closest_idx >= 0 else 0.0
@@ -816,6 +811,8 @@ def main():
 
     pose.reset()
     last_scan_ok = 0.0
+    last_processed_scan_seq = -1
+    stale_scan_warned = False
     last_v, last_w = BASE_V, 0.0
     last_target_angle = 0.0
     last_log = 0.0
@@ -841,7 +838,7 @@ def main():
             if recovery_turn_active:
                 recovery_accum_turn += abs(last_w) * dt
 
-            scan, _, scan_time = lidar.get_scan()
+            scan, scan_seq, scan_time = lidar.get_scan()
             if scan is None:
                 if time.time() - last_scan_ok <= SCAN_HOLD_S:
                     send_vw(last_v, last_w)
@@ -853,6 +850,24 @@ def main():
                 time.sleep(LOOP_DT_S)
                 continue
 
+            scan_age = now - scan_time
+            scan_is_new = scan_seq != last_processed_scan_seq
+            scan_is_stale = scan_age > SCAN_HOLD_S
+
+            if scan_is_new:
+                stale_scan_warned = False
+            elif not scan_is_stale:
+                send_vw(last_v, last_w)
+                pose.update(last_v, last_w, dt)
+                accumulated_turn_rad += last_w * dt
+                time.sleep(LOOP_DT_S)
+                continue
+
+            if scan_is_stale and not stale_scan_warned:
+                print(f"[LIDAR] Stale scan age={scan_age:.2f}s. Reusing latest scan.")
+                stale_scan_warned = True
+
+            last_processed_scan_seq = scan_seq
             last_scan_ok = scan_time
 
             v = 0.0
@@ -873,7 +888,7 @@ def main():
                     accumulated_turn_rad,
                 )
 
-                blocked_now = info["collision"] and v <= 0.01 # 충돌 위험을 감지했고, 전진 속도가 거의 0인 경우
+                blocked_now = info["collision"] and v <= 0.01 and abs(w) <= 0.01 # 충돌 위험을 감지했고, 속도가 거의 0인 경우
                 no_safe_gap_now = not info["has_safe_gap"] # safe gap이 없는 경우
                 recovery_trigger = (blocked_now or no_safe_gap_now) # recovery 켤지 결정
 
