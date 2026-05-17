@@ -12,7 +12,7 @@ data_queue = Queue(maxsize=10)
 send_enable = False
 initial_direction_angle = None
 ROBOT_FRONT_ANGLE = 90.0
-GAP_SIZE_RATIO_FOR_DIRECTION_CHOICE = 0.5
+GAP_SIZE_RATIO_FOR_DIRECTION_CHOICE = 0.7
 
 def arduino_writer():
     while True:
@@ -95,8 +95,8 @@ def average_valid_distance(distances, start_angle, end_angle, max_wall_distance=
 
 
 def corridor_center_correction(distances):
-    right_wall = average_valid_distance(distances, 25, 90)
-    left_wall = average_valid_distance(distances, 90, 155)
+    right_wall = average_valid_distance(distances, 0, 2)
+    left_wall = average_valid_distance(distances, 178, 180)
 
     if right_wall is None or left_wall is None:
         return 0.0, right_wall, left_wall
