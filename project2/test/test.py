@@ -67,7 +67,7 @@ FGM_MIN_PHYSICAL_GAP_WIDTH_M = 2.0 * ROBOT_RADIUS + 0.05
 FGM_SMOOTH_WINDOW = 5 # 이동평균 윈도우 크기 (5칸 = +-2도) : 튀는 값 방지 휘해 2도 간격으로 값들의 평균값으로 값을 대체
 
 FGM_TURN_GAIN = 1.05 # 목표 각도->회전명령 가중치
-FGM_PREV_TARGET_WEIGHT = 0.6 # 직전 목표 방향 연속성 가중치
+FGM_PREV_TARGET_WEIGHT = 0.45 # 직전 목표 방향 연속성 가중치
 FGM_GOAL_WEIGHT_SAFE = 1.00 # 안전할 때 목표 방향 가중치
 FGM_GOAL_WEIGHT_DANGER = 0.30 # 위험할 때 목표 방향 가중치
 FGM_STRAIGHT_WEIGHT = 0.70 # 정면 선호 가중치
@@ -571,11 +571,12 @@ def gap_edge_discontinuity_score(ranges, start, end):
 
 
 # 여러 Gap 중에서 최적의 목표각을 선택하는 함수
-def choose_target_from_gaps(angles_deg, ranges, discontinuity_ranges, gaps, pose, prev_target_angle, front_factor, accumulated_turn_rad):
+def choose_target_from_gaps(angles_deg, ranges, discontinuity_ranges, gaps, prev_target_angle, front_factor, accumulated_turn_rad):
     if not gaps:
         return -1, (0, 0), -float("inf"), []
 
-    goal_angle = normalize_angle_rad(INITIAL_HEADING_RAD - pose.theta) # 출발 방향 기준으로 현재 로봇이 어느 방향에 있는지 계산
+    current_heading_from_w = normalize_angle_rad(INITIAL_HEADING_RAD + accumulated_turn_rad)
+    goal_angle = normalize_angle_rad(INITIAL_HEADING_RAD - current_heading_from_w) # w 누적 회전량 기준으로 출발 방향 복귀 각도 계산
     goal_angle = float(np.clip(goal_angle, -TURN_HARD_LIMIT_RAD, TURN_HARD_LIMIT_RAD)) # 최대 목표각 범위 안으로 자르기
     prev_angle = float(np.clip(prev_target_angle, -TURN_HARD_LIMIT_RAD, TURN_HARD_LIMIT_RAD)) # 직전 목표각 범위 안으로 자르기
 
@@ -683,8 +684,8 @@ def choose_speed(target_dist, target_angle, has_safe_gap):
     return float(np.clip(v, 0.0, BASE_V))
 
 
-# scan : 현재 LiDAR 스캔 데이터, prev_w : 직전 회전속도, prev_target_angle : 직전 목표 각도, pose : 현재 로봇 위치와 방향, accumulated_turn_rad : 누적 회전량
-def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose, accumulated_turn_rad=0.0):
+# scan : 현재 LiDAR 스캔 데이터, prev_w : 직전 회전속도, prev_target_angle : 직전 목표 각도, accumulated_turn_rad : 누적 회전량
+def choose_fgm_cmd(scan, prev_w, prev_target_angle, accumulated_turn_rad=0.0):
     points = lidar_points_to_xy(scan) # LiDAR 스캔을 (x,y) 포인트 배열로 변환
     points_all = lidar_points_to_xy_all(scan) # 모든 LiDAR 스캔을 (x,y) 포인트 배열로 변환
     front_dist = front_distance(points) # 전방 장애물 거리 계산
@@ -705,7 +706,7 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose, accumulated_turn_rad=0
 
     # 최종적으로 어느 gap의 어느 각도를 목표로 할지 선택
     # target_idx : 목표 각도 인덱스, best_gap : 그 각도가 속한 Gap의 시작과 끝 인덱스, best_score : 그 후보의 점수, gap_candidates : 후보 요약 문자열 리스트
-    target_idx, best_gap, best_score, gap_candidates = choose_target_from_gaps(angles_deg, bubble_ranges, smooth_ranges, gaps, pose, prev_target_angle, front_factor, accumulated_turn_rad)
+    target_idx, best_gap, best_score, gap_candidates = choose_target_from_gaps(angles_deg, bubble_ranges, smooth_ranges, gaps, prev_target_angle, front_factor, accumulated_turn_rad)
 
     # safe gap이 없거나, 그 안에서 선택 가능한 후보가 없는 경우
     if target_idx < 0:
@@ -884,7 +885,6 @@ def main():
                     scan,
                     last_w,
                     last_target_angle,
-                    pose,
                     accumulated_turn_rad,
                 )
 
@@ -964,7 +964,6 @@ def main():
                         scan,
                         last_w,
                         last_target_angle,
-                        pose,
                         accumulated_turn_rad,
                     )
                 elif recovery_max_turn_reached or recovery_timeout:
@@ -990,7 +989,6 @@ def main():
                         scan,
                         last_w,
                         last_target_angle,
-                        pose,
                         accumulated_turn_rad,
                     )
 
