@@ -27,12 +27,15 @@ FGM_CENTER_INDEX = 90.0
 FGM_FREE_THRESHOLD_MM = 400.0
 FGM_MIN_GAP_WIDTH_DEG = 8.0
 FGM_CENTER_BIAS_PER_DEG = 1.0
+FGM_PREV_TARGET_BIAS_PER_DEG = 1.4
+FGM_PREV_GAP_BONUS = 30.0
 MIN_SCAN_POINTS = 40
 
 BASE_V = 0.20
 MIN_V = 0.10
-MAX_ABS_W = 1.10
-FGM_TURN_GAIN = 1.50
+MAX_ABS_W = 0.85
+FGM_TURN_GAIN = 1.20
+W_CMD_RATE_LIMIT = 0.25
 STRAIGHT_DEADBAND_DEG = 8.0
 FRONT_DANGER_MM = 190.0
 
@@ -49,6 +52,10 @@ def normalize_angle_deg(angle):
 
 def clamp(value, low, high):
     return max(low, min(high, value))
+
+
+def rate_limit(prev_value, target_value, limit):
+    return prev_value + clamp(target_value - prev_value, -limit, limit)
 
 
 def arduino_writer(arduino_ser, data_queue):
@@ -127,7 +134,7 @@ def parse_lidar_packet(data):
     return s_flag, angle, distance
 
 
-def Follow_the_Gap_Method(distances, threshold):
+def Follow_the_Gap_Method(distances, threshold, prev_target_index=None):
     gaps = []
     current_start = None
 
@@ -151,32 +158,38 @@ def Follow_the_Gap_Method(distances, threshold):
     if not valid_gaps:
         return FGM_CENTER_INDEX, False, 0
 
-    best_start, best_end = max(
-        valid_gaps,
-        key=lambda gap: (
-            (gap[1] - gap[0] + 1)
-            - FGM_CENTER_BIAS_PER_DEG
-            * abs(((gap[0] + gap[1]) / 2.0) - FGM_CENTER_INDEX)
-        ),
-    )
+    def gap_score(gap):
+        start, end = gap
+        width = end - start + 1
+        center = (start + end) / 2.0
+        score = width - FGM_CENTER_BIAS_PER_DEG * abs(center - FGM_CENTER_INDEX)
+        if prev_target_index is not None:
+            nearest_prev = clamp(prev_target_index, start, end)
+            score -= FGM_PREV_TARGET_BIAS_PER_DEG * abs(nearest_prev - prev_target_index)
+            if start <= prev_target_index <= end:
+                score += FGM_PREV_GAP_BONUS
+        return score
+
+    best_start, best_end = max(valid_gaps, key=gap_score)
 
     target_angle = clamp(FGM_CENTER_INDEX, best_start, best_end)
     return target_angle, True, best_end - best_start + 1
 
 
-def choose_drive_command(target_angle_deg, target_distance_mm, has_gap):
+def choose_drive_command(target_angle_deg, target_distance_mm, has_gap, prev_w):
     if not has_gap or target_distance_mm < FRONT_DANGER_MM:
-        return 0.0, 0.0
+        return 0.0, 0.0, 0.0
 
     target_angle_rad = math.radians(target_angle_deg)
-    w = clamp(FGM_TURN_GAIN * target_angle_rad, -MAX_ABS_W, MAX_ABS_W)
+    raw_w = clamp(FGM_TURN_GAIN * target_angle_rad, -MAX_ABS_W, MAX_ABS_W)
+    w = rate_limit(prev_w, raw_w, W_CMD_RATE_LIMIT)
 
     if abs(target_angle_deg) <= STRAIGHT_DEADBAND_DEG:
         v = BASE_V
     else:
         v = MIN_V
 
-    return v, w
+    return v, w, raw_w
 
 
 def expected_wheel_targets(v, w):
@@ -195,6 +208,8 @@ def main():
 
     distance_array = new_distance_array()
     points_in_scan = 0
+    last_target_index = None
+    last_w = 0.0
     last_log = 0.0
 
     try:
@@ -214,14 +229,23 @@ def main():
                 desired_angle, has_gap, gap_width = Follow_the_Gap_Method(
                     distance_array,
                     FGM_FREE_THRESHOLD_MM,
+                    last_target_index,
                 )
                 target_angle = desired_angle - FGM_CENTER_INDEX
                 target_index = int(round(desired_angle))
                 target_distance = distance_array[target_index]
 
-                v, w = choose_drive_command(target_angle, target_distance, has_gap)
+                v, w, raw_w = choose_drive_command(
+                    target_angle,
+                    target_distance,
+                    has_gap,
+                    last_w,
+                )
                 phi_l, phi_r = expected_wheel_targets(v, w)
                 put_latest(data_queue, (v, w))
+                last_w = w
+                if has_gap:
+                    last_target_index = target_index
 
                 now = time.time()
                 if now - last_log >= LOG_INTERVAL_S:
@@ -229,7 +253,7 @@ def main():
                         f"[FGM_ADD] tgt={target_angle:.1f}deg "
                         f"dist={target_distance / 1000.0:.2f} "
                         f"gap={gap_width} safe={int(has_gap)} "
-                        f"v={v:.2f} w={w:.2f} "
+                        f"v={v:.2f} w={w:.2f} raw={raw_w:.2f} "
                         f"phiL={phi_l:.2f} phiR={phi_r:.2f}"
                     )
                     last_log = now
