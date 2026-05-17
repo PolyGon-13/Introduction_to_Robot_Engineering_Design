@@ -63,8 +63,6 @@ FGM_BUBBLE_RADIUS = ROBOT_RADIUS + 0.08 # 장애물 부풀리는 반경
 FGM_FREE_DIST = COLLISION_DIST + 0.04 # 이 이상 뚫려 있어야 지나갈 수 있는 칸으로 인식
 FGM_MIN_GAP_WIDTH_DEG = 8.0 # 인식한 Gap의 최소 허용각도
 FGM_MIN_PHYSICAL_GAP_WIDTH_M = 2.0 * ROBOT_RADIUS + 0.05
-FGM_PATH_CLEARANCE_MARGIN = 0.03 # 후보 진행 방향 좌우 여유 거리
-FGM_PATH_CHECK_DIST = MAX_LIDAR_DIST_M # 후보 진행 방향 안전 검사 거리
 
 FGM_SMOOTH_WINDOW = 5 # 이동평균 윈도우 크기 (5칸 = +-2도) : 튀는 값 방지 휘해 2도 간격으로 값들의 평균값으로 값을 대체
 
@@ -572,33 +570,8 @@ def gap_edge_discontinuity_score(ranges, start, end):
     return max(scores) if scores else 0.0
 
 
-def path_clearance_mask(points_all, angle_rad):
-    if len(angle_rad) == 0:
-        return np.zeros(0, dtype=bool)
-
-    if points_all is None or len(points_all) == 0:
-        return np.ones(len(angle_rad), dtype=bool)
-
-    xs = points_all[:, 0]
-    ys = points_all[:, 1]
-    cos_a = np.cos(angle_rad)[:, None]
-    sin_a = np.sin(angle_rad)[:, None]
-
-    along = cos_a * xs[None, :] + sin_a * ys[None, :]
-    lateral = -sin_a * xs[None, :] + cos_a * ys[None, :]
-    clearance = ROBOT_RADIUS + FGM_PATH_CLEARANCE_MARGIN
-
-    blocked = (
-        (along > MIN_LIDAR_DIST_M)
-        & (along <= FGM_PATH_CHECK_DIST)
-        & (np.abs(lateral) < clearance)
-    )
-
-    return ~blocked.any(axis=1)
-
-
 # 여러 Gap 중에서 최적의 목표각을 선택하는 함수
-def choose_target_from_gaps(angles_deg, ranges, discontinuity_ranges, gaps, pose, prev_target_angle, front_factor, accumulated_turn_rad, points_all):
+def choose_target_from_gaps(angles_deg, ranges, discontinuity_ranges, gaps, pose, prev_target_angle, front_factor, accumulated_turn_rad):
     if not gaps:
         return -1, (0, 0), -float("inf"), []
 
@@ -625,15 +598,6 @@ def choose_target_from_gaps(angles_deg, ranges, discontinuity_ranges, gaps, pose
 
         idxs = idxs[targetable]
         angle_rad = angle_rad[targetable]
-        clear_path = path_clearance_mask(points_all, angle_rad)
-        if not clear_path.any():
-            candidate_summaries.append(
-                f"{angles_deg[start]:.0f}:{angles_deg[end - 1]:.0f}@blocked"
-            )
-            continue
-
-        idxs = idxs[clear_path]
-        angle_rad = angle_rad[clear_path]
         local_width = max(1, end - start)
 
         discontinuity_score = gap_edge_discontinuity_score(discontinuity_ranges, start, end)
@@ -735,13 +699,13 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose, accumulated_turn_rad=0
     # bubble_ranges : 안전 버블 적용된 거리 배열, closest_idx : 가장 가까운 장애물의 각도 인덱스, closest_dist : 가장 가까운 장애물의 거리, bubble_bins : 그 장애물 주변 몇 칸을 막았는지
     bubble_ranges, closest_idx, closest_dist, bubble_bins = apply_safety_bubble(smooth_ranges, counts) # 안전 버블 적용
 
-    free_mask = smooth_ranges >= FGM_FREE_DIST # 지나갈 수 있는 칸인지 확인
+    free_mask = bubble_ranges >= FGM_FREE_DIST # 지나갈 수 있는 칸인지 확인
     gaps = filter_gaps_by_width(find_free_gaps(free_mask), smooth_ranges) # 연속된 안전한 구간(=Gap) 찾고, 너무 좁은 Gap 제거
+    has_safe_gap = len(gaps) > 0 # 안전한 Gap이 있는지 여부
 
     # 최종적으로 어느 gap의 어느 각도를 목표로 할지 선택
     # target_idx : 목표 각도 인덱스, best_gap : 그 각도가 속한 Gap의 시작과 끝 인덱스, best_score : 그 후보의 점수, gap_candidates : 후보 요약 문자열 리스트
-    target_idx, best_gap, best_score, gap_candidates = choose_target_from_gaps(angles_deg, smooth_ranges, smooth_ranges, gaps, pose, prev_target_angle, front_factor, accumulated_turn_rad, points_all)
-    has_safe_gap = target_idx >= 0 # 안전한 Gap이 있는지 여부
+    target_idx, best_gap, best_score, gap_candidates = choose_target_from_gaps(angles_deg, bubble_ranges, smooth_ranges, gaps, pose, prev_target_angle, front_factor, accumulated_turn_rad)
 
     # safe gap이 없거나, 그 안에서 선택 가능한 후보가 없는 경우
     if target_idx < 0:
