@@ -88,7 +88,7 @@ def stop_lidar(lidar_ser):
 
 
 def new_distance_array():
-    return [MAX_LIDAR_DIST_MM] * 181
+    return [0.0] * 181
 
 
 def parse_lidar_packet(data):
