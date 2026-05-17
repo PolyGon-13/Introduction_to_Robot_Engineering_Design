@@ -73,7 +73,7 @@ FGM_GOAL_WEIGHT_DANGER = 0.30 # 위험할 때 목표 방향 가중치
 FGM_STRAIGHT_WEIGHT = 0.70 # 정면 선호 가중치
 FGM_CLEARANCE_WEIGHT = 1.80 # 넓게 뚫린 방향 선호 가중치
 FGM_EDGE_WEIGHT = 0.85 # Gap 중앙 선호 가중치
-FGM_GAP_WIDTH_WEIGHT = 0.80 # Gap 폭 가중치
+FGM_GAP_WIDTH_WEIGHT = 0.25 # Gap 폭 가중치
 FGM_RANGE_DISCONTINUITY_WEIGHT = 0.70
 FGM_RANGE_DISCONTINUITY_CAP = 0.50
 FGM_RANGE_DISCONTINUITY_EDGE_WINDOW_DEG = 3.0
@@ -85,7 +85,7 @@ SIDE_GAP_BIAS_GAIN_DEG_PER_M = 125.0 # 좌우 거리차
 SIDE_TIGHT_TURN_LIMIT_DEG = 20.0 # 옆이 매우 좁을 때 회전한계
 SIDE_NARROW_TURN_LIMIT_DEG = 35.0 # 옆이 좁을 때 회전한계
 SIDE_NARROW_V = 0.12 # 옆이 좁을 때 FGM 속도 상한
-SIDE_TIGHT_V = 0.08 # 옆이 매우 좁을 때 FGM 속도 상한
+SIDE_TIGHT_V = 0.12 #0.08 # 옆이 매우 좁을 때 FGM 속도 상한
 
 
 # Recovery Mode
