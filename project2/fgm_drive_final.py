@@ -52,7 +52,7 @@ TURN_HARD_LIMIT_RAD = math.radians(80.0) # FGM 최대 목표 각도
 CUM_TURN_SOFT_LIMIT_RAD = math.radians(70.0) # 누적 회전량 페널티 기준1
 CUM_TURN_HARD_LIMIT_RAD = math.radians(88.0) # 누적 회전량 페널티 기준2
 CUM_TURN_SOFT_PENALTY_WEIGHT = 8.0 # 각속도 누적 페널티 강도1
-CUM_TURN_HARD_PENALTY_WEIGHT = 50.0 # 각속도 누적 페널티 강도
+CUM_TURN_HARD_PENALTY_WEIGHT = 50.0 # 각속도 누적 페널티 강도2
 
 
 # FGM 알고리즘
@@ -67,7 +67,7 @@ FGM_MIN_PHYSICAL_GAP_WIDTH_M = 2.0 * ROBOT_RADIUS + 0.05
 FGM_SMOOTH_WINDOW = 5 # 이동평균 윈도우 크기 (5칸 = +-2도) : 튀는 값 방지 휘해 2도 간격으로 값들의 평균값으로 값을 대체
 
 FGM_TURN_GAIN = 1.05 # 목표 각도->회전명령 가중치
-FGM_PREV_TARGET_WEIGHT = 0.45 # 직전 목표 방향 연속성 가중치
+FGM_PREV_TARGET_WEIGHT = 0.6 # 직전 목표 방향 연속성 가중치
 FGM_GOAL_WEIGHT_SAFE = 1.00 # 안전할 때 목표 방향 가중치
 FGM_GOAL_WEIGHT_DANGER = 0.30 # 위험할 때 목표 방향 가중치
 FGM_STRAIGHT_WEIGHT = 0.70 # 정면 선호 가중치
