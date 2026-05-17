@@ -18,7 +18,7 @@ DIST_OFFSET_MM = 0.0 # 라이다 거리 보정값
 LIDAR_ANGLE_SIGN = -1.0 # 라이다 각도 방향 반전 여부
 
 MIN_LIDAR_DIST_M = 0.05 # 라이다 유효 최소 거리
-MAX_LIDAR_DIST_M = 2.5 # 라이다 유효 최대 거리
+MAX_LIDAR_DIST_M = 0.5 # 라이다 유효 최대 거리
 MIN_QUALITY = 1 # 라이다 품질 최소값
 MIN_X_FOR_PLANNING = 0.10 # FGM에 넣을 최소 전방 거리
 MAX_EVAL_POINTS = 720 # 계산에 사용할 라이다 포인트 최대 개수
@@ -888,7 +888,7 @@ def main():
                     accumulated_turn_rad,
                 )
 
-                blocked_now = info["collision"] and v <= 0.01 and w <= 0.01 # 충돌 위험을 감지했고, 속도가 거의 0인 경우
+                blocked_now = info["collision"] and v <= 0.01 and abs(w) <= 0.01 # 충돌 위험을 감지했고, 속도가 거의 0인 경우
                 no_safe_gap_now = not info["has_safe_gap"] # safe gap이 없는 경우
                 recovery_trigger = (blocked_now or no_safe_gap_now) # recovery 켤지 결정
 
