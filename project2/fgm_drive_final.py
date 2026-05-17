@@ -42,7 +42,7 @@ ROBOT_RADIUS = 0.13 # 로봇 반지름
 COLLISION_DIST = ROBOT_RADIUS + 0.05 # 충돌위험 거리
 ACTIVE_FRONT_DIST = 0.30 # 정면 장애물 반응 시작 거리
 FRONT_DANGER_DIST = 0.19 # 정면 위험 거리
-FRONT_SLOW_DIST = 0.10 # 정면 초근접 감속 시작 거리
+FRONT_SLOW_DIST = 0.11 # 정면 초근접 감속 시작 거리
 FRONT_STOP_DIST = 0.08 # 정면 초근접 정지 거리
 FRONT_CORRIDOR_HALF = COLLISION_DIST + 0.30 # FGM 장애물로 인식할 Y축 범위의 절반
 
@@ -86,8 +86,8 @@ SIDE_GAP_BIAS_MAX_DEG = 10.0 # 조향 보정 최대각도
 SIDE_GAP_BIAS_GAIN_DEG_PER_M = 60.0 # 좌우 거리차
 SIDE_TIGHT_TURN_LIMIT_DEG = 20.0 # 옆이 매우 좁을 때 회전한계
 SIDE_NARROW_TURN_LIMIT_DEG = 35.0 # 옆이 좁을 때 회전한계
-SIDE_NARROW_V = 0.16 # 옆이 좁을 때 FGM 속도 상한
-SIDE_TIGHT_V = 0.16 # 옆이 매우 좁을 때 FGM 속도 상한
+SIDE_NARROW_V = 0.15 # 옆이 좁을 때 FGM 속도 상한
+SIDE_TIGHT_V = 0.12 # 옆이 매우 좁을 때 FGM 속도 상한
 
 
 # Recovery Mode
