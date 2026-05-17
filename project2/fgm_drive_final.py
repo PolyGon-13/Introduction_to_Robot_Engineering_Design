@@ -540,13 +540,14 @@ def gap_edge_discontinuity_score(ranges, start, end):
     return max(scores) if scores else 0.0
 
 
+# 여러 Gap 중에서 최적의 목표각을 선택하는 함수
 def choose_target_from_gaps(angles_deg, ranges, discontinuity_ranges, gaps, pose, prev_target_angle, front_factor, accumulated_turn_rad):
     if not gaps:
         return -1, (0, 0), -float("inf")
 
-    goal_angle = normalize_angle_rad(INITIAL_HEADING_RAD - pose.theta)
-    goal_angle = float(np.clip(goal_angle, -TURN_HARD_LIMIT_RAD, TURN_HARD_LIMIT_RAD))
-    prev_angle = float(np.clip(prev_target_angle, -TURN_HARD_LIMIT_RAD, TURN_HARD_LIMIT_RAD))
+    goal_angle = normalize_angle_rad(INITIAL_HEADING_RAD - pose.theta) # 출발 방향 기준으로 현재 로봇이 어느 방향에 있는지 계산
+    goal_angle = float(np.clip(goal_angle, -TURN_HARD_LIMIT_RAD, TURN_HARD_LIMIT_RAD)) # 최대 목표각 범위 안으로 자르기
+    prev_angle = float(np.clip(prev_target_angle, -TURN_HARD_LIMIT_RAD, TURN_HARD_LIMIT_RAD)) # 직전 목표각 범위 안으로 자르기
 
     best_idx = -1
     best_gap = (0, 0)
