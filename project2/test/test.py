@@ -5,7 +5,7 @@ from threading import Thread
 from queue import Queue
 
 lidar_ser = serial.Serial("/dev/ttyUSB0", 460800, timeout=0.1)
-arduino_ser = serial.Serial("/dev/ttyS0", 9600, timeout=0.1)
+arduino_ser = serial.Serial("/dev/ttyS0", 115200, timeout=0.1)
 
 data_queue = Queue(maxsize=10)
 send_enable = False
@@ -22,6 +22,7 @@ thread.start()
 
 lidar_ser.write(bytes([0xA5, 0x40]))
 time.sleep(1)
+lidar_ser.read(7)  # RPLIDAR response descriptor 제거
 lidar_ser.write(bytes([0xA5, 0x20]))
 
 wheel_R = 0.034
