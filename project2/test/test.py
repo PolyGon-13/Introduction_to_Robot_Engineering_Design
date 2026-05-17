@@ -49,14 +49,14 @@ def compute_wheel_phis(target_angle_deg: float):
     phi_r = (v / wheel_R) + ((w * wheel_l) / (2 * wheel_R))
     
     
-    if phi_l < 4.1:
+    if phi_l < 4.5:
         if phi_l < 0: phi_l = 2.25
-        else : phi_l = 4.1
+        else : phi_l = 4.5
         
     
-    if phi_r < 4.1:
+    if phi_r < 4.5:
         if phi_r < 0: phi_r = 2.25
-        else : phi_r = 4.1
+        else : phi_r = 4.5
         
     return phi_l, phi_r
 
