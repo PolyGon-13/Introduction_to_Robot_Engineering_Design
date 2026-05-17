@@ -9,7 +9,7 @@ import numpy as np
 LIDAR_PORT = "/dev/ttyUSB0"
 LIDAR_BAUD = 460800
 ARDU_PORT = "/dev/ttyS0"
-ARDU_BAUD = 9600
+ARDU_BAUD = 115200
 
 
 # LiDAR
@@ -1042,41 +1042,42 @@ def main():
                         left_log = 1.0
                         right_log = 1.0
 
-                    print(
-                        f"[{recovery_mode_name}] x={pose.x:.2f} y={pose.y:.2f} "
-                        f"th={math.degrees(pose.theta):.1f}deg "
-                        f"v={v:.2f} w={w:.2f} "
-                        f"ct={accumulated_turn_deg_log:.1f}deg "
-                        f"turned={recovery_turned_deg_log:.1f}deg "
-                        f"rfront={recovery_front_dist_log:.2f} "
-                        f"front={front_log:.2f} "
-                        f"gaps={gaps_log} safe={safe_log} "
-                        f"close={close_log:.2f}@{close_angle_log:.0f} "                        
-                        f"L={left_log:.2f} R={right_log:.2f}"
-                    )
+                    # print(
+                    #     f"[{recovery_mode_name}] x={pose.x:.2f} y={pose.y:.2f} "
+                    #     f"th={math.degrees(pose.theta):.1f}deg "
+                    #     f"v={v:.2f} w={w:.2f} "
+                    #     f"ct={accumulated_turn_deg_log:.1f}deg "
+                    #     f"turned={recovery_turned_deg_log:.1f}deg "
+                    #     f"rfront={recovery_front_dist_log:.2f} "
+                    #     f"front={front_log:.2f} "
+                    #     f"gaps={gaps_log} safe={safe_log} "
+                    #     f"close={close_log:.2f}@{close_angle_log:.0f} "
+                    #     f"L={left_log:.2f} R={right_log:.2f}"
+                    # )
 
                 elif info is not None:
-                    print(
-                        f"[{recovery_mode_name}] x={pose.x:.2f} y={pose.y:.2f} "
-                        f"th={pose.theta:.2f} "
-                        f"v={v:.2f} w={w:.2f} raw={info['raw_w']:.2f} "
-                        f"ct={accumulated_turn_deg_log:.1f}deg "
-                        f"tp={info['turn_penalty']:.2f} "
-                        f"tgt={info['target_deg']:.1f} td={info['target_dist']:.2f} "
-                        f"front={info['front']:.2f} "
-                        f"gap={info['gap_width']:.0f} gphys={info['gap_physical_width']:.2f} "
-                        f"gr={info['gap_right']:.0f} gl={info['gap_left']:.0f} "
-                        f"gaps={info['gaps']} safe={int(info['has_safe_gap'])} "
-                        f"cands={info['gap_candidates']} "
-                        f"close={info['closest']:.2f}@{info['closest_angle']:.0f} "
-                        f"bub={info['bubble_half_angle_deg']:.1f}deg/{info['bubble_bins']} "
-                        f"br={info['bubble_right']:.0f} bl={info['bubble_left']:.0f} "
-                        f"score={info['score']:.2f} "
-                        f"coll={int(info['collision'])} "
-                        f"sbias={info['side_bias_deg']:.1f}deg "
-                        f"slim={info['side_turn_limit_deg']:.0f}deg "
-                        f"L={info['left']:.2f} R={info['right']:.2f}"
-                    )
+                    pass
+                    # print(
+                    #     f"[{recovery_mode_name}] x={pose.x:.2f} y={pose.y:.2f} "
+                    #     f"th={pose.theta:.2f} "
+                    #     f"v={v:.2f} w={w:.2f} raw={info['raw_w']:.2f} "
+                    #     f"ct={accumulated_turn_deg_log:.1f}deg "
+                    #     f"tp={info['turn_penalty']:.2f} "
+                    #     f"tgt={info['target_deg']:.1f} td={info['target_dist']:.2f} "
+                    #     f"front={info['front']:.2f} "
+                    #     f"gap={info['gap_width']:.0f} gphys={info['gap_physical_width']:.2f} "
+                    #     f"gr={info['gap_right']:.0f} gl={info['gap_left']:.0f} "
+                    #     f"gaps={info['gaps']} safe={int(info['has_safe_gap'])} "
+                    #     f"cands={info['gap_candidates']} "
+                    #     f"close={info['closest']:.2f}@{info['closest_angle']:.0f} "
+                    #     f"bub={info['bubble_half_angle_deg']:.1f}deg/{info['bubble_bins']} "
+                    #     f"br={info['bubble_right']:.0f} bl={info['bubble_left']:.0f} "
+                    #     f"score={info['score']:.2f} "
+                    #     f"coll={int(info['collision'])} "
+                    #     f"sbias={info['side_bias_deg']:.1f}deg "
+                    #     f"slim={info['side_turn_limit_deg']:.0f}deg "
+                    #     f"L={info['left']:.2f} R={info['right']:.2f}"
+                    # )
 
                 last_log = time.time()
 
