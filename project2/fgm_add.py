@@ -15,7 +15,7 @@ ARDU_BAUD = 9600
 
 ANGLE_OFFSET_DEG = 1.54
 DIST_OFFSET_MM = 0.0
-LIDAR_ANGLE_SIGN = -1.0
+LIDAR_ANGLE_SIGN = 1.0
 
 MIN_LIDAR_DIST_MM = 50.0
 MAX_LIDAR_DIST_MM = 500.0
@@ -26,6 +26,7 @@ FGM_MAX_ANGLE_DEG = 90.0
 FGM_CENTER_INDEX = 90.0
 FGM_FREE_THRESHOLD_MM = 400.0
 FGM_MIN_GAP_WIDTH_DEG = 8.0
+FGM_CENTER_BIAS_PER_DEG = 1.0
 MIN_SCAN_POINTS = 40
 
 BASE_V = 0.20
@@ -124,35 +125,40 @@ def parse_lidar_packet(data):
 
 
 def Follow_the_Gap_Method(distances, threshold):
-    max_tmp = 0
-    tmp = 0
-    best_start = 0
-    best_end = 0
-    current_start = 0
+    gaps = []
+    current_start = None
 
-    for angle in range(len(distances)):
-        if distances[angle] >= threshold:
-            if tmp == 0:
+    for angle, distance in enumerate(distances):
+        if distance >= threshold:
+            if current_start is None:
                 current_start = angle
-            tmp += 1
-        else:
-            if tmp > max_tmp:
-                max_tmp = tmp
-                best_start = current_start
-                best_end = angle - 1
-            tmp = 0
+        elif current_start is not None:
+            gaps.append((current_start, angle - 1))
+            current_start = None
 
-    if tmp > max_tmp:
-        max_tmp = tmp
-        best_start = current_start
-        best_end = len(distances) - 1
+    if current_start is not None:
+        gaps.append((current_start, len(distances) - 1))
 
     min_gap_bins = max(1, int(math.ceil(FGM_MIN_GAP_WIDTH_DEG)))
-    if max_tmp < min_gap_bins:
+    valid_gaps = [
+        (start, end)
+        for start, end in gaps
+        if (end - start + 1) >= min_gap_bins
+    ]
+    if not valid_gaps:
         return FGM_CENTER_INDEX, False, 0
 
-    mid_angle = (best_start + best_end) / 2.0
-    return mid_angle, True, max_tmp
+    best_start, best_end = max(
+        valid_gaps,
+        key=lambda gap: (
+            (gap[1] - gap[0] + 1)
+            - FGM_CENTER_BIAS_PER_DEG
+            * abs(((gap[0] + gap[1]) / 2.0) - FGM_CENTER_INDEX)
+        ),
+    )
+
+    target_angle = clamp(FGM_CENTER_INDEX, best_start, best_end)
+    return target_angle, True, best_end - best_start + 1
 
 
 def choose_drive_command(target_angle_deg, target_distance_mm, has_gap):
