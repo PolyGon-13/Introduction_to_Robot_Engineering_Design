@@ -65,10 +65,8 @@ float W_cmd = 0.0f; // 현재 목표 각속도 (rad/s)
 // 타이머
 const unsigned long PID_INTERVAL_MS = 20; // PID 제어 주기 (ms)
 const unsigned long CMD_TIMEOUT_MS = 3000; // 명령 타임아웃 (ms) - 이 시간 동안 명령이 없으면 모션 정지
-const unsigned long ODOM_INTERVAL_MS = 50; // Odometry 송신 주기 (ms)
 unsigned long lastPidMs = 0; // 마지막 PID 제어 시간
 unsigned long lastCmdMs = 0; // 마지막 명령 수신 시간
-unsigned long lastOdomMs = 0; // 마지막 Odometry 송신 시간
 
 
 // 엔코더 변수
@@ -161,17 +159,6 @@ void resolveWheelTargets(float v, float w) {
   float wR = (v + WHEEL_BASE * w * 0.5f) / WHEEL_R; // 오른쪽 바퀴 목표 각속도
   pidL.target = constrain(wL, -WHEEL_SPEED_MAX, WHEEL_SPEED_MAX);
   pidR.target = constrain(wR, -WHEEL_SPEED_MAX, WHEEL_SPEED_MAX);
-}
-
-
-void sendOdom(unsigned long now) {
-  if (now - lastOdomMs < ODOM_INTERVAL_MS) return;
-  lastOdomMs = now;
-
-  Serial1.print(F("O,"));
-  Serial1.print(pidL.meas, 4);
-  Serial1.print(F(","));
-  Serial1.println(pidR.meas, 4);
 }
 
 
@@ -275,7 +262,6 @@ void loop() {
   pidR.meas = (dR / COUNT_PER_RAD) / dt;
   pidL.meas = (dL / COUNT_PER_RAD) / dt;
   resolveWheelTargets(V_cmd, W_cmd);
-  sendOdom(now);
 
   // 모터 출력
   float Vr = 0.0f;

@@ -10,9 +10,6 @@ LIDAR_PORT = "/dev/ttyUSB0"
 LIDAR_BAUD = 460800
 ARDU_PORT = "/dev/ttyS0"
 ARDU_BAUD = 9600
-WHEEL_R = 0.034
-WHEEL_BASE = 0.179
-ODOM_HOLD_S = 0.25
 
 
 # LiDAR
@@ -21,7 +18,7 @@ DIST_OFFSET_MM = 0.0 # 라이다 거리 보정값
 LIDAR_ANGLE_SIGN = -1.0 # 라이다 각도 방향 반전 여부
 
 MIN_LIDAR_DIST_M = 0.05 # 라이다 유효 최소 거리
-MAX_LIDAR_DIST_M = 0.7 # 라이다 유효 최대 거리
+MAX_LIDAR_DIST_M = 0.5 # 라이다 유효 최대 거리
 MIN_QUALITY = 1 # 라이다 품질 최소값
 MIN_X_FOR_PLANNING = 0.10 # FGM에 넣을 최소 전방 거리
 MAX_EVAL_POINTS = 720 # 계산에 사용할 라이다 포인트 최대 개수
@@ -62,7 +59,7 @@ CUM_TURN_HARD_PENALTY_WEIGHT = 50.0 # 각속도 누적 페널티 강도2
 FGM_MIN_ANGLE_DEG = -90.0 # 우측 라이다 스캔 각도
 FGM_MAX_ANGLE_DEG = 90.0 # 좌측 라이다 스캔 각도
 FGM_ANGLE_STEP_DEG = 1.0 # 격자 생성 각도
-FGM_BUBBLE_RADIUS = ROBOT_RADIUS + 0.065 # 장애물 부풀리는 반경
+FGM_BUBBLE_RADIUS = ROBOT_RADIUS + 0.08 # 장애물 부풀리는 반경
 FGM_FREE_DIST = COLLISION_DIST + 0.04 # 이 이상 뚫려 있어야 지나갈 수 있는 칸으로 인식
 FGM_MIN_GAP_WIDTH_DEG = 8.0 # 인식한 Gap의 최소 허용각도
 FGM_MIN_PHYSICAL_GAP_WIDTH_M = 2.0 * ROBOT_RADIUS + 0.05
@@ -88,7 +85,7 @@ SIDE_GAP_BIAS_GAIN_DEG_PER_M = 125.0 # 좌우 거리차
 SIDE_TIGHT_TURN_LIMIT_DEG = 20.0 # 옆이 매우 좁을 때 회전한계
 SIDE_NARROW_TURN_LIMIT_DEG = 35.0 # 옆이 좁을 때 회전한계
 SIDE_NARROW_V = 0.12 # 옆이 좁을 때 FGM 속도 상한
-SIDE_TIGHT_V = 0.08 # 옆이 매우 좁을 때 FGM 속도 상한
+SIDE_TIGHT_V = 0.08 #0.08 # 옆이 매우 좁을 때 FGM 속도 상한
 
 
 # Recovery Mode
@@ -96,8 +93,8 @@ RECOVERY_TURN_W = 1.00 # Recovery 제자리 회전 속도
 RECOVERY_MAX_TURN_RAD = math.radians(200.0) # Recovery 최대 회전각도
 RECOVERY_TURN_TIMEOUT_S = 15.0
 
-RECOVERY_TURN_ENABLE = False # Recovery 기능 on/off 스위치
-RECOVERY_FRONT_OPEN_JUMP_DIST = 0.07
+RECOVERY_TURN_ENABLE = True # Recovery 기능 on/off 스위치
+RECOVERY_FRONT_OPEN_JUMP_DIST = 0.09
 RECOVERY_FRONT_OPEN_PREV_MAX_DIST = 0.45
 RECOVERY_FRONT_OPEN_CONFIRM_FRAMES = 1 # Recovery 탈출 조건 프레임 수
 RECOVERY_FRONT_CHECK_DIST = 0.30
@@ -125,18 +122,18 @@ def angle_error_rad(a, b):
 def choose_initial_based_recovery_dir(theta, accumulated_turn_rad=0.0, prev_w=0.0):
     heading_from_initial = normalize_angle_rad(theta - INITIAL_HEADING_RAD)
 
-    # 누적 회전량이 왼쪽으로 쌓인 경우 우회전
-    if accumulated_turn_rad > RECOVERY_INITIAL_DEADBAND_RAD:
-        return -1.0
-    # 누적 회전량이 오른쪽으로 쌓인 경우 좌회전
-    elif accumulated_turn_rad < -RECOVERY_INITIAL_DEADBAND_RAD:
-        return +1.0
-
     # 왼쪽으로 돌아있는 경우 우회전
     if heading_from_initial > RECOVERY_INITIAL_DEADBAND_RAD:
         return -1.0
     # 오른쪽으로 돌아있는 경우 좌회전
     elif heading_from_initial < -RECOVERY_INITIAL_DEADBAND_RAD:
+        return +1.0
+    
+    # 누적 회전량이 왼쪽으로 쌓인 경우 우회전
+    if accumulated_turn_rad > RECOVERY_INITIAL_DEADBAND_RAD:
+        return -1.0
+    # 누적 회전량이 오른쪽으로 쌓인 경우 좌회전
+    elif accumulated_turn_rad < -RECOVERY_INITIAL_DEADBAND_RAD:
         return +1.0
 
     # 직전 회전속도가 왼쪽이면 우회전
@@ -165,73 +162,6 @@ class RobotPose:
         self.x += v * math.cos(self.theta) * dt
         self.y += v * math.sin(self.theta) * dt
         self.theta = normalize_angle_rad(self.theta + w * dt)
-
-
-class ArduinoLink:
-    def __init__(self, port, baud):
-        self.ser = serial.Serial(port, baud, timeout=0.05)
-        self.lock = threading.Lock()
-        self.write_lock = threading.Lock()
-        self.latest_odom = None
-        self.running = True
-        self.thread = threading.Thread(target=self._loop, daemon=True)
-        self.thread.start()
-
-    def _loop(self):
-        while self.running:
-            try:
-                line = self.ser.readline()
-                if not line:
-                    continue
-
-                text = line.decode("ascii", errors="ignore").strip()
-                if not text.startswith("O,"):
-                    continue
-
-                parts = text.split(",")
-                if len(parts) < 3:
-                    continue
-
-                wheel_l = float(parts[1])
-                wheel_r = float(parts[2])
-                v = WHEEL_R * (wheel_l + wheel_r) * 0.5
-                w = WHEEL_R * (wheel_r - wheel_l) / WHEEL_BASE
-
-                with self.lock:
-                    self.latest_odom = (v, w, time.time())
-            except (ValueError, UnicodeError):
-                continue
-            except (serial.SerialException, OSError) as e:
-                if self.running:
-                    print(f"[ARDU] Serial Error: {e}, retrying in 1 second...")
-                    time.sleep(1.0)
-
-    def get_odom(self, now=None):
-        if now is None:
-            now = time.time()
-        with self.lock:
-            odom = self.latest_odom
-        if odom is None:
-            return None
-
-        v, w, odom_time = odom
-        if now - odom_time > ODOM_HOLD_S:
-            return None
-
-        return v, w
-
-    def send_vw(self, v, w):
-        with self.write_lock:
-            self.ser.write(f"V{v:.3f},{w:.3f}\n".encode())
-
-    def stop(self):
-        with self.write_lock:
-            self.ser.write(b"S\n")
-
-    def close(self):
-        self.running = False
-        time.sleep(0.1)
-        self.ser.close()
 
 
 # RPLidar 초기화
@@ -539,9 +469,8 @@ def gap_physical_width_m(start, end, ranges):
         return 0.0
 
     gap_dist = float(np.percentile(gap_ranges[valid], 40))
-    gap_width_deg = max(0.0, (end - start - 1) * FGM_ANGLE_STEP_DEG)
-    gap_width_rad = math.radians(min(gap_width_deg, 180.0))
-    return float(2.0 * gap_dist * math.sin(0.5 * gap_width_rad))
+    gap_width_rad = math.radians((end - start) * FGM_ANGLE_STEP_DEG)
+    return float(2.0 * gap_dist * math.tan(0.5 * gap_width_rad))
 
 
 def filter_gaps_by_width(gaps, ranges):
@@ -862,15 +791,15 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose, accumulated_turn_rad=0
 def main():
     pose = RobotPose()
     lidar = RPLidarC1(LIDAR_PORT, LIDAR_BAUD)
-    ardu = ArduinoLink(ARDU_PORT, ARDU_BAUD)
+    ardu = serial.Serial(ARDU_PORT, ARDU_BAUD, timeout=0.1)
     print("[INFO] Warming up for 2 seconds...")
     time.sleep(2.0)
 
     def send_vw(v, w):
-        ardu.send_vw(v, w)
+        ardu.write(f"V{v:.3f},{w:.3f}\n".encode())
 
     def stop():
-        ardu.stop()
+        ardu.write(b"S\n")
 
     stop()
     print("[INFO] Initialization Complete. Press Enter to start!")
@@ -900,37 +829,24 @@ def main():
     recovery_turned_deg_log = 0.0
     recovery_front_dist_log = MAX_LIDAR_DIST_M
 
-    def update_pose_from_motion(command_v, command_w, dt, now):
-        nonlocal accumulated_turn_rad, recovery_accum_turn
-        odom = ardu.get_odom(now)
-        if odom is None:
-            motion_v = command_v
-            motion_w = command_w
-            odom_used = False
-        else:
-            motion_v, motion_w = odom
-            odom_used = True
-
-        pose.update(motion_v, motion_w, dt)
-        accumulated_turn_rad += motion_w * dt
-        if recovery_turn_active:
-            recovery_accum_turn += abs(motion_w) * dt
-        return motion_v, motion_w, odom_used
-
     try:
         while True:
             now = time.time()
             dt = max(0.0, min(0.20, now - last_pose_time))
             last_pose_time = now
 
+            if recovery_turn_active:
+                recovery_accum_turn += abs(last_w) * dt
+
             scan, scan_seq, scan_time = lidar.get_scan()
             if scan is None:
                 if time.time() - last_scan_ok <= SCAN_HOLD_S:
                     send_vw(last_v, last_w)
-                    update_pose_from_motion(last_v, last_w, dt, now)
+                    pose.update(last_v, last_w, dt)
+                    accumulated_turn_rad += last_w * dt
                 else:
                     send_vw(0.0, 0.0)
-                    update_pose_from_motion(0.0, 0.0, dt, now)
+                    pose.update(0.0, 0.0, dt)
                 time.sleep(LOOP_DT_S)
                 continue
 
@@ -942,7 +858,8 @@ def main():
                 stale_scan_warned = False
             elif not scan_is_stale:
                 send_vw(last_v, last_w)
-                update_pose_from_motion(last_v, last_w, dt, now)
+                pose.update(last_v, last_w, dt)
+                accumulated_turn_rad += last_w * dt
                 time.sleep(LOOP_DT_S)
                 continue
 
@@ -1010,14 +927,18 @@ def main():
                 recovery_turned_deg_log = math.degrees(recovery_accum_turn)
                 recovery_front_dist_log = recovery_front_dist
 
-                recovery_front_already_open = recovery_front_dist > RECOVERY_FRONT_OPEN_PREV_MAX_DIST
                 recovery_open_detected = (
                     recovery_prev_front_dist is not None
                     and recovery_prev_front_dist <= RECOVERY_FRONT_OPEN_PREV_MAX_DIST
                     and (recovery_front_dist - recovery_prev_front_dist) >= RECOVERY_FRONT_OPEN_JUMP_DIST
                 )
 
-                if recovery_front_already_open or recovery_open_detected:
+                if recovery_open_detected:
+                    recovery_front_open_count += 1
+                elif (
+                    recovery_front_open_count > 0
+                    and recovery_front_dist > RECOVERY_FRONT_OPEN_PREV_MAX_DIST
+                ):
                     recovery_front_open_count += 1
                 else:
                     recovery_front_open_count = 0
@@ -1093,7 +1014,8 @@ def main():
 
 
             send_vw(v, w)
-            odom_v, odom_w, odom_used = update_pose_from_motion(v, w, dt, now)
+            pose.update(v, w, dt)
+            accumulated_turn_rad += w * dt
             last_v, last_w = v, w
 
             if not recovery_turn_active:
@@ -1124,7 +1046,6 @@ def main():
                         f"[{recovery_mode_name}] x={pose.x:.2f} y={pose.y:.2f} "
                         f"th={math.degrees(pose.theta):.1f}deg "
                         f"v={v:.2f} w={w:.2f} "
-                        f"odom={int(odom_used)} ov={odom_v:.2f} ow={odom_w:.2f} "
                         f"ct={accumulated_turn_deg_log:.1f}deg "
                         f"turned={recovery_turned_deg_log:.1f}deg "
                         f"rfront={recovery_front_dist_log:.2f} "
@@ -1139,7 +1060,6 @@ def main():
                         f"[{recovery_mode_name}] x={pose.x:.2f} y={pose.y:.2f} "
                         f"th={pose.theta:.2f} "
                         f"v={v:.2f} w={w:.2f} raw={info['raw_w']:.2f} "
-                        f"odom={int(odom_used)} ov={odom_v:.2f} ow={odom_w:.2f} "
                         f"ct={accumulated_turn_deg_log:.1f}deg "
                         f"tp={info['turn_penalty']:.2f} "
                         f"tgt={info['target_deg']:.1f} td={info['target_dist']:.2f} "
