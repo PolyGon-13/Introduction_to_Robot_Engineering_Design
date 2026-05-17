@@ -17,6 +17,7 @@ def arduino_writer():
         arduino_ser.write(msg)
         time.sleep(0.01)
 
+
 thread = Thread(target=arduino_writer, daemon=True)
 thread.start()
 
