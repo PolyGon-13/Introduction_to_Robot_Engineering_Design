@@ -905,7 +905,7 @@ def main():
 
                 blocked_now = info["collision"] and v <= 0.01 and w <= 0.01 # 충돌 위험을 감지했고, 속도가 거의 0인 경우
                 no_safe_gap_now = not info["has_safe_gap"] # safe gap이 없는 경우
-                recovery_trigger = (blocked_now and no_safe_gap_now) # recovery 켤지 결정
+                recovery_trigger = (blocked_now or no_safe_gap_now) # recovery 켤지 결정
 
                 if (RECOVERY_TURN_ENABLE and (not recovery_turn_active) and recovery_trigger):
                     recovery_turn_dir = choose_initial_based_recovery_dir(
