@@ -26,7 +26,7 @@ SCAN_HOLD_S = 0.30 # 최근 라이다 스캔을 유효하다고 판단할 시간
 
 # 속도/거리 관련
 BASE_V = 0.23 # FGM 기본 직진속도
-MIN_V = 0.17 # FGM 장애물 회피속도
+MIN_V = 0.15 # FGM 장애물 회피속도
 MAX_ABS_W = 0.70 # FGM 최대 회전속도
 
 RECOVERY_MAX_W = 1.00 # Recovery 회전속도
@@ -46,6 +46,7 @@ FRONT_CORRIDOR_HALF = COLLISION_DIST + 0.30 # FGM 장애물로 인식할 Y축 �
 
 INITIAL_HEADING_RAD = 0.0 # 출발 기준 방향
 RECOVERY_INITIAL_DEADBAND_RAD = math.radians(2.0) # 출발 방향 기준 N도 안이면 방향 판단 보류
+RECOVERY_LATERAL_DEADBAND_M = 0.05 # 기준선 좌우 판단 보류 거리
 
 # 회전 limit
 TURN_HARD_LIMIT_RAD = math.radians(80.0) # FGM 최대 목표 각도
@@ -84,8 +85,8 @@ SIDE_GAP_BIAS_MAX_DEG = 35.0 # 조향 보정 최대각도
 SIDE_GAP_BIAS_GAIN_DEG_PER_M = 100.0 # 좌우 거리차
 SIDE_TIGHT_TURN_LIMIT_DEG = 20.0 # 옆이 매우 좁을 때 회전한계
 SIDE_NARROW_TURN_LIMIT_DEG = 35.0 # 옆이 좁을 때 회전한계
-SIDE_NARROW_V = 0.17 # 옆이 좁을 때 FGM 속도 상한
-SIDE_TIGHT_V = 0.17 # 옆이 매우 좁을 때 FGM 속도 상한
+SIDE_NARROW_V = 0.15 # 옆이 좁을 때 FGM 속도 상한
+SIDE_TIGHT_V = 0.13 # 옆이 매우 좁을 때 FGM 속도 상한
 
 
 # Recovery Mode
@@ -117,9 +118,16 @@ def angle_error_rad(a, b):
     return normalize_angle_rad(a - b)
 
 
+def lateral_error_from_initial_line(pose):
+    return (
+        -math.sin(INITIAL_HEADING_RAD) * pose.x
+        + math.cos(INITIAL_HEADING_RAD) * pose.y
+    )
+
+
 # Recovery mode에 들어갈 때 제자리 회전 방향 결정
 # theta : 현재 로봇 heading, accumulated_turn_rad : 누적 회전량, prev_w : 직전 회전속도
-def choose_initial_based_recovery_dir(theta, accumulated_turn_rad=0.0, prev_w=0.0):
+def choose_initial_based_recovery_dir(theta, accumulated_turn_rad=0.0, prev_w=0.0, lateral_error=0.0):
     heading_from_initial = normalize_angle_rad(theta - INITIAL_HEADING_RAD)
 
     # 누적 회전량이 왼쪽으로 쌓인 경우 우회전
@@ -127,6 +135,13 @@ def choose_initial_based_recovery_dir(theta, accumulated_turn_rad=0.0, prev_w=0.
         return -1.0
     # 누적 회전량이 오른쪽으로 쌓인 경우 좌회전
     elif accumulated_turn_rad < -RECOVERY_INITIAL_DEADBAND_RAD:
+        return +1.0
+
+    # 기준선보다 왼쪽에 있으면 우회전
+    if lateral_error > RECOVERY_LATERAL_DEADBAND_M:
+        return -1.0
+    # 기준선보다 오른쪽에 있으면 좌회전
+    elif lateral_error < -RECOVERY_LATERAL_DEADBAND_M:
         return +1.0
     
     # 왼쪽으로 돌아있는 경우 우회전
@@ -893,7 +908,12 @@ def main():
                 recovery_trigger = (blocked_now and no_safe_gap_now) # recovery 켤지 결정
 
                 if (RECOVERY_TURN_ENABLE and (not recovery_turn_active) and recovery_trigger):
-                    recovery_turn_dir = choose_initial_based_recovery_dir(pose.theta, accumulated_turn_rad, last_w) # 제자리 회전 방향 결정
+                    recovery_turn_dir = choose_initial_based_recovery_dir(
+                        pose.theta,
+                        accumulated_turn_rad,
+                        last_w,
+                        lateral_error_from_initial_line(pose),
+                    ) # 제자리 회전 방향 결정
                     recovery_start_time = time.time()
                     recovery_accum_turn = 0.0
                     recovery_prev_front_dist = None
