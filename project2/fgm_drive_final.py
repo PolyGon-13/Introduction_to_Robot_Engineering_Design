@@ -84,8 +84,8 @@ SIDE_GAP_BIAS_MAX_DEG = 10.0 # 조향 보정 최대각도
 SIDE_GAP_BIAS_GAIN_DEG_PER_M = 70.0 # 좌우 거리차
 SIDE_TIGHT_TURN_LIMIT_DEG = 20.0 # 옆이 매우 좁을 때 회전한계
 SIDE_NARROW_TURN_LIMIT_DEG = 35.0 # 옆이 좁을 때 회전한계
-SIDE_NARROW_V = 0.12 # 옆이 좁을 때 FGM 속도 상한
-SIDE_TIGHT_V = 0.08 # 옆이 매우 좁을 때 FGM 속도 상한
+SIDE_NARROW_V = 0.14 # 옆이 좁을 때 FGM 속도 상한
+SIDE_TIGHT_V = 0.10 # 옆이 매우 좁을 때 FGM 속도 상한
 
 
 # Recovery Mode
@@ -94,7 +94,7 @@ RECOVERY_MAX_TURN_RAD = math.radians(200.0) # Recovery 최대 회전각도
 RECOVERY_TURN_TIMEOUT_S = 15.0
 
 RECOVERY_TURN_ENABLE = True # Recovery 기능 on/off 스위치
-RECOVERY_FRONT_OPEN_JUMP_DIST = 0.06
+RECOVERY_FRONT_OPEN_JUMP_DIST = 0.05
 RECOVERY_FRONT_OPEN_PREV_MAX_DIST = 0.45
 RECOVERY_FRONT_OPEN_CONFIRM_FRAMES = 1 # Recovery 탈출 조건 프레임 수
 RECOVERY_FRONT_CHECK_DIST = 0.30
