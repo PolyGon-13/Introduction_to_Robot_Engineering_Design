@@ -354,7 +354,7 @@ def compute_side_info(points):
     if len(points) == 0:
         return info_left, info_right
 
-    side_band = (points[:, 0] > -0.03) & (points[:, 0] < 0.25) & (np.abs(points[:, 1]) < 0.30) # LiDAR 기준으로 전방 15cm, 좌우 30cm 범위의 포인트 선택 (좌우 거리 계산용임 - 정면 거리용 아님)
+    side_band = (points[:, 0] > -0.03) & (points[:, 0] < 0.35) & (np.abs(points[:, 1]) < 0.30) # LiDAR 기준으로 전방 15cm, 좌우 30cm 범위의 포인트 선택 (좌우 거리 계산용임 - 정면 거리용 아님)
     if side_band.any():
         ys = points[side_band, 1] # 포인트의 y값
         left = ys[ys > 0.05] # 왼쪽 포인트만 선택
