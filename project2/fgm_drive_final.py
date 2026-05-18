@@ -61,6 +61,9 @@ FGM_MAX_ANGLE_DEG = 90.0 # 좌측 라이다 스캔 각도
 FGM_ANGLE_STEP_DEG = 1.0 # 격자 생성 각도
 FGM_BUBBLE_RADIUS = ROBOT_RADIUS + 0.05 # 장애물 부풀리는 반경
 FGM_FREE_DIST = COLLISION_DIST + 0.03 # 이 이상 뚫려 있어야 지나갈 수 있는 칸으로 인식
+FGM_SWEEP_HALF_WIDTH = ROBOT_RADIUS + 0.03
+FGM_MIN_DRIVE_DEPTH = FGM_FREE_DIST
+FGM_DRIVE_DEPTH_CAP = CLEARANCE_CAP
 FGM_MIN_GAP_WIDTH_DEG = 8.0 # 인식한 Gap의 최소 허용각도
 FGM_MIN_PHYSICAL_GAP_WIDTH_M = 2.0 * ROBOT_RADIUS + 0.05
 
@@ -77,6 +80,7 @@ FGM_GAP_WIDTH_WEIGHT = 0.25 # Gap 폭 가중치
 FGM_RANGE_DISCONTINUITY_WEIGHT = 0.70
 FGM_RANGE_DISCONTINUITY_CAP = 0.50
 FGM_RANGE_DISCONTINUITY_EDGE_WINDOW_DEG = 3.0
+FGM_DRIVE_DEPTH_WEIGHT = 1.10
 
 SIDE_GAP_WARN_DIST = 0.19 # 옆 경고 시작 거리
 SIDE_GAP_BLOCK_DIST = 0.15 # 강하게 거부할 옆 거리
@@ -570,8 +574,34 @@ def gap_edge_discontinuity_score(ranges, start, end):
     return max(scores) if scores else 0.0
 
 
+def drive_depth_for_angles(points, angle_rad):
+    if len(points) == 0:
+        return np.full(len(angle_rad), MAX_LIDAR_DIST_M, dtype=np.float32)
+
+    if len(points) > MAX_EVAL_POINTS:
+        order = np.argsort(points[:, 0] ** 2 + points[:, 1] ** 2)
+        points = points[order[:MAX_EVAL_POINTS]]
+
+    angle_rad = np.asarray(angle_rad, dtype=np.float32)
+    cos_a = np.cos(angle_rad)
+    sin_a = np.sin(angle_rad)
+    x = points[:, 0:1]
+    y = points[:, 1:2]
+
+    forward = x * cos_a + y * sin_a
+    lateral = -x * sin_a + y * cos_a
+    blocked = (
+        (forward > 0.0)
+        & (forward <= FGM_DRIVE_DEPTH_CAP)
+        & (np.abs(lateral) <= FGM_SWEEP_HALF_WIDTH)
+    )
+    nearest = np.where(blocked, forward, np.inf).min(axis=0)
+    nearest = np.where(np.isfinite(nearest), nearest, MAX_LIDAR_DIST_M)
+    return nearest.astype(np.float32)
+
+
 # 여러 Gap 중에서 최적의 목표각을 선택하는 함수
-def choose_target_from_gaps(angles_deg, ranges, discontinuity_ranges, gaps, pose, prev_target_angle, front_factor, accumulated_turn_rad):
+def choose_target_from_gaps(angles_deg, ranges, discontinuity_ranges, gaps, points, pose, prev_target_angle, front_factor, accumulated_turn_rad):
     if not gaps:
         return -1, (0, 0), -float("inf"), []
 
@@ -599,11 +629,20 @@ def choose_target_from_gaps(angles_deg, ranges, discontinuity_ranges, gaps, pose
         idxs = idxs[targetable]
         angle_rad = angle_rad[targetable]
         local_width = max(1, end - start)
+        drive_depth = drive_depth_for_angles(points, angle_rad)
+        drive_usable = drive_depth >= FGM_MIN_DRIVE_DEPTH
+        if not drive_usable.any():
+            continue
+
+        idxs = idxs[drive_usable]
+        angle_rad = angle_rad[drive_usable]
+        drive_depth = drive_depth[drive_usable]
 
         discontinuity_score = gap_edge_discontinuity_score(discontinuity_ranges, start, end)
         edge_steps = np.minimum(idxs - start + 1, end - idxs)
         edge_score = np.clip(edge_steps / max(1.0, local_width * 0.5), 0.0, 1.0)
         clearance_score = np.clip(ranges[idxs] / CLEARANCE_CAP, 0.0, 1.0)
+        drive_depth_score = np.clip(drive_depth / FGM_DRIVE_DEPTH_CAP, 0.0, 1.0)
         straight_score = 1.0 - np.clip(np.abs(angle_rad) / max_target_angle, 0.0, 1.0)
         goal_score = 1.0 - np.clip(
             np.abs([angle_error_rad(a, goal_angle) for a in angle_rad]) / max_target_angle,
@@ -620,6 +659,7 @@ def choose_target_from_gaps(angles_deg, ranges, discontinuity_ranges, gaps, pose
 
         scores = (
             FGM_CLEARANCE_WEIGHT * clearance_score
+            + FGM_DRIVE_DEPTH_WEIGHT * drive_depth_score
             + FGM_EDGE_WEIGHT * edge_score
             + FGM_STRAIGHT_WEIGHT * straight_score
             + goal_weight * goal_score
@@ -696,19 +736,20 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose, accumulated_turn_rad=0
     angles_deg, raw_ranges, counts = scan_to_angle_ranges(scan)
     smooth_ranges = smooth_ranges_conservative(raw_ranges) # 거리 배열 평활화
 
-    # bubble_ranges : 안전 버블 적용된 거리 배열, closest_idx : 가장 가까운 장애물의 각도 인덱스, closest_dist : 가장 가까운 장애물의 거리, bubble_bins : 그 장애물 주변 몇 칸을 막았는지
-    bubble_ranges, closest_idx, closest_dist, bubble_bins = apply_safety_bubble(smooth_ranges, counts) # 안전 버블 적용
+    # closest_idx : 가장 가까운 장애물의 각도 인덱스, closest_dist : 가장 가까운 장애물의 거리
+    _, closest_idx, closest_dist, bubble_bins = apply_safety_bubble(smooth_ranges, counts)
 
-    free_mask = bubble_ranges >= FGM_FREE_DIST # 지나갈 수 있는 칸인지 확인
+    free_mask = smooth_ranges >= FGM_FREE_DIST # 지나갈 수 있는 칸인지 확인
     gaps = filter_gaps_by_width(find_free_gaps(free_mask), smooth_ranges) # 연속된 안전한 구간(=Gap) 찾고, 너무 좁은 Gap 제거
     has_safe_gap = len(gaps) > 0 # 안전한 Gap이 있는지 여부
 
     # 최종적으로 어느 gap의 어느 각도를 목표로 할지 선택
     # target_idx : 목표 각도 인덱스, best_gap : 그 각도가 속한 Gap의 시작과 끝 인덱스, best_score : 그 후보의 점수, gap_candidates : 후보 요약 문자열 리스트
-    target_idx, best_gap, best_score, gap_candidates = choose_target_from_gaps(angles_deg, bubble_ranges, smooth_ranges, gaps, pose, prev_target_angle, front_factor, accumulated_turn_rad)
+    target_idx, best_gap, best_score, gap_candidates = choose_target_from_gaps(angles_deg, smooth_ranges, smooth_ranges, gaps, points_all, pose, prev_target_angle, front_factor, accumulated_turn_rad)
 
     # safe gap이 없거나, 그 안에서 선택 가능한 후보가 없는 경우
     if target_idx < 0:
+        has_safe_gap = False
         target_idx = choose_fallback_target(angles_deg, smooth_ranges, info_left, info_right)
         # len(angles_deg) // 2
         
@@ -740,6 +781,10 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose, accumulated_turn_rad=0
             target_angle = min(0.0, target_angle)
     target_idx = int(np.argmin(np.abs(angles_deg - math.degrees(target_angle))))
     target_dist = float(smooth_ranges[target_idx])
+    target_drive_depth = float(drive_depth_for_angles(points_all, np.array([target_angle], dtype=np.float32))[0])
+    if target_drive_depth < FGM_MIN_DRIVE_DEPTH:
+        has_safe_gap = False
+    effective_target_dist = min(target_dist, target_drive_depth)
     raw_w = float(np.clip(FGM_TURN_GAIN * target_angle, -MAX_ABS_W, MAX_ABS_W))
     selected_turn_penalty, _ = cumulative_turn_penalty(
         np.array([target_angle], dtype=np.float32),
@@ -747,7 +792,7 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose, accumulated_turn_rad=0
     )
     urgent = front_dist < URGENT_FRONT_DIST or not has_safe_gap
     w = rate_limit_w(prev_w, raw_w, urgent=urgent)
-    v = choose_speed(target_dist, target_angle, has_safe_gap)
+    v = choose_speed(effective_target_dist, target_angle, has_safe_gap)
     v = min(v, side_gap_speed_limit(info_left, info_right))
 
     closest_angle = float(angles_deg[closest_idx]) if closest_idx >= 0 else 0.0
@@ -768,6 +813,7 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose, accumulated_turn_rad=0
         "score": best_score,
         "target_deg": math.degrees(target_angle),
         "target_dist": target_dist,
+        "drive_depth": target_drive_depth,
         "front": front_dist,
         "left": info_left,
         "right": info_right,
@@ -783,7 +829,7 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose, accumulated_turn_rad=0
         "bubble_half_angle_deg": bubble_half_angle_deg,
         "bubble_right": bubble_right,
         "bubble_left": bubble_left,
-        "collision": target_dist < COLLISION_DIST or closest_dist < COLLISION_DIST,
+        "collision": target_dist < COLLISION_DIST or target_drive_depth < COLLISION_DIST or closest_dist < COLLISION_DIST,
         "raw_w": raw_w,
         "has_safe_gap": has_safe_gap,
         "side_bias_deg": math.degrees(side_bias),
@@ -1066,14 +1112,14 @@ def main():
                         f"v={v:.2f} w={w:.2f} raw={info['raw_w']:.2f} "
                         f"ct={accumulated_turn_deg_log:.1f}deg "
                         f"tp={info['turn_penalty']:.2f} "
-                        f"tgt={info['target_deg']:.1f} td={info['target_dist']:.2f} "
+                        f"tgt={info['target_deg']:.1f} td={info['target_dist']:.2f} dd={info['drive_depth']:.2f} "
                         f"front={info['front']:.2f} "
                         f"gap={info['gap_width']:.0f} gphys={info['gap_physical_width']:.2f} "
                         f"gr={info['gap_right']:.0f} gl={info['gap_left']:.0f} "
                         f"gaps={info['gaps']} safe={int(info['has_safe_gap'])} "
                         f"cands={info['gap_candidates']} "
                         f"close={info['closest']:.2f}@{info['closest_angle']:.0f} "
-                        f"bub={info['bubble_half_angle_deg']:.1f}deg/{info['bubble_bins']} "
+                        f"bubdiag={info['bubble_half_angle_deg']:.1f}deg/{info['bubble_bins']} "
                         f"br={info['bubble_right']:.0f} bl={info['bubble_left']:.0f} "
                         f"score={info['score']:.2f} "
                         f"coll={int(info['collision'])} "
