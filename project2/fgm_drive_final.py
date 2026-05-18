@@ -25,8 +25,8 @@ MAX_EVAL_POINTS = 720 # 계산에 사용할 라이다 포인트 최대 개수
 SCAN_HOLD_S = 0.30 # 최근 라이다 스캔을 유효하다고 판단할 시간 (마지막 정상 스캔이 N초 이내면 그냥 사용)
 
 # 속도/거리 관련
-BASE_V = 0.18 # FGM 기본 직진속도
-MIN_V = 0.16 # FGM 장애물 회피속도
+BASE_V = 0.25 # FGM 기본 직진속도
+MIN_V = 0.15 # FGM 장애물 회피속도
 MAX_ABS_W = 0.70 # FGM 최대 회전속도
 
 RECOVERY_MAX_W = 1.00 # Recovery 회전속도
@@ -59,8 +59,8 @@ CUM_TURN_HARD_PENALTY_WEIGHT = 50.0 # 각속도 누적 페널티 강도2
 FGM_MIN_ANGLE_DEG = -90.0 # 우측 라이다 스캔 각도
 FGM_MAX_ANGLE_DEG = 90.0 # 좌측 라이다 스캔 각도
 FGM_ANGLE_STEP_DEG = 1.0 # 격자 생성 각도
-FGM_BUBBLE_RADIUS = ROBOT_RADIUS + 0.01 # 장애물 부풀리는 반경
-FGM_FREE_DIST = COLLISION_DIST + 0.03 # 이 이상 뚫려 있어야 지나갈 수 있는 칸으로 인식
+FGM_BUBBLE_RADIUS = ROBOT_RADIUS + 0.05 # 장애물 부풀리는 반경
+FGM_FREE_DIST = COLLISION_DIST + 0.04 # 이 이상 뚫려 있어야 지나갈 수 있는 칸으로 인식
 FGM_MIN_GAP_WIDTH_DEG = 8.0 # 인식한 Gap의 최소 허용각도
 FGM_MIN_PHYSICAL_GAP_WIDTH_M = 2.0 * ROBOT_RADIUS + 0.05
 
@@ -81,11 +81,11 @@ FGM_RANGE_DISCONTINUITY_EDGE_WINDOW_DEG = 3.0
 SIDE_GAP_WARN_DIST = 0.19 # 옆 경고 시작 거리
 SIDE_GAP_BLOCK_DIST = 0.15 # 강하게 거부할 옆 거리
 SIDE_GAP_BIAS_MAX_DEG = 10.0 # 조향 보정 최대각도
-SIDE_GAP_BIAS_GAIN_DEG_PER_M = 70.0 # 좌우 거리차
+SIDE_GAP_BIAS_GAIN_DEG_PER_M = 60.0 # 좌우 거리차
 SIDE_TIGHT_TURN_LIMIT_DEG = 20.0 # 옆이 매우 좁을 때 회전한계
 SIDE_NARROW_TURN_LIMIT_DEG = 35.0 # 옆이 좁을 때 회전한계
-SIDE_NARROW_V = 0.14 # 옆이 좁을 때 FGM 속도 상한
-SIDE_TIGHT_V = 0.10 # 옆이 매우 좁을 때 FGM 속도 상한
+SIDE_NARROW_V = 0.15 # 옆이 좁을 때 FGM 속도 상한
+SIDE_TIGHT_V = 0.12 # 옆이 매우 좁을 때 FGM 속도 상한
 
 
 # Recovery Mode
@@ -94,7 +94,7 @@ RECOVERY_MAX_TURN_RAD = math.radians(200.0) # Recovery 최대 회전각도
 RECOVERY_TURN_TIMEOUT_S = 15.0
 
 RECOVERY_TURN_ENABLE = True # Recovery 기능 on/off 스위치
-RECOVERY_FRONT_OPEN_JUMP_DIST = 0.05
+RECOVERY_FRONT_OPEN_JUMP_DIST = 0.06
 RECOVERY_FRONT_OPEN_PREV_MAX_DIST = 0.45
 RECOVERY_FRONT_OPEN_CONFIRM_FRAMES = 1 # Recovery 탈출 조건 프레임 수
 RECOVERY_FRONT_CHECK_DIST = 0.30
@@ -727,16 +727,12 @@ def choose_fgm_cmd(scan, prev_w, prev_target_angle, pose, accumulated_turn_rad=0
     fgm_target_angle = float(np.clip(fgm_target_angle, -TURN_HARD_LIMIT_RAD, TURN_HARD_LIMIT_RAD))
     side_bias = side_gap_steering_bias(info_left, info_right)
     side_turn_limit = side_narrow_turn_limit(info_left, info_right)
-    allow_side_bias_flip = (
-        (side_bias < 0.0 and info_left <= SIDE_GAP_BLOCK_DIST)
-        or (side_bias > 0.0 and info_right <= SIDE_GAP_BLOCK_DIST)
-    )
     target_angle = float(np.clip(fgm_target_angle + side_bias, -side_turn_limit, side_turn_limit))
     if has_safe_gap and best_gap[1] > best_gap[0]:
         target_angle = float(np.clip(target_angle, gap_right_rad, gap_left_rad))
-        if fgm_target_angle > 0.0 and not allow_side_bias_flip:
+        if fgm_target_angle > 0.0:
             target_angle = max(0.0, target_angle)
-        elif fgm_target_angle < 0.0 and not allow_side_bias_flip:
+        elif fgm_target_angle < 0.0:
             target_angle = min(0.0, target_angle)
     target_idx = int(np.argmin(np.abs(angles_deg - math.degrees(target_angle))))
     target_dist = float(smooth_ranges[target_idx])
