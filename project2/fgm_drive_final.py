@@ -354,7 +354,7 @@ def compute_side_info(points):
     if len(points) == 0:
         return info_left, info_right
 
-    side_band = (np.abs(points[:, 0]) < 0.15) & (np.abs(points[:, 1]) < 0.30) # LiDAR 기준으로 전방 15cm, 좌우 30cm 범위의 포인트 선택 (좌우 거리 계산용임 - 정면 거리용 아님)
+    side_band = (points[:, 0] > -0.03) & (points[:, 0] < 0.25) & (np.abs(points[:, 1]) < 0.30) # LiDAR 기준으로 전방 15cm, 좌우 30cm 범위의 포인트 선택 (좌우 거리 계산용임 - 정면 거리용 아님)
     if side_band.any():
         ys = points[side_band, 1] # 포인트의 y값
         left = ys[ys > 0.05] # 왼쪽 포인트만 선택
@@ -890,7 +890,7 @@ def main():
 
                 blocked_now = info["collision"] and v <= 0.01 and w <= 0.01 # 충돌 위험을 감지했고, 속도가 거의 0인 경우
                 no_safe_gap_now = not info["has_safe_gap"] # safe gap이 없는 경우
-                recovery_trigger = (blocked_now or no_safe_gap_now) # recovery 켤지 결정
+                recovery_trigger = (blocked_now and no_safe_gap_now) # recovery 켤지 결정
 
                 if (RECOVERY_TURN_ENABLE and (not recovery_turn_active) and recovery_trigger):
                     recovery_turn_dir = choose_initial_based_recovery_dir(pose.theta, accumulated_turn_rad, last_w) # 제자리 회전 방향 결정
