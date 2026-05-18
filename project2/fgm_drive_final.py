@@ -93,7 +93,7 @@ RECOVERY_TURN_W = 1.00 # Recovery 제자리 회전 속도
 RECOVERY_MAX_TURN_RAD = math.radians(200.0) # Recovery 최대 회전각도
 RECOVERY_TURN_TIMEOUT_S = 15.0
 
-RECOVERY_TURN_ENABLE = True # Recovery 기능 on/off 스위치
+RECOVERY_TURN_ENABLE = False # Recovery 기능 on/off 스위치
 RECOVERY_FRONT_OPEN_JUMP_DIST = 0.06
 RECOVERY_FRONT_OPEN_PREV_MAX_DIST = 0.45
 RECOVERY_FRONT_OPEN_CONFIRM_FRAMES = 1 # Recovery 탈출 조건 프레임 수
