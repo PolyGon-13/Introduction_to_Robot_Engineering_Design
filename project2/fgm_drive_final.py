@@ -807,7 +807,7 @@ def main():
     pose = RobotPose()
     lidar = RPLidarC1(LIDAR_PORT, LIDAR_BAUD)
     ardu = serial.Serial(ARDU_PORT, ARDU_BAUD, timeout=0.1)
-    print("[INFO] Warming up for 2 seconds...")
+    # print("[INFO] Warming up for 2 seconds...")
     time.sleep(2.0)
 
     def send_vw(v, w):
@@ -817,7 +817,7 @@ def main():
         ardu.write(b"S\n")
 
     stop()
-    print("[INFO] Initialization Complete. Press Enter to start!")
+    # print("[INFO] Initialization Complete. Press Enter to start!")
     try:
         input()
     except EOFError:
