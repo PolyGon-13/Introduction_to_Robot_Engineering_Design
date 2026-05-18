@@ -81,7 +81,7 @@ FGM_RANGE_DISCONTINUITY_EDGE_WINDOW_DEG = 3.0
 SIDE_GAP_WARN_DIST = 0.19 # 옆 경고 시작 거리
 SIDE_GAP_BLOCK_DIST = 0.15 # 강하게 거부할 옆 거리
 SIDE_GAP_BIAS_MAX_DEG = 10.0 # 조향 보정 최대각도
-SIDE_GAP_BIAS_GAIN_DEG_PER_M = 60.0 # 좌우 거리차
+SIDE_GAP_BIAS_GAIN_DEG_PER_M = 100.0 # 좌우 거리차
 SIDE_TIGHT_TURN_LIMIT_DEG = 20.0 # 옆이 매우 좁을 때 회전한계
 SIDE_NARROW_TURN_LIMIT_DEG = 35.0 # 옆이 좁을 때 회전한계
 SIDE_NARROW_V = 0.15 # 옆이 좁을 때 FGM 속도 상한
@@ -354,7 +354,7 @@ def compute_side_info(points):
     if len(points) == 0:
         return info_left, info_right
 
-    side_band = (points[:, 0] > -0.03) & (points[:, 0] < 0.35) & (np.abs(points[:, 1]) < 0.30) # LiDAR 기준으로 전방 15cm, 좌우 30cm 범위의 포인트 선택 (좌우 거리 계산용임 - 정면 거리용 아님)
+    side_band = (points[:, 0] > -0.03) & (points[:, 0] < 0.20) & (np.abs(points[:, 1]) < 0.30) # LiDAR 기준으로 전방 15cm, 좌우 30cm 범위의 포인트 선택 (좌우 거리 계산용임 - 정면 거리용 아님)
     if side_band.any():
         ys = points[side_band, 1] # 포인트의 y값
         left = ys[ys > 0.05] # 왼쪽 포인트만 선택
