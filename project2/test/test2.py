@@ -4,8 +4,6 @@ import math
 from threading import Thread
 from queue import Queue
 
-
-
 lidar_ser = serial.Serial("/dev/ttyUSB0", 460800, timeout=0.1)
 arduino_ser = serial.Serial("/dev/ttyS0", 115200, timeout=0.1)
 

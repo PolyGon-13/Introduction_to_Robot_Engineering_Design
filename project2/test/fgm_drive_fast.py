@@ -18,14 +18,14 @@ DIST_OFFSET_MM = 0.0 # 라이다 거리 보정값
 LIDAR_ANGLE_SIGN = -1.0 # 라이다 각도 방향 반전 여부
 
 MIN_LIDAR_DIST_M = 0.05 # 라이다 유효 최소 거리
-MAX_LIDAR_DIST_M = 0.7 # 라이다 유효 최대 거리
+MAX_LIDAR_DIST_M = 0.75 # 라이다 유효 최대 거리
 MIN_QUALITY = 1 # 라이다 품질 최소값
 MIN_X_FOR_PLANNING = 0.10 # FGM에 넣을 최소 전방 거리
 MAX_EVAL_POINTS = 720 # 계산에 사용할 라이다 포인트 최대 개수
 SCAN_HOLD_S = 0.30 # 최근 라이다 스캔을 유효하다고 판단할 시간 (마지막 정상 스캔이 N초 이내면 그냥 사용)
 
 # 속도/거리 관련
-BASE_V = 0.25 # FGM 기본 직진속도
+BASE_V = 0.23 # FGM 기본 직진속도
 MIN_V = 0.15 # FGM 장애물 회피속도
 MAX_ABS_W = 0.70 # FGM 최대 회전속도
 
@@ -46,6 +46,7 @@ FRONT_CORRIDOR_HALF = COLLISION_DIST + 0.30 # FGM 장애물로 인식할 Y축 �
 
 INITIAL_HEADING_RAD = 0.0 # 출발 기준 방향
 RECOVERY_INITIAL_DEADBAND_RAD = math.radians(2.0) # 출발 방향 기준 N도 안이면 방향 판단 보류
+RECOVERY_LATERAL_DEADBAND_M = 0.05 # 기준선 좌우 판단 보류 거리
 
 # 회전 limit
 TURN_HARD_LIMIT_RAD = math.radians(80.0) # FGM 최대 목표 각도
@@ -53,6 +54,8 @@ CUM_TURN_SOFT_LIMIT_RAD = math.radians(70.0) # 누적 회전량 페널티 기준
 CUM_TURN_HARD_LIMIT_RAD = math.radians(88.0) # 누적 회전량 페널티 기준2
 CUM_TURN_SOFT_PENALTY_WEIGHT = 8.0 # 각속도 누적 페널티 강도1
 CUM_TURN_HARD_PENALTY_WEIGHT = 50.0 # 각속도 누적 페널티 강도2
+CUM_TURN_SAME_DIR_START_RAD = math.radians(45.0) # 같은 방향 회전 억제 시작 누적각
+CUM_TURN_SAME_DIR_PENALTY_WEIGHT = 3.0 # 같은 방향 회전 억제 페널티 강도
 
 
 # FGM 알고리즘
@@ -80,12 +83,12 @@ FGM_RANGE_DISCONTINUITY_EDGE_WINDOW_DEG = 3.0
 
 SIDE_GAP_WARN_DIST = 0.19 # 옆 경고 시작 거리
 SIDE_GAP_BLOCK_DIST = 0.15 # 강하게 거부할 옆 거리
-SIDE_GAP_BIAS_MAX_DEG = 10.0 # 조향 보정 최대각도
-SIDE_GAP_BIAS_GAIN_DEG_PER_M = 60.0 # 좌우 거리차
+SIDE_GAP_BIAS_MAX_DEG = 35.0 # 조향 보정 최대각도
+SIDE_GAP_BIAS_GAIN_DEG_PER_M = 100.0 # 좌우 거리차
 SIDE_TIGHT_TURN_LIMIT_DEG = 20.0 # 옆이 매우 좁을 때 회전한계
 SIDE_NARROW_TURN_LIMIT_DEG = 35.0 # 옆이 좁을 때 회전한계
 SIDE_NARROW_V = 0.15 # 옆이 좁을 때 FGM 속도 상한
-SIDE_TIGHT_V = 0.12 # 옆이 매우 좁을 때 FGM 속도 상한
+SIDE_TIGHT_V = 0.13 # 옆이 매우 좁을 때 FGM 속도 상한
 
 
 # Recovery Mode
@@ -94,7 +97,7 @@ RECOVERY_MAX_TURN_RAD = math.radians(200.0) # Recovery 최대 회전각도
 RECOVERY_TURN_TIMEOUT_S = 15.0
 
 RECOVERY_TURN_ENABLE = True # Recovery 기능 on/off 스위치
-RECOVERY_FRONT_OPEN_JUMP_DIST = 0.05
+RECOVERY_FRONT_OPEN_JUMP_DIST = 0.06
 RECOVERY_FRONT_OPEN_PREV_MAX_DIST = 0.45
 RECOVERY_FRONT_OPEN_CONFIRM_FRAMES = 1 # Recovery 탈출 조건 프레임 수
 RECOVERY_FRONT_CHECK_DIST = 0.30
@@ -117,9 +120,16 @@ def angle_error_rad(a, b):
     return normalize_angle_rad(a - b)
 
 
+def lateral_error_from_initial_line(pose):
+    return (
+        -math.sin(INITIAL_HEADING_RAD) * pose.x
+        + math.cos(INITIAL_HEADING_RAD) * pose.y
+    )
+
+
 # Recovery mode에 들어갈 때 제자리 회전 방향 결정
 # theta : 현재 로봇 heading, accumulated_turn_rad : 누적 회전량, prev_w : 직전 회전속도
-def choose_initial_based_recovery_dir(theta, accumulated_turn_rad=0.0, prev_w=0.0):
+def choose_initial_based_recovery_dir(theta, accumulated_turn_rad=0.0, prev_w=0.0, lateral_error=0.0):
     heading_from_initial = normalize_angle_rad(theta - INITIAL_HEADING_RAD)
 
     # 누적 회전량이 왼쪽으로 쌓인 경우 우회전
@@ -127,6 +137,13 @@ def choose_initial_based_recovery_dir(theta, accumulated_turn_rad=0.0, prev_w=0.
         return -1.0
     # 누적 회전량이 오른쪽으로 쌓인 경우 좌회전
     elif accumulated_turn_rad < -RECOVERY_INITIAL_DEADBAND_RAD:
+        return +1.0
+
+    # 기준선보다 왼쪽에 있으면 우회전
+    if lateral_error > RECOVERY_LATERAL_DEADBAND_M:
+        return -1.0
+    # 기준선보다 오른쪽에 있으면 좌회전
+    elif lateral_error < -RECOVERY_LATERAL_DEADBAND_M:
         return +1.0
     
     # 왼쪽으로 돌아있는 경우 우회전
@@ -354,7 +371,7 @@ def compute_side_info(points):
     if len(points) == 0:
         return info_left, info_right
 
-    side_band = (np.abs(points[:, 0]) < 0.15) & (np.abs(points[:, 1]) < 0.30) # LiDAR 기준으로 전방 15cm, 좌우 30cm 범위의 포인트 선택 (좌우 거리 계산용임 - 정면 거리용 아님)
+    side_band = (points[:, 0] > -0.03) & (points[:, 0] < 0.20) & (np.abs(points[:, 1]) < 0.30) # LiDAR 기준으로 전방 15cm, 좌우 30cm 범위의 포인트 선택 (좌우 거리 계산용임 - 정면 거리용 아님)
     if side_band.any():
         ys = points[side_band, 1] # 포인트의 y값
         left = ys[ys > 0.05] # 왼쪽 포인트만 선택
@@ -526,15 +543,22 @@ def cumulative_turn_penalty(angle_rad, accumulated_turn_rad):
     abs_accumulated = abs(accumulated_turn_rad) # 누적 회전량 절댓값
     abs_projected = np.abs(projected_turn) # 예상 누적 회전량 절댓값
     increasing_turn = abs_projected > (abs_accumulated + math.radians(1.0)) # 해당 후보가 누적 회전량을 더 키우는지 확인
+    same_direction_turn = accumulated_turn_rad * angle_rad > 0.0 # 누적 회전 방향과 같은 방향 후보인지 확인
 
     soft_excess = np.maximum(0.0, abs_projected - CUM_TURN_SOFT_LIMIT_RAD) # soft limit 초과량
     hard_excess = np.maximum(0.0, abs_projected - CUM_TURN_HARD_LIMIT_RAD) # hard limit 초과량
     soft_span = max(1e-6, CUM_TURN_HARD_LIMIT_RAD - CUM_TURN_SOFT_LIMIT_RAD) # soft limit 구간
+    same_dir_excess = max(0.0, abs_accumulated - CUM_TURN_SAME_DIR_START_RAD) # 같은 방향 억제 시작점 초과량
+    same_dir_span = max(1e-6, CUM_TURN_HARD_LIMIT_RAD - CUM_TURN_SAME_DIR_START_RAD)
+    same_dir_ratio = min(1.0, same_dir_excess / same_dir_span)
+    same_dir_angle_ratio = np.clip(np.abs(angle_rad) / TURN_HARD_LIMIT_RAD, 0.0, 1.0)
 
     # 페널티 계산
     soft_penalty = CUM_TURN_SOFT_PENALTY_WEIGHT * (soft_excess / soft_span) ** 2
     hard_penalty = CUM_TURN_HARD_PENALTY_WEIGHT * (hard_excess / math.radians(10.0) + (hard_excess > 0.0))
+    same_dir_penalty = CUM_TURN_SAME_DIR_PENALTY_WEIGHT * same_dir_ratio * same_dir_angle_ratio
     penalty = np.where(increasing_turn, soft_penalty + hard_penalty, 0.0) # 누적 회전량을 증가시키는 후보에만 페널티 적용
+    penalty += np.where(same_direction_turn, same_dir_penalty, 0.0)
 
     return penalty.astype(np.float32), projected_turn
 
@@ -792,7 +816,7 @@ def main():
     pose = RobotPose()
     lidar = RPLidarC1(LIDAR_PORT, LIDAR_BAUD)
     ardu = serial.Serial(ARDU_PORT, ARDU_BAUD, timeout=0.1)
-    print("[INFO] Warming up for 2 seconds...")
+    # print("[INFO] Warming up for 2 seconds...")
     time.sleep(2.0)
 
     def send_vw(v, w):
@@ -802,7 +826,7 @@ def main():
         ardu.write(b"S\n")
 
     stop()
-    print("[INFO] Initialization Complete. Press Enter to start!")
+    # print("[INFO] Initialization Complete. Press Enter to start!")
     try:
         input()
     except EOFError:
@@ -893,7 +917,12 @@ def main():
                 recovery_trigger = (blocked_now or no_safe_gap_now) # recovery 켤지 결정
 
                 if (RECOVERY_TURN_ENABLE and (not recovery_turn_active) and recovery_trigger):
-                    recovery_turn_dir = choose_initial_based_recovery_dir(pose.theta, accumulated_turn_rad, last_w) # 제자리 회전 방향 결정
+                    recovery_turn_dir = choose_initial_based_recovery_dir(
+                        pose.theta,
+                        accumulated_turn_rad,
+                        last_w,
+                        lateral_error_from_initial_line(pose),
+                    ) # 제자리 회전 방향 결정
                     recovery_start_time = time.time()
                     recovery_accum_turn = 0.0
                     recovery_prev_front_dist = None
