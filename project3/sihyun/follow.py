@@ -109,7 +109,7 @@ W_RATE_LIMIT = 0.15
 CENTER_DEADBAND = 0.08
 
 # 면적이 이 값보다 작으면 잡음으로 무시
-MIN_AREA = 800
+MIN_AREA = 500
 
 # 면적 기반 거리 제어
 # 물체 면적이 TARGET_AREA보다 작으면 전진
@@ -127,6 +127,7 @@ TARGET_COLOR = None
 # True : 제자리에서 천천히 탐색 회전
 SEARCH_WHEN_LOST = False
 SEARCH_W = 0.25
+TARGET_LOST_HOLD_SEC = 0.35
 
 
 def open_arduino():
@@ -167,14 +168,14 @@ def rate_limit(prev_value, target_value, limit):
 COLOR_RANGES = {
     "RED": [
         # 빨강은 HSV에서 0 근처와 179 근처 두 구간으로 나뉨
-        (np.array([0, 100, 80]), np.array([10, 255, 255])),
-        (np.array([170, 100, 80]), np.array([179, 255, 255])),
+        (np.array([0, 70, 50]), np.array([12, 255, 255])),
+        (np.array([165, 70, 50]), np.array([179, 255, 255])),
     ],
     "BLUE": [
-        (np.array([95, 100, 80]), np.array([130, 255, 255])),
+        (np.array([90, 70, 50]), np.array([135, 255, 255])),
     ],
     "YELLOW": [
-        (np.array([20, 100, 100]), np.array([35, 255, 255])),
+        (np.array([15, 70, 60]), np.array([42, 255, 255])),
     ],
 }
 
@@ -184,13 +185,22 @@ BOX_COLOR = {
     "YELLOW": (0, 255, 255),
 }
 
+BLUR_SIZE = 5
+OPEN_KERNEL_SIZE = 3
+CLOSE_KERNEL_SIZE = 7
+
 
 def detect_colors(frame):
     """
     프레임에서 빨강, 파랑, 노랑 색상 인식
     """
+    if BLUR_SIZE > 1:
+        frame = cv2.GaussianBlur(frame, (BLUR_SIZE, BLUR_SIZE), 0)
+
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
     detected_results = []
+    open_kernel = np.ones((OPEN_KERNEL_SIZE, OPEN_KERNEL_SIZE), np.uint8)
+    close_kernel = np.ones((CLOSE_KERNEL_SIZE, CLOSE_KERNEL_SIZE), np.uint8)
 
     for color_name, ranges in COLOR_RANGES.items():
         mask_total = None
@@ -204,9 +214,8 @@ def detect_colors(frame):
                 mask_total = cv2.bitwise_or(mask_total, mask)
 
         # 노이즈 제거
-        kernel = np.ones((5, 5), np.uint8)
-        mask_total = cv2.morphologyEx(mask_total, cv2.MORPH_OPEN, kernel)
-        mask_total = cv2.morphologyEx(mask_total, cv2.MORPH_CLOSE, kernel)
+        mask_total = cv2.morphologyEx(mask_total, cv2.MORPH_OPEN, open_kernel)
+        mask_total = cv2.morphologyEx(mask_total, cv2.MORPH_CLOSE, close_kernel)
 
         contours, _ = cv2.findContours(
             mask_total,
@@ -372,6 +381,8 @@ def main():
     last_v = 0.0
     last_w = 0.0
     last_log = 0.0
+    last_target = None
+    last_target_time = 0.0
 
     try:
         camera = open_camera()
@@ -401,6 +412,17 @@ def main():
 
             results = detect_colors(frame)
             target = choose_target(results)
+            now = time.time()
+
+            if target is not None:
+                last_target = target.copy()
+                last_target_time = now
+            elif (
+                last_target is not None
+                and now - last_target_time <= TARGET_LOST_HOLD_SEC
+            ):
+                target = last_target.copy()
+                target["held"] = True
 
             if target is None:
                 if SEARCH_WHEN_LOST:
@@ -418,7 +440,10 @@ def main():
                     target,
                     frame.shape[1],
                 )
-                mode = f"FOLLOW_{target['color']}"
+                if target.get("held"):
+                    mode = f"HOLD_{target['color']}"
+                else:
+                    mode = f"FOLLOW_{target['color']}"
 
             # 급격한 속도 변화 방지
             cmd_v = rate_limit(last_v, target_v, V_RATE_LIMIT)
@@ -429,7 +454,6 @@ def main():
             last_v = cmd_v
             last_w = cmd_w
 
-            now = time.time()
             if now - last_log > 0.25:
                 if target is None:
                     print(f"[{mode}] v={cmd_v:.2f} w={cmd_w:.2f}")
