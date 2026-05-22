@@ -109,7 +109,8 @@ W_RATE_LIMIT = 0.15
 CENTER_DEADBAND = 0.08
 
 # 면적이 이 값보다 작으면 잡음으로 무시
-MIN_AREA = 500
+MIN_AREA = 1000
+MIN_EXTENT = 0.35
 
 # 면적 기반 거리 제어
 # 물체 면적이 TARGET_AREA보다 작으면 전진
@@ -168,14 +169,14 @@ def rate_limit(prev_value, target_value, limit):
 COLOR_RANGES = {
     "RED": [
         # 빨강은 HSV에서 0 근처와 179 근처 두 구간으로 나뉨
-        (np.array([0, 70, 50]), np.array([12, 255, 255])),
-        (np.array([165, 70, 50]), np.array([179, 255, 255])),
+        (np.array([0, 95, 70]), np.array([10, 255, 255])),
+        (np.array([170, 95, 70]), np.array([179, 255, 255])),
     ],
     "BLUE": [
-        (np.array([90, 70, 50]), np.array([135, 255, 255])),
+        (np.array([98, 95, 70]), np.array([128, 255, 255])),
     ],
     "YELLOW": [
-        (np.array([15, 70, 60]), np.array([42, 255, 255])),
+        (np.array([21, 95, 90]), np.array([36, 255, 255])),
     ],
 }
 
@@ -186,8 +187,8 @@ BOX_COLOR = {
 }
 
 BLUR_SIZE = 5
-OPEN_KERNEL_SIZE = 3
-CLOSE_KERNEL_SIZE = 7
+OPEN_KERNEL_SIZE = 5
+CLOSE_KERNEL_SIZE = 5
 
 
 def detect_colors(frame):
@@ -230,6 +231,11 @@ def detect_colors(frame):
                 continue
 
             x, y, w, h = cv2.boundingRect(cnt)
+            extent = area / max(1.0, float(w * h))
+
+            if extent < MIN_EXTENT:
+                continue
+
             cx = x + w // 2
             cy = y + h // 2
 
