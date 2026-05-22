@@ -5,6 +5,8 @@ import cv2
 import numpy as np
 import time
 import serial
+import queue
+import threading
 
 # =========================================================
 # 카메라 설정
@@ -29,6 +31,7 @@ FLIP_VERTICAL = True   #상하반전
 # 모니터/원격화면에서 영상 확인할 때 True
 # SSH로 실행해서 cv2 창이 안 뜨면 False로 바꾸기
 SHOW_WINDOW = True
+FRAME_QUEUE_SIZE = 2
 
 
 def open_camera():
@@ -89,6 +92,45 @@ def apply_camera_flip(frame):
     if FLIP_VERTICAL:
         return cv2.flip(frame, 0)
     return frame
+
+
+class CameraFrameQueue:
+    def __init__(self, camera, maxsize=FRAME_QUEUE_SIZE):
+        self.camera = camera
+        self.frames = queue.Queue(maxsize=maxsize)
+        self.stop_event = threading.Event()
+        self.thread = threading.Thread(target=self._capture_loop, daemon=True)
+
+    def start(self):
+        self.thread.start()
+
+    def stop(self):
+        self.stop_event.set()
+        self.thread.join(timeout=1.0)
+
+    def get_frame(self, timeout=0.5):
+        try:
+            return self.frames.get(timeout=timeout)
+        except queue.Empty:
+            return False, None
+
+    def _capture_loop(self):
+        while not self.stop_event.is_set():
+            ret, frame = get_frame(self.camera)
+
+            if self.frames.full():
+                try:
+                    self.frames.get_nowait()
+                except queue.Empty:
+                    pass
+
+            try:
+                self.frames.put_nowait((ret, frame))
+            except queue.Full:
+                pass
+
+            if not ret:
+                time.sleep(0.05)
 
 
 def close_camera(camera):
@@ -404,6 +446,7 @@ def draw_results(frame, results, target=None, cmd_v=0.0, cmd_w=0.0):
 
 def main():
     camera = None
+    frame_queue = None
     ardu = None
 
     last_v = 0.0
@@ -416,6 +459,8 @@ def main():
         camera = open_camera()
         if camera is None:
             return
+        frame_queue = CameraFrameQueue(camera)
+        frame_queue.start()
 
         ardu = open_arduino()
         stop(ardu)
@@ -430,7 +475,7 @@ def main():
         print("[INFO] Go!!")
 
         while True:
-            ret, frame = get_frame(camera)
+            ret, frame = frame_queue.get_frame()
 
             if not ret:
                 print("[ERROR] Failed to read frame")
@@ -508,6 +553,9 @@ def main():
         print("\n[INFO] KeyboardInterrupt")
 
     finally:
+        if frame_queue is not None:
+            frame_queue.stop()
+
         if ardu is not None:
             try:
                 stop(ardu)
