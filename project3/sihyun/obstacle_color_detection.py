@@ -185,6 +185,9 @@ SIDE_CHECK_X_MIN = -0.05
 SIDE_CHECK_X_MAX = 0.25
 SIDE_CHECK_Y_MIN = 0.05
 SIDE_CHECK_Y_MAX = 0.35
+SIDE_AVOID_WARN_DIST = 0.20
+SIDE_AVOID_BLOCK_DIST = 0.12
+SIDE_TIGHT_V = 0.12
 AVOID_BUBBLE_RADIUS = 0.05
 AVOID_FREE_DIST = 0.18
 AVOID_MIN_GAP_WIDTH_DEG = 8.0
@@ -647,6 +650,52 @@ def choose_gap_angle(angles_deg, ranges, gaps, desired_angle_rad):
     return best_angle, True
 
 
+def obstacle_danger(front_dist, left_dist, right_dist):
+    front_danger = float(
+        np.clip(
+            (AVOID_FRONT_DIST - front_dist)
+            / max(1e-6, AVOID_FRONT_DIST - AVOID_DANGER_DIST),
+            0.0,
+            1.0,
+        )
+    )
+    side_min = min(left_dist, right_dist)
+    side_danger = float(
+        np.clip(
+            (SIDE_AVOID_WARN_DIST - side_min)
+            / max(1e-6, SIDE_AVOID_WARN_DIST - SIDE_AVOID_BLOCK_DIST),
+            0.0,
+            1.0,
+        )
+    )
+    return max(front_danger, side_danger), front_danger, side_danger
+
+
+def constrain_turn_away_from_side(blended_w, left_dist, right_dist):
+    if right_dist < SIDE_AVOID_WARN_DIST and blended_w < 0.0:
+        blended_w = 0.0
+    if left_dist < SIDE_AVOID_WARN_DIST and blended_w > 0.0:
+        blended_w = 0.0
+
+    if right_dist <= SIDE_AVOID_BLOCK_DIST:
+        blended_w = max(blended_w, 0.20)
+    if left_dist <= SIDE_AVOID_BLOCK_DIST:
+        blended_w = min(blended_w, -0.20)
+
+    if left_dist <= SIDE_AVOID_BLOCK_DIST and right_dist <= SIDE_AVOID_BLOCK_DIST:
+        blended_w = 0.0
+
+    return float(np.clip(blended_w, -MAX_W, MAX_W))
+
+
+def choose_stop_turn_w(left_dist, right_dist, color_w):
+    if left_dist < right_dist:
+        return -AVOID_MAX_W
+    if right_dist < left_dist:
+        return AVOID_MAX_W
+    return AVOID_MAX_W if color_w >= 0.0 else -AVOID_MAX_W
+
+
 def compute_lidar_avoidance_cmd(lidar, color_v, color_w):
     if lidar is None:
         return color_v, color_w, {
@@ -669,8 +718,9 @@ def compute_lidar_avoidance_cmd(lidar, color_v, color_w):
     points = lidar_points_to_xy(scan)
     front_dist = front_obstacle_distance(points)
     left_dist, right_dist = side_obstacle_distances(points)
+    side_close = min(left_dist, right_dist) < SIDE_AVOID_WARN_DIST
 
-    if front_dist >= AVOID_FRONT_DIST:
+    if front_dist >= AVOID_FRONT_DIST and not side_close:
         return color_v, color_w, {
             "mode": "COLOR",
             "front": front_dist,
@@ -684,18 +734,11 @@ def compute_lidar_avoidance_cmd(lidar, color_v, color_w):
     desired_angle = float(np.clip(color_w / max(0.001, KP_TURN), -math.pi / 2.0, math.pi / 2.0))
     gap_angle, has_gap = choose_gap_angle(angles_deg, bubble_ranges, gaps, desired_angle)
 
-    danger = float(
-        np.clip(
-            (AVOID_FRONT_DIST - front_dist)
-            / max(1e-6, AVOID_FRONT_DIST - AVOID_DANGER_DIST),
-            0.0,
-            1.0,
-        )
-    )
+    danger, front_danger, side_danger = obstacle_danger(front_dist, left_dist, right_dist)
 
     if not has_gap or front_dist <= AVOID_COLLISION_DIST:
         avoid_v = 0.0
-        avoid_w = AVOID_MAX_W if color_w >= 0.0 else -AVOID_MAX_W
+        avoid_w = choose_stop_turn_w(left_dist, right_dist, color_w)
         return avoid_v, avoid_w, {
             "mode": "AVOID_STOP_TURN",
             "front": front_dist,
@@ -703,21 +746,29 @@ def compute_lidar_avoidance_cmd(lidar, color_v, color_w):
             "right": right_dist,
             "gap_deg": math.degrees(gap_angle),
             "gaps": len(gaps),
+            "front_danger": front_danger,
+            "side_danger": side_danger,
         }
 
     avoid_w = float(np.clip(AVOID_TURN_GAIN * gap_angle, -AVOID_MAX_W, AVOID_MAX_W))
     blended_w = (1.0 - AVOID_BLEND_GAIN * danger) * color_w + (AVOID_BLEND_GAIN * danger) * avoid_w
-    blended_w = float(np.clip(blended_w, -MAX_W, MAX_W))
+    blended_w = constrain_turn_away_from_side(blended_w, left_dist, right_dist)
     safe_v_limit = MAX_V * (1.0 - 0.75 * danger)
+    if side_close:
+        safe_v_limit = min(safe_v_limit, SIDE_TIGHT_V)
     blended_v = min(color_v, safe_v_limit)
 
+    avoid_mode = "SIDE_GUARD" if side_close and front_dist >= AVOID_FRONT_DIST else "AVOID"
+
     return blended_v, blended_w, {
-        "mode": "AVOID",
+        "mode": avoid_mode,
         "front": front_dist,
         "left": left_dist,
         "right": right_dist,
         "gap_deg": math.degrees(gap_angle),
         "gaps": len(gaps),
+        "front_danger": front_danger,
+        "side_danger": side_danger,
     }
 
 
