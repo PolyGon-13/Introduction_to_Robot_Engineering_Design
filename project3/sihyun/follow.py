@@ -22,6 +22,10 @@ FRAME_WIDTH = 640
 FRAME_HEIGHT = 480
 CAMERA_EXPOSURE_VALUE = -1.0
 
+#반전
+FLIP_HORIZONTAL = True #좌우반전
+FLIP_VERTICAL = True   #상하반전
+
 # 모니터/원격화면에서 영상 확인할 때 True
 # SSH로 실행해서 cv2 창이 안 뜨면 False로 바꾸기
 SHOW_WINDOW = True
@@ -68,10 +72,23 @@ def get_frame(camera):
     if USE_PICAMERA2:
         frame_rgb = camera.capture_array()
         frame_bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
+        frame_bgr = apply_camera_flip(frame_bgr)
         return True, frame_bgr
 
     ret, frame = camera.read()
+    if ret:
+        frame = apply_camera_flip(frame)
     return ret, frame
+
+
+def apply_camera_flip(frame):
+    if FLIP_HORIZONTAL and FLIP_VERTICAL:
+        return cv2.flip(frame, -1)
+    if FLIP_HORIZONTAL:
+        return cv2.flip(frame, 1)
+    if FLIP_VERTICAL:
+        return cv2.flip(frame, 0)
+    return frame
 
 
 def close_camera(camera):
