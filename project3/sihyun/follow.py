@@ -109,8 +109,8 @@ W_RATE_LIMIT = 0.15
 CENTER_DEADBAND = 0.08
 
 # 면적이 이 값보다 작으면 잡음으로 무시
-MIN_AREA = 1000
-MIN_EXTENT = 0.35
+MIN_AREA = 1200
+MIN_EXTENT = 0.45
 
 # 면적 기반 거리 제어
 # 물체 면적이 TARGET_AREA보다 작으면 전진
@@ -169,14 +169,14 @@ def rate_limit(prev_value, target_value, limit):
 COLOR_RANGES = {
     "RED": [
         # 빨강은 HSV에서 0 근처와 179 근처 두 구간으로 나뉨
-        (np.array([0, 95, 70]), np.array([10, 255, 255])),
-        (np.array([170, 95, 70]), np.array([179, 255, 255])),
+        (np.array([0, 130, 100]), np.array([8, 255, 255])),
+        (np.array([172, 130, 100]), np.array([179, 255, 255])),
     ],
     "BLUE": [
-        (np.array([98, 95, 70]), np.array([128, 255, 255])),
+        (np.array([104, 130, 90]), np.array([124, 255, 255])),
     ],
     "YELLOW": [
-        (np.array([21, 95, 90]), np.array([36, 255, 255])),
+        (np.array([24, 130, 120]), np.array([34, 255, 255])),
     ],
 }
 
