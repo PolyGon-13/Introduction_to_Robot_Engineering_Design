@@ -119,7 +119,7 @@ ARDU_BAUD = 9600
 # 전진 속도/회전 속도 제한
 MAX_V = 0.18          # 최대 전진 속도
 MIN_V = 0.08          # 따라갈 때 최소 전진 속도
-MAX_W = 0.60          # 최대 회전 속도
+MAX_W = 0.70          # 최대 회전 속도
 KP_TURN = 0.85        # 화면 중심 오차 -> 회전속도 변환 게인
 
 # 물체가 오른쪽에 있는데 로봇이 왼쪽으로 돌면 True로 바꾸기
@@ -173,17 +173,20 @@ LIDAR_SCAN_HOLD_S = 0.30
 
 AVOID_MIN_ANGLE_DEG = -90.0
 AVOID_MAX_ANGLE_DEG = 90.0
-AVOID_ANGLE_STEP_DEG = 2.0
+AVOID_ANGLE_STEP_DEG = 0.0
+
+
 AVOID_FRONT_DIST = 0.34
 AVOID_DANGER_DIST = 0.22
-AVOID_COLLISION_DIST = 0.18
+AVOID_COLLISION_DIST = 0.15
+
 AVOID_FRONT_Y_HALF = 0.20
-AVOID_BUBBLE_RADIUS = 0.18
-AVOID_FREE_DIST = 0.23
-AVOID_MIN_GAP_WIDTH_DEG = 10.0
+AVOID_BUBBLE_RADIUS = 0.05
+AVOID_FREE_DIST = 0.18
+AVOID_MIN_GAP_WIDTH_DEG = 8.0
 AVOID_TURN_GAIN = 1.0
 AVOID_BLEND_GAIN = 0.85
-AVOID_MAX_W = 0.65
+AVOID_MAX_W = 0.80
 
 
 def open_arduino():
@@ -864,4 +867,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
