@@ -173,12 +173,13 @@ LIDAR_SCAN_HOLD_S = 0.30
 
 AVOID_MIN_ANGLE_DEG = -90.0
 AVOID_MAX_ANGLE_DEG = 90.0
-AVOID_ANGLE_STEP_DEG = 0.1
+AVOID_ANGLE_STEP_DEG = 2.0
 
 
 AVOID_FRONT_DIST = 0.34
 AVOID_DANGER_DIST = 0.22
 AVOID_COLLISION_DIST = 0.15
+AVOID_IGNORE_NEAR_DIST = 0.04
 
 AVOID_FRONT_Y_HALF = 0.20
 SIDE_CHECK_X_MIN = -0.05
@@ -555,7 +556,7 @@ def front_obstacle_distance(points):
         return LIDAR_MAX_DIST_M
 
     mask = (
-        (points[:, 0] > 0.0)
+        (points[:, 0] > AVOID_IGNORE_NEAR_DIST)
         & (points[:, 0] < AVOID_FRONT_DIST)
         & (np.abs(points[:, 1]) < AVOID_FRONT_Y_HALF)
     )
@@ -574,6 +575,7 @@ def side_obstacle_distances(points):
     side_mask = (
         (points[:, 0] > SIDE_CHECK_X_MIN)
         & (points[:, 0] < SIDE_CHECK_X_MAX)
+        & (np.hypot(points[:, 0], points[:, 1]) > AVOID_IGNORE_NEAR_DIST)
         & (np.abs(points[:, 1]) > SIDE_CHECK_Y_MIN)
         & (np.abs(points[:, 1]) < SIDE_CHECK_Y_MAX)
     )
@@ -705,6 +707,8 @@ def constrain_turn_away_from_side(blended_w, left_dist, right_dist):
 
 
 def choose_stop_turn_w(left_dist, right_dist, color_w):
+    if abs(left_dist - right_dist) < 0.03:
+        return 0.0
     if left_dist < right_dist:
         return -AVOID_MAX_W
     if right_dist < left_dist:
