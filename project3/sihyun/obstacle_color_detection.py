@@ -181,6 +181,10 @@ AVOID_DANGER_DIST = 0.22
 AVOID_COLLISION_DIST = 0.15
 
 AVOID_FRONT_Y_HALF = 0.20
+SIDE_CHECK_X_MIN = -0.05
+SIDE_CHECK_X_MAX = 0.25
+SIDE_CHECK_Y_MIN = 0.05
+SIDE_CHECK_Y_MAX = 0.35
 AVOID_BUBBLE_RADIUS = 0.05
 AVOID_FREE_DIST = 0.18
 AVOID_MIN_GAP_WIDTH_DEG = 8.0
@@ -555,6 +559,34 @@ def front_obstacle_distance(points):
     return float(np.min(points[mask, 0]))
 
 
+def side_obstacle_distances(points):
+    left_dist = LIDAR_MAX_DIST_M
+    right_dist = LIDAR_MAX_DIST_M
+
+    if len(points) == 0:
+        return left_dist, right_dist
+
+    side_mask = (
+        (points[:, 0] > SIDE_CHECK_X_MIN)
+        & (points[:, 0] < SIDE_CHECK_X_MAX)
+        & (np.abs(points[:, 1]) > SIDE_CHECK_Y_MIN)
+        & (np.abs(points[:, 1]) < SIDE_CHECK_Y_MAX)
+    )
+    if not side_mask.any():
+        return left_dist, right_dist
+
+    side_points = points[side_mask]
+    left_points = side_points[side_points[:, 1] > 0.0]
+    right_points = side_points[side_points[:, 1] < 0.0]
+
+    if len(left_points) > 0:
+        left_dist = float(np.min(left_points[:, 1]))
+    if len(right_points) > 0:
+        right_dist = float(np.min(np.abs(right_points[:, 1])))
+
+    return left_dist, right_dist
+
+
 def apply_safety_bubble(ranges, counts):
     working = ranges.copy()
     valid_obstacles = (counts > 0) & (ranges < LIDAR_MAX_DIST_M)
@@ -617,18 +649,34 @@ def choose_gap_angle(angles_deg, ranges, gaps, desired_angle_rad):
 
 def compute_lidar_avoidance_cmd(lidar, color_v, color_w):
     if lidar is None:
-        return color_v, color_w, {"mode": "NO_LIDAR", "front": LIDAR_MAX_DIST_M}
+        return color_v, color_w, {
+            "mode": "NO_LIDAR",
+            "front": LIDAR_MAX_DIST_M,
+            "left": LIDAR_MAX_DIST_M,
+            "right": LIDAR_MAX_DIST_M,
+        }
 
     scan, _, scan_time = lidar.get_scan()
     now = time.time()
     if scan is None or now - scan_time > LIDAR_SCAN_HOLD_S:
-        return color_v, color_w, {"mode": "LIDAR_WAIT", "front": LIDAR_MAX_DIST_M}
+        return color_v, color_w, {
+            "mode": "LIDAR_WAIT",
+            "front": LIDAR_MAX_DIST_M,
+            "left": LIDAR_MAX_DIST_M,
+            "right": LIDAR_MAX_DIST_M,
+        }
 
     points = lidar_points_to_xy(scan)
     front_dist = front_obstacle_distance(points)
+    left_dist, right_dist = side_obstacle_distances(points)
 
     if front_dist >= AVOID_FRONT_DIST:
-        return color_v, color_w, {"mode": "COLOR", "front": front_dist}
+        return color_v, color_w, {
+            "mode": "COLOR",
+            "front": front_dist,
+            "left": left_dist,
+            "right": right_dist,
+        }
 
     angles_deg, ranges, counts = scan_to_angle_ranges(scan)
     bubble_ranges = apply_safety_bubble(ranges, counts)
@@ -651,6 +699,8 @@ def compute_lidar_avoidance_cmd(lidar, color_v, color_w):
         return avoid_v, avoid_w, {
             "mode": "AVOID_STOP_TURN",
             "front": front_dist,
+            "left": left_dist,
+            "right": right_dist,
             "gap_deg": math.degrees(gap_angle),
             "gaps": len(gaps),
         }
@@ -664,6 +714,8 @@ def compute_lidar_avoidance_cmd(lidar, color_v, color_w):
     return blended_v, blended_w, {
         "mode": "AVOID",
         "front": front_dist,
+        "left": left_dist,
+        "right": right_dist,
         "gap_deg": math.degrees(gap_angle),
         "gaps": len(gaps),
     }
@@ -824,7 +876,8 @@ def main():
                     print(
                         f"[{mode}/{avoid_info['mode']}] "
                         f"v={cmd_v:.2f} w={cmd_w:.2f} "
-                        f"front={avoid_info['front']:.2f}"
+                        f"front={avoid_info['front']:.2f} "
+                        f"L={avoid_info['left']:.2f} R={avoid_info['right']:.2f}"
                     )
                 else:
                     print(
@@ -832,7 +885,8 @@ def main():
                         f"cx={target['cx']} area={int(target['area'])} "
                         f"err={error_x:.2f} "
                         f"v={cmd_v:.2f} w={cmd_w:.2f} "
-                        f"front={avoid_info['front']:.2f}"
+                        f"front={avoid_info['front']:.2f} "
+                        f"L={avoid_info['left']:.2f} R={avoid_info['right']:.2f}"
                     )
                 last_log = now
 
