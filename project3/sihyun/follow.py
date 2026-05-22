@@ -20,6 +20,7 @@ except ImportError:
 
 FRAME_WIDTH = 640
 FRAME_HEIGHT = 480
+CAMERA_EXPOSURE_VALUE = -1.0
 
 # 모니터/원격화면에서 영상 확인할 때 True
 # SSH로 실행해서 cv2 창이 안 뜨면 False로 바꾸기
@@ -39,6 +40,10 @@ def open_camera():
             main={"format": "RGB888", "size": (FRAME_WIDTH, FRAME_HEIGHT)}
         )
         picam2.configure(config)
+        try:
+            picam2.set_controls({"ExposureValue": CAMERA_EXPOSURE_VALUE})
+        except Exception:
+            pass
         picam2.start()
         time.sleep(1.0)
         print("[INFO] Picamera2 camera started")
@@ -169,14 +174,14 @@ def rate_limit(prev_value, target_value, limit):
 COLOR_RANGES = {
     "RED": [
         # 빨강은 HSV에서 0 근처와 179 근처 두 구간으로 나뉨
-        (np.array([0, 130, 100]), np.array([8, 255, 255])),
-        (np.array([172, 130, 100]), np.array([179, 255, 255])),
+        (np.array([0, 90, 120]), np.array([10, 255, 255])),
+        (np.array([170, 90, 120]), np.array([179, 255, 255])),
     ],
     "BLUE": [
-        (np.array([104, 130, 90]), np.array([124, 255, 255])),
+        (np.array([102, 85, 110]), np.array([126, 255, 255])),
     ],
     "YELLOW": [
-        (np.array([24, 130, 120]), np.array([34, 255, 255])),
+        (np.array([22, 85, 140]), np.array([36, 255, 255])),
     ],
 }
 
