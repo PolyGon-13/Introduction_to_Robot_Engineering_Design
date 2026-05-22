@@ -185,9 +185,11 @@ SIDE_CHECK_X_MIN = -0.05
 SIDE_CHECK_X_MAX = 0.25
 SIDE_CHECK_Y_MIN = 0.05
 SIDE_CHECK_Y_MAX = 0.35
-SIDE_AVOID_WARN_DIST = 0.20
+SIDE_AVOID_WARN_DIST = 0.15
 SIDE_AVOID_BLOCK_DIST = 0.12
 SIDE_TIGHT_V = 0.12
+SIDE_PUSH_MIN_W = 0.12
+SIDE_PUSH_MAX_W = 0.45
 AVOID_BUBBLE_RADIUS = 0.05
 AVOID_FREE_DIST = 0.18
 AVOID_MIN_GAP_WIDTH_DEG = 8.0
@@ -671,6 +673,18 @@ def obstacle_danger(front_dist, left_dist, right_dist):
     return max(front_danger, side_danger), front_danger, side_danger
 
 
+def side_push_w(side_dist):
+    ratio = float(
+        np.clip(
+            (SIDE_AVOID_BLOCK_DIST - side_dist)
+            / max(1e-6, SIDE_AVOID_BLOCK_DIST - LIDAR_MIN_DIST_M),
+            0.0,
+            1.0,
+        )
+    )
+    return SIDE_PUSH_MIN_W + (SIDE_PUSH_MAX_W - SIDE_PUSH_MIN_W) * ratio
+
+
 def constrain_turn_away_from_side(blended_w, left_dist, right_dist):
     if right_dist < SIDE_AVOID_WARN_DIST and blended_w < 0.0:
         blended_w = 0.0
@@ -678,9 +692,11 @@ def constrain_turn_away_from_side(blended_w, left_dist, right_dist):
         blended_w = 0.0
 
     if right_dist <= SIDE_AVOID_BLOCK_DIST:
-        blended_w = max(blended_w, 0.20)
+        push_w = side_push_w(right_dist)
+        blended_w = max(blended_w, push_w)
     if left_dist <= SIDE_AVOID_BLOCK_DIST:
-        blended_w = min(blended_w, -0.20)
+        push_w = side_push_w(left_dist)
+        blended_w = min(blended_w, -push_w)
 
     if left_dist <= SIDE_AVOID_BLOCK_DIST and right_dist <= SIDE_AVOID_BLOCK_DIST:
         blended_w = 0.0
