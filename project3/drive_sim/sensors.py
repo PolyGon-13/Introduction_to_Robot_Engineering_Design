@@ -91,13 +91,65 @@ def simulate_lidar_raw(world, p3, n_rays=360, sensor_max=6.0, noise_m=0.0):
 
 
 # ===================== 카메라 =====================
+def camera_rect_half_width(p3, cam_max):
+    """top-down 카메라 바닥 직사각형의 좌우 반폭.
+
+    별도 폭 파라미터를 늘리지 않기 위해 기존 HFOV_DEG가 만들던 cam_max 위치의
+    좌우 폭을 직사각형 전체 폭으로 사용한다.
+    """
+    return max(0.01, cam_max * math.tan(p3.HALF_HFOV_RAD))
+
+
+def segment_enter_fraction_obstacle(x0, y0, x1, y1, obstacle):
+    """선분이 회전 직사각형 발자국에 들어가는 0..1 비율. 미교차면 None."""
+    ox, oy = obstacle.world_to_local(x0, y0)
+    ex, ey = obstacle.world_to_local(x1, y1)
+    dx = ex - ox
+    dy = ey - oy
+    t0, t1 = 0.0, 1.0
+
+    for origin, delta, lo, hi in (
+        (ox, dx, -obstacle.half_w, obstacle.half_w),
+        (oy, dy, -obstacle.half_h, obstacle.half_h),
+    ):
+        if abs(delta) < 1e-9:
+            if origin < lo or origin > hi:
+                return None
+            continue
+        ta = (lo - origin) / delta
+        tb = (hi - origin) / delta
+        if ta > tb:
+            ta, tb = tb, ta
+        t0 = max(t0, ta)
+        t1 = min(t1, tb)
+        if t0 > t1:
+            return None
+    return max(0.0, t0)
+
+
+def camera_blocker(world, camera_x, camera_y, target_x, target_y, camera_height_m):
+    """카메라-바닥 목표 시야선을 가리는 장애물 반환. 없으면 None."""
+    best = None
+    for obstacle in world.obstacles:
+        frac = segment_enter_fraction_obstacle(camera_x, camera_y, target_x, target_y, obstacle)
+        if frac is None or frac > 1.0:
+            continue
+        line_z = camera_height_m * (1.0 - frac)
+        if obstacle.z_h >= line_z:
+            if best is None or frac < best[1]:
+                best = (obstacle, frac, line_z)
+    return best
+
+
 def simulate_camera(world, p3, target_color, cam_max=2.5, cam_far=1.5,
-                    bearing_noise_deg=0.0):
-    """기하 기반 인식. 실제 상수(HALF_HFOV_RAD, BEARING_SIGN, CAM_W/H, MIN_AREA) 사용.
+                    bearing_noise_deg=0.0, cam_min=0.0, camera_height_m=0.18):
+    """기하 기반 인식. 실제 상수(BEARING_SIGN, CAM_W/H, MIN_AREA) 사용.
+       로봇 상단 카메라가 바닥을 내려다본다고 보고 직사각형 발자국만 본다.
        반환: (visible, bearing_rad, area_ratio, cy_norm, n_visible)."""
     rb = world.robot
     half_fov = p3.HALF_HFOV_RAD
     focal_px = (p3.CAM_W * 0.5) / max(1e-6, math.tan(half_fov))
+    half_width = camera_rect_half_width(p3, cam_max)
 
     best = None
     best_area_px = 0.0
@@ -112,34 +164,28 @@ def simulate_camera(world, p3, target_color, cam_max=2.5, cam_far=1.5,
         ry = pch.y - rb.y
         x_r = rx * cs + ry * sn       # 전방
         y_r = -rx * sn + ry * cs      # 좌측(+)
-        if x_r <= 0.0:
+        if x_r < cam_min or x_r > cam_max or abs(y_r) > half_width:
             continue
-        d = math.hypot(x_r, y_r)
-        if d > cam_max:
+        if camera_blocker(world, rb.x, rb.y, pch.x, pch.y, camera_height_m) is not None:
             continue
-        bearing_true = math.atan2(y_r, x_r)
-        if abs(bearing_true) > half_fov:
-            continue
-        side_px = focal_px * pch.size / max(1e-6, d)
+        image_err = -max(-1.0, min(1.0, y_r / half_width))
+        bearing = p3.BEARING_SIGN * image_err * half_fov
+        side_px = focal_px * pch.size / max(1e-6, x_r)
         area_px = side_px * side_px
         if area_px < p3.MIN_AREA:        # 너무 멀어 작게 보이면 미검출(실제 필터)
             continue
         n_visible += 1
         if area_px > best_area_px:
             best_area_px = area_px
-            best = (bearing_true, d)
+            best = (bearing, x_r)
 
     if best is None:
         return (False, 0.0, 0.0, 0.0, 0)
 
-    bearing_true, d = best
-    # 직립 카메라 가정: 로봇 좌측(+bearing) → 이미지 좌측(-err)
-    err = -bearing_true / max(1e-6, half_fov)
-    err = max(-1.0, min(1.0, err))
-    # 실제 _detect 와 동일한 부호식 → BEARING_SIGN 을 그대로 검증
-    bearing = p3.BEARING_SIGN * err * half_fov
+    bearing, forward_x = best
     if bearing_noise_deg > 0.0:
         bearing += math.radians(np.random.normal(0.0, bearing_noise_deg))
     area_ratio = best_area_px / p3.CAM_AREA
-    cy_norm = max(0.0, min(1.0, 1.0 - d / max(1e-6, cam_far)))
+    cy_span = max(1e-6, cam_far - cam_min)
+    cy_norm = max(0.0, min(1.0, 1.0 - (forward_x - cam_min) / cy_span))
     return (True, float(bearing), float(area_ratio), float(cy_norm), n_visible)

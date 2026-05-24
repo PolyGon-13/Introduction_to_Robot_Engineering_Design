@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 #
-# Project 3 - Step 7 까지: 라이다 lean DWA + 카메라 색상영역 추적(목표 방위)
-#   카메라로 현재 타깃 색 영역의 방위 β를 구해 DWA 목표 방위로 사용(미검출 시 전방 유지).
-#   거리(미터) 추정은 Step 8 기하 캘리브 예정 — 지금은 면적/세로위치 비례값만 제공.
+# Project 3: 라이다 lean DWA + 카메라 색상영역 시퀀스 추적
+#   카메라로 현재 타깃 색 영역의 방위 β를 구해 DWA 목표 방위로 사용.
+#   미검출 시에는 직진하지 않고 제자리 탐색 회전으로 타깃을 다시 찾는다.
+#   도착 판정은 CLOSE→CREEP→HOLD 상태로 패치 위까지 더 들어간 뒤 정지한다.
 #   좌표계: 로봇 기준 x=전방, y=좌측(+).  w>0 = 좌회전.  β>0 = 타깃이 좌측.
 
 import time
@@ -52,7 +53,7 @@ CLEAR_CAP = 0.5                        # 이 이상 뚫려 있으면 동일 취�
 W_CLEAR = 1.5                          # 여유(clearance) 가중치  ┐ goal/clearance
 W_GOAL = 1.0                           # 목표 방향 가중치        ┘ 비율 = 핵심 노브
 
-GOAL_BEARING_FALLBACK = 0.0            # 타깃 미검출 시 목표 방위(전방 유지). 실제 SEEK은 Step 11
+GOAL_BEARING_FALLBACK = 0.0            # 호환용 상수. Controller는 미검출 시 SEARCH 회전 사용
 LOOP_DT = 0.05
 
 # ===================== 카메라 / 색상 인식 =====================
@@ -66,7 +67,17 @@ BEARING_SIGN = -1.0                    # cx 우측(+err)→우회전(β<0). 하�
 VISION_HOLD_S = 0.30                   # 인식 결과 신선도 (이보다 오래되면 미검출 취급)
 VISION_MIN_DT = 0.05                   # 비전 처리 최소 주기(최대 ~20Hz로 CPU 양보)
 
-DEFAULT_TARGET = "RED"                 # 시작 타깃 색 (상태기계가 Step 12에서 전환)
+DEFAULT_TARGET = "RED"                 # 시작 타깃 색
+TARGET_SEQUENCE = ["RED", "YELLOW", "BLUE"]   # 통과 순서
+ARRIVE_CY = 0.85                       # 코앞 감지 → 정지 전 close/creep 진입
+CLOSE_APPROACH_V = 0.07                # 코앞 감지 후 카메라를 보며 더 들어가는 저속
+CLOSE_APPROACH_MAX_S = 2.20            # 카메라가 계속 보여도 CLOSE를 끝내는 최대 시간
+BLIND_CREEP_V = 0.07                   # 카메라가 패치를 잃은 뒤 짧게 더 들어가는 속도
+BLIND_CREEP_S = 1.00                   # 패치 위로 바퀴를 올리기 위한 추가 전진 시간
+DWELL_S = 1.10                         # 패치 위 정지 유지 시간
+SEARCH_V = 0.0                         # 타깃 미검출 시 전진 금지
+SEARCH_W = 0.45                        # 타깃 미검출 시 제자리 탐색 회전 속도
+TARGET_LOST_MEMORY_S = 0.60            # 마지막으로 본 방향을 기억하는 시간
 # HSV 범위 (sihyun 검증값).  RED는 H=0/179 양쪽 두 구간.
 COLOR_RANGES = {
     "RED": [
@@ -430,11 +441,148 @@ def choose_cmd(points, goal_bearing, prev_w):
     return v, w, best_clear, False
 
 
+# ===================== 시퀀스 컨트롤러 =====================
+# 한 제어주기의 의사결정 = main() 과 시뮬레이터가 공유하는 단일 진실원.
+# 여기(상수/choose_cmd/tick)를 고치면 시뮬레이터 동작도 그대로 바뀐다
+# (sim 이 이 코드를 import 해 직접 호출하므로 글루를 다시 짤 필요가 없다).
+class Controller:
+    """색 시퀀스 추적 + 패치 위로 더 들어간 뒤 정지 + DWA 조향."""
+
+    def __init__(self):
+        self.seq_idx = 0           # 현재 추적 색 = TARGET_SEQUENCE[seq_idx]
+        self.phase = "SEEK"
+        self.close_until = 0.0
+        self.creep_until = 0.0
+        self.dwell_until = 0.0     # >0 이면 패치 위 정지 유지가 끝나는 시각
+        self.last_w = 0.0
+        self.goal = 0.0            # 직전 목표 방위 (로깅/시각화용)
+        self.clr = 0.0             # 직전 여유거리
+        self.last_seen_t = -1e9
+        self.last_seen_bearing = 0.0
+        self.search_dir = 1.0
+
+    @property
+    def done(self):
+        return self.seq_idx >= len(TARGET_SEQUENCE)
+
+    @property
+    def target_color(self):
+        return None if self.done else TARGET_SEQUENCE[self.seq_idx]
+
+    def _reset_for_next_target(self):
+        self.phase = "SEEK"
+        self.close_until = 0.0
+        self.creep_until = 0.0
+        self.dwell_until = 0.0
+        self.last_w = 0.0
+        self.goal = 0.0
+        self.clr = 0.0
+        self.last_seen_t = -1e9
+        self.last_seen_bearing = 0.0
+
+    def _note_seen(self, bearing, now):
+        self.last_seen_t = now
+        self.last_seen_bearing = bearing
+        if abs(bearing) > 0.05:
+            self.search_dir = 1.0 if bearing > 0.0 else -1.0
+
+    def _straight_creep_cmd(self, points, v, state):
+        self.goal = 0.0
+        self.clr = path_clearance(max(v, 0.05), 0.0, points)
+        if self.clr < COLLISION_DIST:
+            self.last_w = 0.0
+            return 0.0, 0.0, "BLOCKED"
+        self.last_w = 0.0
+        return v, 0.0, state
+
+    def _search_cmd(self, points, now):
+        if now - self.last_seen_t <= TARGET_LOST_MEMORY_S:
+            if abs(self.last_seen_bearing) > 0.05:
+                target_w = SEARCH_W * (1.0 if self.last_seen_bearing > 0.0 else -1.0)
+            else:
+                target_w = SEARCH_W * self.search_dir
+        else:
+            target_w = SEARCH_W * self.search_dir
+        self.goal = target_w
+        self.clr = path_clearance(0.05, target_w, points)
+        if self.clr < COLLISION_DIST:
+            self.last_w = 0.0
+            return 0.0, 0.0, "BLOCKED"
+        w = rate_limit(self.last_w, target_w, W_RATE)
+        self.last_w = w
+        return SEARCH_V, w, "SEARCH"
+
+    def tick(self, points, seen, bearing, cy_norm, now):
+        """한 주기 의사결정. 반환 (v, w, state).
+           state ∈ DONE/HOLD/ARRIVE/CREEP/CLOSE/SEARCH/BLOCKED/SEEK.
+           색 전환·정지 타이머는 내부 갱신."""
+        self.goal = 0.0
+        self.clr = 0.0
+        if self.done:                              # 완주 → 정지 유지
+            self.last_w = 0.0
+            return 0.0, 0.0, "DONE"
+
+        if seen:
+            self._note_seen(bearing, now)
+
+        if self.phase == "HOLD":                   # 패치 위 정지 유지
+            self.last_w = 0.0
+            if now >= self.dwell_until:
+                self.seq_idx += 1                  # 다음 색 (넘치면 done)
+                self._reset_for_next_target()
+            return 0.0, 0.0, "HOLD"
+
+        if self.phase == "CREEP":                  # 카메라가 잃은 뒤 짧게 더 전진
+            if now < self.creep_until:
+                return self._straight_creep_cmd(points, BLIND_CREEP_V, "CREEP")
+            self.phase = "HOLD"
+            self.dwell_until = now + DWELL_S
+            self.last_w = 0.0
+            return 0.0, 0.0, "ARRIVE"
+
+        if self.phase == "CLOSE":                  # 코앞 감지 후 바로 멈추지 않고 진입
+            if now >= self.close_until:
+                self.phase = "CREEP"
+                self.creep_until = now + BLIND_CREEP_S
+                return self._straight_creep_cmd(points, BLIND_CREEP_V, "CREEP")
+            if seen:
+                self.goal = bearing
+                v, w, clr, blocked = choose_cmd(points, self.goal, self.last_w)
+                self.last_w = w
+                self.clr = clr
+                if blocked:
+                    return 0.0, 0.0, "BLOCKED"
+                return min(v, CLOSE_APPROACH_V), w, "CLOSE"
+            self.phase = "CREEP"
+            self.creep_until = now + BLIND_CREEP_S
+            return self._straight_creep_cmd(points, BLIND_CREEP_V, "CREEP")
+
+        if seen and cy_norm >= ARRIVE_CY:
+            self.phase = "CLOSE"
+            self.close_until = now + CLOSE_APPROACH_MAX_S
+            self.goal = bearing
+            v, w, clr, blocked = choose_cmd(points, self.goal, self.last_w)
+            self.last_w = w
+            self.clr = clr
+            if blocked:
+                return 0.0, 0.0, "BLOCKED"
+            return min(v, CLOSE_APPROACH_V), w, "CLOSE"
+
+        if not seen:
+            return self._search_cmd(points, now)
+
+        self.goal = bearing
+        v, w, clr, blocked = choose_cmd(points, self.goal, self.last_w)
+        self.last_w = w
+        self.clr = clr
+        return v, w, ("BLOCKED" if blocked else "SEEK")
+
+
 # ===================== 메인 =====================
 def main():
     ardu = open_arduino()
     lidar = RPLidarC1(LIDAR_PORT, LIDAR_BAUD)
-    cam = ColorPerception(DEFAULT_TARGET)
+    cam = ColorPerception(TARGET_SEQUENCE[0])
     time.sleep(2.0)
     stop(ardu)
 
@@ -446,7 +594,7 @@ def main():
         print("[WARN] No stdin. Starting immediately.")
     print("[INFO] Go!!")
 
-    last_w = 0.0
+    ctrl = Controller()
     last_log = 0.0
 
     try:
@@ -457,27 +605,26 @@ def main():
             # 신선한 스캔이 없으면 안전하게 정지
             if scan is None or now - scan_time > SCAN_HOLD_S:
                 send_vw(ardu, 0.0, 0.0)
-                last_w = 0.0
+                ctrl.last_w = 0.0
                 time.sleep(LOOP_DT)
                 continue
 
             points = lidar_points_to_xy(scan)
-
-            # 카메라 목표 방위 β (신선하고 보이면) → 없으면 전방 유지
+            cam.set_target(ctrl.target_color)      # 시퀀스 진행에 맞춰 카메라 타깃 동기화
             (visible, bearing, area_ratio, cy_norm, ncnt), cam_stamp = cam.get()
             seen = visible and (now - cam_stamp) <= VISION_HOLD_S
-            goal_bearing = bearing if seen else GOAL_BEARING_FALLBACK
 
-            v, w, clr, blocked = choose_cmd(points, goal_bearing, last_w)
+            v, w, state = ctrl.tick(points, seen, bearing, cy_norm, now)
             send_vw(ardu, v, w)
-            last_w = w
+            if ctrl.done:
+                print("[DONE] RED→YELLOW→BLUE 완주")
+                break
 
             if now - last_log > 0.3:
-                mode = "BLOCKED" if blocked else "DWA"
                 print(
-                    f"[{mode}] tgt={cam.target_color} see={'Y' if seen else 'n'} "
-                    f"gb={goal_bearing:+.2f} v={v:.2f} w={w:+.2f} "
-                    f"ar={area_ratio:.2f} clr={clr:.2f} pts={len(points)} "
+                    f"[{state}] tgt={ctrl.target_color} see={'Y' if seen else 'n'} "
+                    f"gb={ctrl.goal:+.2f} v={v:.2f} w={w:+.2f} "
+                    f"cy={cy_norm:.2f} clr={ctrl.clr:.2f} pts={len(points)} "
                     f"bk={lidar.backlog} vms={cam.proc_ms:.0f}"
                 )
                 last_log = now

@@ -16,6 +16,7 @@ drive_sim — project3.py / project3.ino 를 '그대로' 돌려보는 2D 시뮬�
     project3.py 나 project3.ino 를 저장하면 자동으로 다시 로드됨.
 """
 
+import copy
 import json
 import math
 import os
@@ -27,7 +28,10 @@ import pygame
 
 from code_bridge import CodeBridge, recompute_derived, PROJECT3_DIR
 from arduino_model import ArduinoSim
-from world import World, Obstacle, Patch, ARENA_M, TEST_ZONE_M, TEST_ZONE_X, TEST_ZONE_Y, ORDER
+from world import (
+    World, Obstacle, Patch, ARENA_M, TEST_ZONE_M, TEST_ZONE_X, TEST_ZONE_Y, ORDER,
+    DEFAULT_OBSTACLE_Z_H,
+)
 import sensors
 
 # ----------------------------------------------------------------- 레이아웃
@@ -69,11 +73,60 @@ HEAD_C = (250, 250, 255)
 LIDAR_C = (255, 140, 90)
 TRAJ_C = (120, 220, 255)
 FOV_C = (90, 180, 200)
+CAM_AREA_C = (90, 180, 200, 34)
 BEAR_C = (230, 110, 220)
 PATCH_COL = {"RED": (210, 70, 70), "YELLOW": (220, 200, 70), "BLUE": (80, 120, 220)}
 BTN = (60, 64, 78)
 BTN_ON = (70, 130, 110)
 BTN_HL = (84, 90, 108)
+
+PARAM_TIPS = {
+    "CRUISE_V": "기본 전진 속도입니다.",
+    "MAX_W": "허용하는 최대 회전 속도입니다.",
+    "W_RATE": "회전 변화량을 부드럽게 제한합니다.",
+    "W_CLEAR": "장애물 여유거리 점수의 비중입니다.",
+    "W_GOAL": "목표 방향 정렬 점수의 비중입니다.",
+    "HORIZON_T": "DWA가 앞으로 예측해보는 시간입니다.",
+    "COLLISION_DIST": "이 거리 안의 장애물은 충돌 위험으로 봅니다.",
+    "SLOW_DIST": "장애물 근처에서 감속을 시작하는 거리입니다.",
+    "ROBOT_RADIUS": "충돌 판정에 쓰는 로봇 반지름입니다.",
+    "MAX_RANGE_M": "project3.py가 사용할 라이다 최대 거리입니다.",
+    "V_MIN_RATIO": "막혔을 때 유지할 최소 전진 속도 비율입니다.",
+    "CLEAR_CAP": "여유거리 점수의 상한값입니다.",
+    "HFOV_DEG": "직사각형 카메라 영역의 좌우 폭을 정하는 기준 시야각입니다.",
+    "wheel tau": "바퀴 속도 응답이 목표에 따라가는 시간입니다.",
+    "wheel accel": "바퀴 각속도의 최대 변화율입니다.",
+    "sim speed": "시뮬레이션 시간 배속입니다.",
+    "lidar noise": "라이다 거리값에 넣는 임의 오차입니다.",
+    "n_rays": "합성 라이다 광선 개수입니다.",
+    "robot height": "카메라가 올라간 로봇 높이입니다.",
+    "cam_min": "직사각형 카메라 영역의 시작 전방 거리입니다.",
+    "cam_max": "직사각형 카메라 영역의 끝 전방 거리입니다.",
+    "obstacle w": "장애물 발자국의 가로 폭입니다.",
+    "obstacle depth": "장애물 발자국의 세로 깊이입니다.",
+    "obstacle z": "카메라 가림 판정에 쓰는 장애물 높이입니다.",
+    "patch size": "색상 목표 영역 한 변의 길이입니다.",
+}
+
+FONT_REGULAR_PATHS = [
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+    "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+]
+FONT_BOLD_PATHS = [
+    "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+    "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc",
+]
+FONT_NAMES = [
+    "Noto Sans Mono CJK KR",
+    "Noto Sans CJK KR",
+    "Noto Sans CJK",
+    "Noto Sans KR",
+    "NanumGothic",
+    "UnDotum",
+    "Malgun Gothic",
+    "AppleGothic",
+    "DejaVu Sans",
+]
 
 
 def clamp(x, lo, hi):
@@ -92,12 +145,29 @@ def json_default(obj):
     raise TypeError("Object of type {} is not JSON serializable".format(type(obj).__name__))
 
 
+def load_ui_font(size, bold=False):
+    for path in (FONT_BOLD_PATHS if bold else FONT_REGULAR_PATHS):
+        if os.path.exists(path):
+            try:
+                return pygame.font.Font(path, size)
+            except pygame.error:
+                pass
+    for name in FONT_NAMES:
+        path = pygame.font.match_font(name, bold=bold)
+        if path:
+            try:
+                return pygame.font.Font(path, size)
+            except pygame.error:
+                pass
+    return pygame.font.SysFont("dejavusans,sans", size, bold=bold)
+
+
 def make_fonts():
     font_size = max(10, int(round(BASE_FONT_SIZE * UI_SCALE)))
     big_size = max(12, int(round(BASE_BIGFONT_SIZE * UI_SCALE)))
     return (
-        pygame.font.SysFont("dejavusansmono,monospace", font_size),
-        pygame.font.SysFont("dejavusans,sans", big_size, bold=True),
+        load_ui_font(font_size),
+        load_ui_font(big_size, bold=True),
     )
 
 
@@ -142,7 +212,7 @@ class Button:
 
 
 class Slider:
-    def __init__(self, label, get, set_, lo, hi, is_int=False, fmt="{:.2f}"):
+    def __init__(self, label, get, set_, lo, hi, is_int=False, fmt="{:.2f}", tip=""):
         self.label = label
         self.get = get
         self.set = set_
@@ -150,6 +220,8 @@ class Slider:
         self.hi = hi
         self.is_int = is_int
         self.fmt = fmt
+        self.tip = tip
+        self.label_rect = pygame.Rect(0, 0, 0, 0)
         self.rect = pygame.Rect(0, 0, 0, 0)   # 매 프레임 갱신
         self.drag = False
 
@@ -168,12 +240,18 @@ class Slider:
         track_h = max(4, ui(6))
         self.rect = pygame.Rect(x, y + ui(18), w, track_h)
         lab = font.render(self.label, True, TXT_DIM)
+        self.label_rect = lab.get_rect(topleft=(x, y)).inflate(ui(8), ui(6))
         surf.blit(lab, (x, y))
         val = font.render(self.fmt.format(self.get()), True, TXT)
         surf.blit(val, (x + w - val.get_width(), y))
         pygame.draw.rect(surf, (60, 64, 78), self.rect, border_radius=max(2, ui(3)))
         hx = self._to_px()
         pygame.draw.circle(surf, (160, 200, 230), (hx, self.rect.centery), ui(7))
+
+    def hover_tip(self, pos):
+        if self.tip and self.label_rect.collidepoint(pos):
+            return self.tip
+        return None
 
     def handle(self, ev):
         if ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1:
@@ -206,20 +284,23 @@ class Simulator:
         self.paused = False
         self.start_pose = (self.world.robot.x, self.world.robot.y, self.world.robot.theta)
 
-        # 브레인 상태
-        self.last_w = 0.0
+        # 브레인 상태: 결정/시퀀스/타이머는 전부 project3.py Controller 가 단일 진실원
+        self.ctrl = self.p3.Controller()
         self.brain_acc = 0.0
         self.acc = 0.0
         self.sim_time = 0.0
-        self.target_color = self.p3.DEFAULT_TARGET
+        self.target_color = self.p3.TARGET_SEQUENCE[0]
 
         # sim 파라미터
         self.sim_speed = 1.0
         self.n_rays = 360
         self.lidar_noise = 0.0
-        self.cam_max = 2.5
+        self.robot_height = 0.18
+        self.cam_min = 0.15
+        self.cam_max = 1.0
         self.obstacle_w = 0.30
         self.obstacle_h = 0.15
+        self.obstacle_z_h = DEFAULT_OBSTACLE_Z_H
         self.patch_size = 0.25
 
         # 월드 보기 상태: 마우스 휠로 아레나를 확대/축소한다.
@@ -231,7 +312,7 @@ class Simulator:
 
         # 텔레메트리/시각화
         self.tele = dict(v=0.0, w=0.0, gb=0.0, clr=0.0, blocked=False,
-                         see=False, npts=0, ar=0.0)
+                         see=False, npts=0, ar=0.0, bstate="SEEK")
         self.pts_world = np.empty((0, 2))
         self.traj_world = np.empty((0, 2))
         self.bear_pt = None
@@ -331,7 +412,17 @@ class Simulator:
         def simset(attr):
             return lambda v: setattr(self, attr, v)
 
-        S = Slider
+        def set_cam_min(v):
+            self.cam_min = min(v, self.cam_max - 0.01)
+
+        def set_cam_max(v):
+            self.cam_max = max(v, self.cam_min + 0.01)
+
+        def S(label, get, set_, lo, hi, is_int=False, fmt="{:.2f}"):
+            return Slider(
+                label, get, set_, lo, hi,
+                is_int=is_int, fmt=fmt, tip=PARAM_TIPS.get(label, "")
+            )
         return [
             ("— DWA / robot (project3.py) —", None),
             ("CRUISE_V", S("CRUISE_V", p3get("CRUISE_V"), p3set("CRUISE_V"), 0.05, 0.30)),
@@ -354,9 +445,12 @@ class Simulator:
             ("sim speed", S("sim speed", simget("sim_speed"), simset("sim_speed"), 0.25, 3.0)),
             ("lidar noise", S("lidar noise", simget("lidar_noise"), simset("lidar_noise"), 0.0, 0.03, fmt="{:.3f}")),
             ("n_rays", S("n_rays", simget("n_rays"), simset("n_rays"), 90, 720, is_int=True, fmt="{:.0f}")),
-            ("cam_max", S("cam_max", simget("cam_max"), simset("cam_max"), 1.0, 3.0)),
+            ("robot height", S("robot height", simget("robot_height"), simset("robot_height"), 0.08, 0.40)),
+            ("cam_min", S("cam_min", simget("cam_min"), set_cam_min, 0.00, 1.50)),
+            ("cam_max", S("cam_max", simget("cam_max"), set_cam_max, 0.20, 4.00)),
             ("obstacle w", S("obstacle w", simget("obstacle_w"), simset("obstacle_w"), 0.05, 0.80)),
-            ("obstacle h", S("obstacle h", simget("obstacle_h"), simset("obstacle_h"), 0.05, 0.50)),
+            ("obstacle depth", S("obstacle depth", simget("obstacle_h"), simset("obstacle_h"), 0.05, 0.50)),
+            ("obstacle z", S("obstacle z", simget("obstacle_z_h"), simset("obstacle_z_h"), 0.05, 0.50)),
             ("patch size", S("patch size", simget("patch_size"), simset("patch_size"), 0.10, 0.50)),
         ]
 
@@ -392,10 +486,10 @@ class Simulator:
         self.world.reset_run(x, y, th)
         self.arduino.V_cmd = self.arduino.W_cmd = 0.0
         self.arduino.wL = self.arduino.wR = 0.0
-        self.last_w = 0.0
+        self.ctrl = self.p3.Controller()
         self.brain_acc = self.acc = 0.0
         self.sim_time = 0.0
-        self.target_color = self.p3.DEFAULT_TARGET
+        self.target_color = self.p3.TARGET_SEQUENCE[0]
         self._say("RESET")
 
     def clear(self):
@@ -411,7 +505,7 @@ class Simulator:
 
     def _make_save_data(self):
         data = {
-            "schema": "drive_sim_layout_v2",
+            "schema": "drive_sim_layout_v3",
             "saved_at": datetime.now().astimezone().isoformat(timespec="seconds"),
             "note": (
                 "robot/obstacles/patches are the compact loadable layout. "
@@ -419,7 +513,7 @@ class Simulator:
                 "for Codex/Claude-style code analysis."
             ),
             "robot": [self.world.robot.x, self.world.robot.y, self.world.robot.theta],
-            "obstacles": [[o.x, o.y, o.w, o.h, o.theta] for o in self.world.obstacles],
+            "obstacles": [[o.x, o.y, o.w, o.h, o.theta, o.z_h] for o in self.world.obstacles],
             "patches": [[p.x, p.y, p.color, p.size] for p in self.world.patches],
             "report": self._make_layout_report(),
         }
@@ -440,21 +534,29 @@ class Simulator:
 
     def _load_obstacle(self, data):
         if isinstance(data, dict):
-            center = data.get("center_m", data)
-            size = data.get("size_m", data)
+            center = data.get("center_m", data.get("center", data))
+            if isinstance(center, dict) and "world_m" in center:
+                center = center["world_m"]
+            size = data.get("footprint_m", data.get("size_m", data))
             x = center.get("x_m", center.get("x", 0.0))
             y = center.get("y_m", center.get("y", 0.0))
             w = size.get("width_m", size.get("w_m", data.get("w", self.obstacle_w)))
-            h = size.get("height_m", size.get("h_m", data.get("h", self.obstacle_h)))
+            h = size.get("depth_m", size.get("height_m", size.get("h_m", data.get("h", self.obstacle_h))))
             theta = data.get("theta_rad", math.radians(data.get("theta_deg", 0.0)))
-            return Obstacle(x, y, w, h, theta)
+            z_h = data.get(
+                "vertical_height_m",
+                data.get("z_h_m", data.get("z_h", self.obstacle_z_h)),
+            )
+            return Obstacle(x, y, w, h, theta, z_h)
+        if len(data) >= 6:
+            return Obstacle(data[0], data[1], data[2], data[3], data[4], data[5])
         if len(data) >= 5:
-            return Obstacle(data[0], data[1], data[2], data[3], data[4])
+            return Obstacle(data[0], data[1], data[2], data[3], data[4], self.obstacle_z_h)
         if len(data) >= 4:
-            return Obstacle(data[0], data[1], data[2], data[3])
+            return Obstacle(data[0], data[1], data[2], data[3], 0.0, self.obstacle_z_h)
         if len(data) == 3:
             # 구버전 원형 장애물 저장값 [x, y, r]은 같은 지름의 정사각형으로 변환.
-            return Obstacle(data[0], data[1], data[2] * 2.0, data[2] * 2.0)
+            return Obstacle(data[0], data[1], data[2] * 2.0, data[2] * 2.0, 0.0, self.obstacle_z_h)
         return Obstacle(*data)
 
     def _load_patch(self, data):
@@ -490,6 +592,26 @@ class Simulator:
             },
         }
 
+    def _camera_rect_half_width(self):
+        return sensors.camera_rect_half_width(self.p3, self.cam_max)
+
+    def _camera_rect_world_points(self):
+        rb = self.world.robot
+        half_w = self._camera_rect_half_width()
+        near_x = max(0.0, self.cam_min)
+        far_x = max(near_x + 1e-6, self.cam_max)
+        cs, sn = math.cos(rb.theta), math.sin(rb.theta)
+        pts = []
+        for lx, ly in (
+            (near_x, -half_w),
+            (far_x, -half_w),
+            (far_x, half_w),
+            (near_x, half_w),
+        ):
+            pts.append((rb.x + lx * cs - ly * sn,
+                        rb.y + lx * sn + ly * cs))
+        return pts
+
     def _patch_bounds(self, p):
         h = p.size * 0.5
         return {
@@ -507,7 +629,8 @@ class Simulator:
             "id": "obstacle_{:02d}".format(idx + 1),
             "type": "rotated_rectangle",
             "center": self._point_report(o.x, o.y),
-            "size_m": {"width_m": o.w, "height_m": o.h},
+            "footprint_m": {"width_m": o.w, "depth_m": o.h},
+            "vertical_height_m": o.z_h,
             "theta_rad": o.theta,
             "theta_deg": math.degrees(o.theta),
             "corners": corners,
@@ -541,17 +664,43 @@ class Simulator:
                 "clearance_from_robot_body_m": clearance,
                 "center": self._point_report(o.x, o.y),
                 "theta_deg": math.degrees(o.theta),
-                "size_m": {"width_m": o.w, "height_m": o.h},
+                "footprint_m": {"width_m": o.w, "depth_m": o.h},
+                "vertical_height_m": o.z_h,
             }
             if best is None or clearance < best["clearance_from_robot_body_m"]:
                 best = item
         return best
+
+    def _camera_blocker_report(self, patch):
+        rb = self.world.robot
+        blocked = sensors.camera_blocker(
+            self.world, rb.x, rb.y, patch.x, patch.y, self.robot_height)
+        if blocked is None:
+            return None
+        obstacle, frac, line_z = blocked
+        obstacle_idx = None
+        for i, candidate in enumerate(self.world.obstacles):
+            if candidate is obstacle:
+                obstacle_idx = i
+                break
+        d = math.hypot(patch.x - rb.x, patch.y - rb.y)
+        return {
+            "obstacle_id": (
+                "obstacle_{:02d}".format(obstacle_idx + 1)
+                if obstacle_idx is not None else None
+            ),
+            "fraction_along_camera_ray": frac,
+            "distance_from_camera_m": frac * d,
+            "camera_ray_height_at_blocker_m": line_z,
+            "obstacle_vertical_height_m": obstacle.z_h,
+        }
 
     def _target_geometry(self, color):
         rb = self.world.robot
         cs, sn = math.cos(rb.theta), math.sin(rb.theta)
         half_fov = self.p3.HALF_HFOV_RAD
         focal_px = (self.p3.CAM_W * 0.5) / max(1e-6, math.tan(half_fov))
+        half_width = self._camera_rect_half_width()
         targets = []
         for i, p in enumerate(self.world.patches):
             if p.color != color:
@@ -561,8 +710,14 @@ class Simulator:
             y_r = -rx * sn + ry * cs
             distance = math.hypot(x_r, y_r)
             bearing = math.atan2(y_r, x_r) if distance > 1e-9 else 0.0
-            side_px = focal_px * p.size / max(1e-6, distance)
+            projection_distance = x_r if x_r > 0.0 else distance
+            side_px = focal_px * p.size / max(1e-6, projection_distance)
             area_px = side_px * side_px
+            blocker = self._camera_blocker_report(p)
+            image_err = -clamp(y_r / half_width, -1.0, 1.0)
+            simulated_bearing = self.p3.BEARING_SIGN * image_err * half_fov
+            inside_width = abs(y_r) <= half_width
+            inside_forward_range = self.cam_min <= x_r <= self.cam_max
             targets.append({
                 "id": "patch_{:02d}_{}".format(i + 1, p.color),
                 "center": self._point_report(p.x, p.y),
@@ -570,9 +725,19 @@ class Simulator:
                 "robot_frame_m": {"forward_x_m": x_r, "left_y_m": y_r},
                 "bearing_rad": bearing,
                 "bearing_deg": math.degrees(bearing),
+                "simulated_camera_bearing_rad": simulated_bearing,
+                "simulated_camera_bearing_deg": math.degrees(simulated_bearing),
+                "image_err": image_err,
+                "camera_footprint_shape": "rectangle",
+                "camera_rect_half_width_m": half_width,
                 "in_front": x_r > 0.0,
-                "inside_camera_fov": abs(bearing) <= half_fov,
-                "inside_camera_range": distance <= self.cam_max,
+                "inside_camera_rect_width": inside_width,
+                "inside_camera_fov": inside_width,
+                "inside_camera_min_range": x_r >= self.cam_min,
+                "inside_camera_max_range": x_r <= self.cam_max,
+                "inside_camera_range": inside_forward_range,
+                "blocked_by_obstacle": blocker is not None,
+                "blocking_obstacle": blocker,
                 "estimated_area_px": area_px,
                 "passes_min_area": area_px >= self.p3.MIN_AREA,
             })
@@ -599,7 +764,9 @@ class Simulator:
             lidar_error = None
 
         vis, bearing, area_ratio, cy_norm, n_visible = sensors.simulate_camera(
-            self.world, self.p3, self.target_color, cam_max=self.cam_max)
+            self.world, self.p3, self.target_color,
+            cam_max=self.cam_max, cam_far=self.cam_max,
+            cam_min=self.cam_min, camera_height_m=self.robot_height)
         return {
             "lidar": {
                 "raw_return_count": int(len(scan[0])),
@@ -609,6 +776,12 @@ class Simulator:
             },
             "camera": {
                 "target_color_used_by_sim": self.target_color,
+                "mount_height_m": self.robot_height,
+                "footprint_shape": "rectangle",
+                "ground_visible_range_m": {"min_m": self.cam_min, "max_m": self.cam_max},
+                "rect_forward_range_m": {"min_m": self.cam_min, "max_m": self.cam_max},
+                "rect_half_width_m": self._camera_rect_half_width(),
+                "HFOV_DEG_used_for_width": self.p3.HFOV_DEG,
                 "visible": bool(vis),
                 "bearing_rad": bearing,
                 "bearing_deg": math.degrees(bearing),
@@ -689,15 +862,24 @@ class Simulator:
                     {"camera_target": self.target_color})
             else:
                 nearest = geom[0]
-                evidence = {"nearest_target": nearest, "cam_max_m": self.cam_max,
-                            "HALF_HFOV_DEG": math.degrees(self.p3.HALF_HFOV_RAD),
+                evidence = {"nearest_target": nearest,
+                            "cam_min_m": self.cam_min,
+                            "cam_max_m": self.cam_max,
+                            "camera_footprint_shape": camera.get("footprint_shape"),
+                            "camera_rect_half_width_m": self._camera_rect_half_width(),
+                            "camera_height_m": self.robot_height,
+                            "HFOV_DEG_used_for_width": self.p3.HFOV_DEG,
                             "MIN_AREA": self.p3.MIN_AREA}
                 if not nearest["in_front"]:
                     msg = "The nearest target patch is behind the robot."
-                elif not nearest["inside_camera_fov"]:
-                    msg = "The nearest target patch is outside the camera horizontal FOV."
-                elif not nearest["inside_camera_range"]:
-                    msg = "The nearest target patch is beyond the simulator camera range."
+                elif not nearest["inside_camera_min_range"]:
+                    msg = "The nearest target patch is closer than the rectangular camera minimum forward range."
+                elif not nearest["inside_camera_max_range"]:
+                    msg = "The nearest target patch is beyond the rectangular camera maximum forward range."
+                elif not nearest["inside_camera_rect_width"]:
+                    msg = "The nearest target patch is outside the rectangular camera footprint width."
+                elif nearest["blocked_by_obstacle"]:
+                    msg = "The target patch is hidden by an obstacle that is taller than the camera sightline."
                 elif not nearest["passes_min_area"]:
                     msg = "The nearest target patch appears too small for project3.py MIN_AREA."
                 else:
@@ -787,10 +969,12 @@ class Simulator:
                 "collisions": self.world.collisions,
                 "finished": self.world.finished,
             },
+            "controller": self._controller_report(),
             "robot": {
                 "pose": self._pose_report(rb.x, rb.y, rb.theta),
                 "start_pose": self._pose_report(*self.start_pose),
                 "radius_m": self.p3.ROBOT_RADIUS,
+                "height_m": self.robot_height,
                 "wheel_base_m": self.bridge.ino["WHEEL_BASE"],
                 "wheel_contacts": {
                     "left": self._point_report(*left),
@@ -805,8 +989,19 @@ class Simulator:
             "simulator_parameters": {
                 "n_rays": self.n_rays,
                 "lidar_noise_m": self.lidar_noise,
+                "cam_min_m": self.cam_min,
                 "cam_max_m": self.cam_max,
-                "obstacle_default_size_m": {"width_m": self.obstacle_w, "height_m": self.obstacle_h},
+                "camera_model": {
+                    "mount_height_m": self.robot_height,
+                    "footprint_shape": "rectangle",
+                    "ground_visible_range_m": {"min_m": self.cam_min, "max_m": self.cam_max},
+                    "rect_forward_range_m": {"min_m": self.cam_min, "max_m": self.cam_max},
+                    "rect_half_width_m": self._camera_rect_half_width(),
+                    "HFOV_DEG_used_for_width": self.p3.HFOV_DEG,
+                    "occlusion_uses_obstacle_height": True,
+                },
+                "obstacle_default_footprint_m": {"width_m": self.obstacle_w, "depth_m": self.obstacle_h},
+                "obstacle_default_vertical_height_m": self.obstacle_z_h,
                 "patch_default_size_m": self.patch_size,
             },
             "project3_py_parameters": {
@@ -815,7 +1010,11 @@ class Simulator:
                     "CRUISE_V", "MAX_W", "W_RATE", "W_CLEAR", "W_GOAL",
                     "HORIZON_T", "COLLISION_DIST", "SLOW_DIST", "ROBOT_RADIUS",
                     "MAX_RANGE_M", "V_MIN_RATIO", "CLEAR_CAP", "HFOV_DEG",
-                    "DEFAULT_TARGET", "BEARING_SIGN", "MIN_AREA", "LOOP_DT",
+                    "DEFAULT_TARGET", "TARGET_SEQUENCE", "ARRIVE_CY",
+                    "CLOSE_APPROACH_V", "CLOSE_APPROACH_MAX_S",
+                    "BLIND_CREEP_V", "BLIND_CREEP_S", "DWELL_S",
+                    "SEARCH_V", "SEARCH_W", "TARGET_LOST_MEMORY_S",
+                    "BEARING_SIGN", "MIN_AREA", "LOOP_DT",
                 )
                 if hasattr(self.p3, name)
             },
@@ -825,6 +1024,40 @@ class Simulator:
             "target_geometry": target_geometry,
             "nearest_obstacle": nearest_obstacle,
             "diagnostics": self._diagnostics(sensor_snapshot, nearest_obstacle, target_geometry),
+        }
+
+    def _controller_report(self):
+        ctrl = self.ctrl
+
+        def remaining(attr):
+            value = getattr(ctrl, attr, 0.0)
+            return max(0.0, value - self.sim_time) if value else 0.0
+
+        last_seen_t = getattr(ctrl, "last_seen_t", -1e9)
+        return {
+            "seq_idx": getattr(ctrl, "seq_idx", None),
+            "target_color": getattr(ctrl, "target_color", None),
+            "done": getattr(ctrl, "done", False),
+            "phase": getattr(ctrl, "phase", None),
+            "last_w": getattr(ctrl, "last_w", None),
+            "goal": getattr(ctrl, "goal", None),
+            "clr": getattr(ctrl, "clr", None),
+            "timers_abs_s": {
+                "close_until": getattr(ctrl, "close_until", 0.0),
+                "creep_until": getattr(ctrl, "creep_until", 0.0),
+                "dwell_until": getattr(ctrl, "dwell_until", 0.0),
+            },
+            "timers_remaining_s": {
+                "close": remaining("close_until"),
+                "creep": remaining("creep_until"),
+                "dwell": remaining("dwell_until"),
+            },
+            "last_seen": {
+                "time_s": last_seen_t if last_seen_t > -1e8 else None,
+                "age_s": self.sim_time - last_seen_t if last_seen_t > -1e8 else None,
+                "bearing_rad": getattr(ctrl, "last_seen_bearing", None),
+                "search_dir": getattr(ctrl, "search_dir", None),
+            },
         }
 
     # ----- 좌표 변환 -----
@@ -873,30 +1106,45 @@ class Simulator:
         self.view_panning = False
         self.view_pan_last = None
 
-    # ----- 브레인 1틱 (main() 글루 미러) -----
+    # ----- 브레인 1틱: 합성 센서 → project3.py Controller.tick() → 모터 -----
     def brain_tick(self, commit):
+        """결정/상태는 전부 p3.Controller.tick() 에 위임(단일 진실원).
+           sim 은 합성 센서·시각화 글루만 담당. py 의 tick() 을 고치면 여기로 자동 반영."""
         p3 = self.p3
+        color = self.ctrl.target_color           # None 이면 완주
+        if color is not None:
+            self.target_color = color
+
+        # 합성 센서 (sim 전용 글루 — 실제 하드웨어 입력을 대체)
         scan = sensors.simulate_lidar_raw(self.world, p3, n_rays=self.n_rays,
                                           noise_m=self.lidar_noise)
         pts = p3.lidar_points_to_xy(scan)
-        vis, bearing, ar, cy, ncnt = sensors.simulate_camera(
-            self.world, p3, self.target_color, cam_max=self.cam_max)
-        seen = vis
-        goal = bearing if seen else p3.GOAL_BEARING_FALLBACK
-        v, w, clr, blocked = p3.choose_cmd(pts, goal, self.last_w)
+        if color is None:
+            seen, bearing, ar, cy = False, 0.0, 0.0, 0.0
+        else:
+            vis, bearing, ar, cy, ncnt = sensors.simulate_camera(
+                self.world, p3, color,
+                cam_max=self.cam_max, cam_far=self.cam_max,
+                cam_min=self.cam_min, camera_height_m=self.robot_height)
+            seen = vis
+
+        # 결정/상태 전이는 전부 Controller.tick() 에 위임(= 실제 코드).
+        # 미리보기(commit=False)는 복사본으로 돌려 상태를 바꾸지 않는다.
+        ctrl = self.ctrl if commit else copy.copy(self.ctrl)
+        v, w, state = ctrl.tick(pts, seen, bearing, cy, self.sim_time)
         if commit:
             p3.send_vw(self.link, v, w)
-            self.last_w = w
-        # 시각화 좌표 변환
+
+        # 시각화/텔레메트리
         self._update_viz(pts, v, w)
-        if seen:
+        if seen and state in ("SEEK", "CLOSE", "BLOCKED"):
             d = 0.6
             self.bear_pt = (self.world.robot.x + d * math.cos(self.world.robot.theta + bearing),
                             self.world.robot.y + d * math.sin(self.world.robot.theta + bearing))
         else:
             self.bear_pt = None
-        self.tele.update(v=v, w=w, gb=goal, clr=clr, blocked=blocked,
-                         see=seen, npts=len(pts), ar=ar)
+        self.tele.update(v=v, w=w, gb=ctrl.goal, clr=ctrl.clr, blocked=(state == "BLOCKED"),
+                         see=seen, npts=len(pts), ar=ar, bstate=state)
 
     def _update_viz(self, pts, v, w):
         rb = self.world.robot
@@ -918,7 +1166,10 @@ class Simulator:
             self.p3 = self.bridge.p3
             self.arduino.ino = self.bridge.ino
             self.world.set_robot_radius(self.p3.ROBOT_RADIUS)
-            self.last_w = 0.0
+            # 새 코드의 Controller 로 교체하되 진행 상태(시퀀스/타이머)는 보존
+            new_ctrl = self.p3.Controller()
+            new_ctrl.__dict__.update(self.ctrl.__dict__)
+            self.ctrl = new_ctrl
             self.sliders = self._make_sliders()
             self._say("RELOADED code")
 
@@ -951,7 +1202,8 @@ class Simulator:
             if self.tool == "Obstacle":
                 self.obstacle_placing = True
                 self.obstacle_anchor = (wx, wy)
-                self.obstacle_preview = Obstacle(wx, wy, self.obstacle_w, self.obstacle_h, 0.0)
+                self.obstacle_preview = Obstacle(
+                    wx, wy, self.obstacle_w, self.obstacle_h, 0.0, self.obstacle_z_h)
             elif self.tool in PATCH_COL:
                 self.world.patches.append(Patch(wx, wy, self.tool, self.patch_size))
             elif self.tool == "Robot":
@@ -979,7 +1231,7 @@ class Simulator:
             self._update_obstacle_preview(pos)
             if self.obstacle_preview is not None:
                 p = self.obstacle_preview
-                self.world.obstacles.append(Obstacle(p.x, p.y, p.w, p.h, p.theta))
+                self.world.obstacles.append(Obstacle(p.x, p.y, p.w, p.h, p.theta, p.z_h))
             self.obstacle_placing = False
             self.obstacle_anchor = None
             self.obstacle_preview = None
@@ -1006,7 +1258,8 @@ class Simulator:
                 theta = math.atan2(dy, dx)
         elif self.obstacle_preview is not None:
             theta = self.obstacle_preview.theta
-        self.obstacle_preview = Obstacle(ax, ay, self.obstacle_w, self.obstacle_h, theta)
+        self.obstacle_preview = Obstacle(
+            ax, ay, self.obstacle_w, self.obstacle_h, theta, self.obstacle_z_h)
 
     def on_wheel(self, y, pos):
         if pos[0] >= PANEL_X:
@@ -1054,6 +1307,7 @@ class Simulator:
                 surf, self.obstacle_preview,
                 fill=(80, 110, 96), edge=(170, 215, 190), alpha=150)
 
+        self._draw_camera_footprint(surf)
         self._draw_robot(surf)
         self._draw_overlays(surf)
         surf.set_clip(None)
@@ -1077,6 +1331,15 @@ class Simulator:
             pygame.draw.polygon(surf, fill, pts)
             pygame.draw.polygon(surf, edge, pts, width)
             pygame.draw.line(surf, edge, center, tip, max(1, ui(2)))
+
+    def _draw_camera_footprint(self, surf):
+        pts = [self.w2s(x, y) for x, y in self._camera_rect_world_points()]
+        pts = [(int(round(x)), int(round(y))) for x, y in pts]
+        if len(pts) < 3:
+            return
+        layer = pygame.Surface((WIN_W, WIN_H), pygame.SRCALPHA)
+        pygame.draw.polygon(layer, CAM_AREA_C, pts)
+        surf.blit(layer, (0, 0))
 
     def _alpha_circle(self, surf, center, rpx, rgba):
         rpx = int(rpx)
@@ -1110,13 +1373,10 @@ class Simulator:
 
     def _draw_overlays(self, surf):
         rb = self.world.robot
-        # 카메라 FOV
-        half = self.p3.HALF_HFOV_RAD
-        for s in (-1, 1):
-            a = rb.theta + s * half
-            ex = rb.x + self.cam_max * math.cos(a)
-            ey = rb.y + self.cam_max * math.sin(a)
-            pygame.draw.line(surf, FOV_C, self.w2s(rb.x, rb.y), self.w2s(ex, ey), 1)
+        # 카메라 바닥 직사각형 발자국
+        pts = [(int(round(x)), int(round(y)))
+               for x, y in (self.w2s(wx, wy) for wx, wy in self._camera_rect_world_points())]
+        pygame.draw.lines(surf, FOV_C, True, pts, 1)
         # 라이다 점
         arena = pygame.Rect(MARGIN, MARGIN, ARENA_PX, ARENA_PX)
         for px, py in self.pts_world:
@@ -1151,6 +1411,8 @@ class Simulator:
         clip = pygame.Rect(PANEL_X - ui(4), top, PANEL_W, WIN_H - top - ui(4))
         surf.set_clip(clip)
         y = top - self.param_scroll
+        mouse_pos = pygame.mouse.get_pos()
+        tooltip = None
         for label, sl in self.sliders:
             if sl is None:
                 hdr = font.render(label, True, (130, 200, 180))
@@ -1160,8 +1422,32 @@ class Simulator:
             else:
                 if top - ui(30) < y < WIN_H:
                     sl.draw(surf, font, PANEL_X, y, PANEL_W - ui(12))
+                    if tooltip is None:
+                        tooltip = sl.hover_tip(mouse_pos)
                 y += ui(44)
         surf.set_clip(None)
+        self._draw_tooltip(surf, font, tooltip, mouse_pos)
+
+    def _draw_tooltip(self, surf, font, text, pos):
+        if not text:
+            return
+        pad_x = ui(9)
+        pad_y = ui(7)
+        rendered = font.render(text, True, TXT)
+        w = rendered.get_width() + 2 * pad_x
+        h = rendered.get_height() + 2 * pad_y
+        x = pos[0] + ui(14)
+        y = pos[1] + ui(16)
+        x = min(x, WIN_W - w - ui(6))
+        y = min(y, WIN_H - h - ui(6))
+        x = max(ui(6), x)
+        y = max(ui(6), y)
+        box = pygame.Rect(x, y, w, h)
+        layer = pygame.Surface((w, h), pygame.SRCALPHA)
+        pygame.draw.rect(layer, (10, 12, 16, 225), layer.get_rect(), border_radius=ui(5))
+        pygame.draw.rect(layer, (100, 112, 135, 210), layer.get_rect(), 1, border_radius=ui(5))
+        layer.blit(rendered, (pad_x, pad_y))
+        surf.blit(layer, box)
 
     def _draw_telemetry(self, surf, font):
         t = self.tele
@@ -1171,7 +1457,7 @@ class Simulator:
             for i, c in enumerate(ORDER))
         lines = [
             f"{st}  t={self.sim_time:5.1f}s  speed x{self.sim_speed:.2f}",
-            f"target={self.target_color}  order[{cleared}]  dwell={self.world.dwell:.2f}",
+            f"brain={self.target_color}[{t['bstate']}]  judge[{cleared}]  jdwell={self.world.dwell:.2f}",
             f"see={'Y' if t['see'] else 'n'}  gb={t['gb']:+.2f}rad  ar={t['ar']:.3f}",
             f"cmd v={t['v']:+.3f} w={t['w']:+.2f}  clr={t['clr']:.2f}  {'BLOCKED' if t['blocked'] else ''}",
             f"collisions={self.world.collisions}   {'*** FINISHED ***' if self.world.finished else ''}",
@@ -1260,7 +1546,12 @@ def main():
                 elif ev.key == pygame.K_r:
                     sim.reset()
                 elif ev.key in (pygame.K_1, pygame.K_2, pygame.K_3):
-                    sim.target_color = ORDER[ev.key - pygame.K_1]
+                    sim.ctrl.seq_idx = ev.key - pygame.K_1
+                    if hasattr(sim.ctrl, "_reset_for_next_target"):
+                        sim.ctrl._reset_for_next_target()
+                    else:
+                        sim.ctrl.dwell_until = 0.0
+                    sim.target_color = sim.p3.TARGET_SEQUENCE[sim.ctrl.seq_idx]
 
         m, tleft = sim.toast
         if tleft > 0:

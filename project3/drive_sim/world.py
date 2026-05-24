@@ -6,6 +6,7 @@
 월드는 4m×4m 표시 평면. 중앙 2m×2m가 시험 배치 영역이며,
 테두리는 벽이 아니라 열린 공간으로 취급한다.
 로봇 자세 (x, y, theta) [m, m, rad].
+장애물은 2D 발자국(w/h)과 수직 높이(z_h)를 함께 가진다.
 """
 
 import math
@@ -15,15 +16,17 @@ TEST_ZONE_M = 2.0
 TEST_ZONE_X = (ARENA_M - TEST_ZONE_M) * 0.5
 TEST_ZONE_Y = (ARENA_M - TEST_ZONE_M) * 0.5
 ORDER = ["RED", "YELLOW", "BLUE"]   # 통과 순서
+DEFAULT_OBSTACLE_Z_H = 0.23         # 장애물 수직 높이 23cm
 
 
 class Obstacle:
-    def __init__(self, x, y, w=0.24, h=0.12, theta=0.0):
+    def __init__(self, x, y, w=0.24, h=0.12, theta=0.0, z_h=DEFAULT_OBSTACLE_Z_H):
         self.x = x
         self.y = y
-        self.w = w          # 폭 (m) — x축 방향
-        self.h = h          # 높이 (m) — y축 방향
+        self.w = w          # 발자국 폭 (m) — 로컬 x축 방향
+        self.h = h          # 발자국 깊이 (m) — 로컬 y축 방향
         self.theta = theta  # +x 기준 CCW 회전각 (rad)
+        self.z_h = z_h      # 수직 높이 (m)
 
     @property
     def half_w(self):
