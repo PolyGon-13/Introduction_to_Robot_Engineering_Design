@@ -66,6 +66,7 @@ BG = (24, 26, 32)
 ARENA_BG = (40, 43, 52)
 TEST_ZONE_BG = (50, 62, 54)
 TEST_ZONE_EDGE = (110, 180, 130)
+KEEPIN_EDGE = (230, 180, 90)
 GRID = (54, 58, 70)
 WALL = (90, 96, 112)
 TXT = (220, 224, 232)
@@ -94,6 +95,8 @@ PARAM_TIPS = {
     "COLLISION_DIST": "이 거리 안의 장애물은 충돌 위험으로 봅니다.",
     "SLOW_DIST": "장애물 근처에서 감속을 시작하는 거리입니다.",
     "ROBOT_RADIUS": "project3.py의 DWA 충돌 예측에 쓰는 원형 근사 반지름입니다.",
+    "KEEPIN_SIZE_M": "로봇 판단 로직이 벗어나지 않으려는 정사각형 영역 크기입니다.",
+    "KEEPIN_MARGIN_M": "keep-in 경계에서 로봇 중심이 남겨야 하는 여유입니다.",
     "MAX_RANGE_M": "project3.py가 사용할 라이다 최대 거리입니다.",
     "V_MIN_RATIO": "막혔을 때 유지할 최소 전진 속도 비율입니다.",
     "CLEAR_CAP": "여유거리 점수의 상한값입니다.",
@@ -377,7 +380,7 @@ class Simulator:
 
     def resize(self, window_w, window_h):
         configure_layout(window_w, window_h)
-        self.param_scroll = clamp(self.param_scroll, 0, ui(1400))
+        self.param_scroll = clamp(self.param_scroll, 0, ui(1600))
         self._build_ui()
 
     # ----- UI 구성 -----
@@ -475,6 +478,8 @@ class Simulator:
             ("COLLISION_DIST", S("COLLISION_DIST", p3get("COLLISION_DIST"), p3set("COLLISION_DIST"), 0.10, 0.40)),
             ("SLOW_DIST", S("SLOW_DIST", p3get("SLOW_DIST"), p3set("SLOW_DIST"), 0.15, 0.80)),
             ("ROBOT_RADIUS", S("ROBOT_RADIUS", p3get("ROBOT_RADIUS"), p3set("ROBOT_RADIUS"), 0.08, 0.20)),
+            ("KEEPIN_SIZE_M", S("KEEPIN_SIZE_M", p3get("KEEPIN_SIZE_M"), p3set("KEEPIN_SIZE_M"), 2.00, 3.00)),
+            ("KEEPIN_MARGIN_M", S("KEEPIN_MARGIN_M", p3get("KEEPIN_MARGIN_M"), p3set("KEEPIN_MARGIN_M"), 0.00, 0.25)),
             ("MAX_RANGE_M", S("MAX_RANGE_M", p3get("MAX_RANGE_M"), p3set("MAX_RANGE_M"), 0.5, 4.0)),
             ("V_MIN_RATIO", S("V_MIN_RATIO", p3get("V_MIN_RATIO"), p3set("V_MIN_RATIO"), 0.1, 1.0)),
             ("CLEAR_CAP", S("CLEAR_CAP", p3get("CLEAR_CAP"), p3set("CLEAR_CAP"), 0.2, 1.5)),
@@ -719,6 +724,7 @@ class Simulator:
                 "last_seen_t": getattr(ctrl, "last_seen_t", None),
                 "last_seen_bearing": getattr(ctrl, "last_seen_bearing", None),
             },
+            "keepin": self._keepin_report(),
             "judge": {
                 "required_target": self.world.current_target_color(),
                 "cleared_by_order": dict(zip(ORDER, self.world.cleared)),
@@ -769,6 +775,59 @@ class Simulator:
                 "theta_rad": theta,
                 "theta_deg": math.degrees(theta),
             },
+        }
+
+    def _p3_pose_tuple(self):
+        rb = self.world.robot
+        return (rb.x - ARENA_M * 0.5, rb.y - ARENA_M * 0.5, rb.theta)
+
+    def _keepin_bounds_world(self):
+        size = getattr(self.p3, "KEEPIN_SIZE_M", 0.0)
+        half = size * 0.5
+        cx = ARENA_M * 0.5
+        cy = ARENA_M * 0.5
+        return {
+            "x_min_m": cx - half,
+            "x_max_m": cx + half,
+            "y_min_m": cy - half,
+            "y_max_m": cy + half,
+        }
+
+    def _keepin_report(self):
+        size = getattr(self.p3, "KEEPIN_SIZE_M", None)
+        margin = getattr(self.p3, "KEEPIN_MARGIN_M", None)
+        enabled = bool(getattr(self.p3, "KEEPIN_ENABLED", False))
+        bounds = self._keepin_bounds_world()
+        centered_half = (size * 0.5) if size is not None else None
+        effective_half = None
+        if size is not None and margin is not None:
+            effective_half = size * 0.5 - margin
+        current_margin = None
+        predicted_margin = None
+        if hasattr(self.p3, "keepin_boundary_margin"):
+            pose = self._p3_pose_tuple()
+            current_margin = self.p3.keepin_boundary_margin(0.0, 0.0, pose)
+            predicted_margin = self.p3.keepin_boundary_margin(
+                max(self.tele.get("v", 0.0), 0.05), self.tele.get("w", 0.0), pose)
+        return {
+            "enabled": enabled,
+            "size_m": size,
+            "margin_m": margin,
+            "world_bounds_m": bounds,
+            "centered_bounds_m": {
+                "x_min_m": -centered_half if centered_half is not None else None,
+                "x_max_m": centered_half,
+                "y_min_m": -centered_half if centered_half is not None else None,
+                "y_max_m": centered_half,
+            },
+            "effective_center_bounds_m": {
+                "x_min_m": -effective_half if effective_half is not None else None,
+                "x_max_m": effective_half,
+                "y_min_m": -effective_half if effective_half is not None else None,
+                "y_max_m": effective_half,
+            },
+            "current_center_margin_m": current_margin,
+            "predicted_command_margin_m": predicted_margin,
         }
 
     def _camera_rect_half_width(self):
@@ -1086,6 +1145,19 @@ class Simulator:
                 "The robot has already collided during this run.",
                 {"collisions": self.world.collisions})
 
+        keepin = self._keepin_report()
+        if keepin["enabled"] and keepin["current_center_margin_m"] is not None:
+            margin = keepin["current_center_margin_m"]
+            predicted = keepin["predicted_command_margin_m"]
+            if margin < 0.0:
+                add("outside_keepin_boundary", "high",
+                    "The robot odometry pose is outside the 2.3m keep-in boundary.",
+                    keepin)
+            elif predicted is not None and predicted < 0.0:
+                add("command_would_leave_keepin_boundary", "medium",
+                    "The current command trajectory would leave the keep-in boundary.",
+                    keepin)
+
         if nearest_obstacle is not None:
             clearance = nearest_obstacle["clearance_from_robot_body_m"]
             if clearance <= 1e-9:
@@ -1216,6 +1288,7 @@ class Simulator:
                         "y_max_m": TEST_ZONE_Y + TEST_ZONE_M - ARENA_M * 0.5,
                     },
                 },
+                "keepin_boundary": self._keepin_report(),
                 "outer_border_is_wall": self.world.walls_on,
             },
             "run_state": {
@@ -1286,6 +1359,9 @@ class Simulator:
                 for name in (
                     "CRUISE_V", "MAX_W", "W_RATE", "W_CLEAR", "W_GOAL",
                     "HORIZON_T", "COLLISION_DIST", "SLOW_DIST", "ROBOT_RADIUS",
+                    "KEEPIN_ENABLED", "KEEPIN_SIZE_M", "KEEPIN_MARGIN_M",
+                    "ODOM_WHEEL_R", "ODOM_WHEEL_BASE", "ODOM_PPR",
+                    "ODOM_START_X", "ODOM_START_Y", "ODOM_START_TH", "ODOM_HOLD_S",
                     "MAX_RANGE_M", "V_MIN_RATIO", "CLEAR_CAP", "HFOV_DEG",
                     "DEFAULT_TARGET", "TARGET_SEQUENCE", "ARRIVE_CY",
                     "CLOSE_APPROACH_V", "CLOSE_APPROACH_MAX_S",
@@ -1421,7 +1497,8 @@ class Simulator:
         # 결정/상태 전이는 전부 Controller.tick() 에 위임(= 실제 코드).
         # 미리보기(commit=False)는 복사본으로 돌려 상태를 바꾸지 않는다.
         ctrl = self.ctrl if commit else copy.copy(self.ctrl)
-        v, w, state = ctrl.tick(pts, seen, bearing, cy, self.sim_time)
+        v, w, state = ctrl.tick(pts, seen, bearing, cy, self.sim_time,
+                                pose=self._p3_pose_tuple())
         if commit:
             p3.send_vw(self.link, v, w)
 
@@ -1597,7 +1674,7 @@ class Simulator:
 
     def on_wheel(self, y, pos):
         if pos[0] >= PANEL_X:
-            self.param_scroll = clamp(self.param_scroll - y * ui(24), 0, ui(1400))
+            self.param_scroll = clamp(self.param_scroll - y * ui(24), 0, ui(1600))
         elif self.in_arena(pos):
             self.zoom_at(y, pos)
 
@@ -1616,6 +1693,13 @@ class Simulator:
         zone_surf.fill((*TEST_ZONE_BG, 150))
         surf.blit(zone_surf, (zx, zy))
         pygame.draw.rect(surf, TEST_ZONE_EDGE, (zx, zy, zw, zh), max(1, ui(2)))
+        # project3.py가 odometry로 벗어나지 않으려는 2.3m keep-in 경계.
+        if getattr(self.p3, "KEEPIN_ENABLED", False):
+            kb = self._keepin_bounds_world()
+            kx, ky = self.w2s(kb["x_min_m"], kb["y_max_m"])
+            kw = (kb["x_max_m"] - kb["x_min_m"]) * view_s
+            kh = (kb["y_max_m"] - kb["y_min_m"]) * view_s
+            pygame.draw.rect(surf, KEEPIN_EDGE, (kx, ky, kw, kh), max(1, ui(2)))
         # 그리드
         for i in range(1, int(ARENA_M / 0.5)):
             gx = i * 0.5
@@ -1799,6 +1883,7 @@ class Simulator:
             f"brain={self.target_color}[{t['bstate']}]  judge[{cleared}]  jdwell={self.world.dwell:.2f}",
             f"see={'Y' if t['see'] else 'n'}  gb={t['gb']:+.2f}rad  ar={t['ar']:.3f}",
             f"cmd v={t['v']:+.3f} w={t['w']:+.2f}  clr={t['clr']:.2f}  {'BLOCKED' if t['blocked'] else ''}",
+            f"odom=({self._p3_pose_tuple()[0]:+.2f},{self._p3_pose_tuple()[1]:+.2f})  keepin={self._keepin_report()['current_center_margin_m']:+.2f}",
             f"collisions={self.world.collisions}   {'*** FINISHED ***' if self.world.finished else ''}",
             f"tool={self.tool}",
         ]

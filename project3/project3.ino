@@ -51,8 +51,10 @@ float W_cmd = 0.0f;  // 목표 각속도 (rad/s),  w>0 = 좌회전
 // ── 타이밍 ────────────────────────────────────────────────
 const unsigned long PID_INTERVAL_MS = 20;
 const unsigned long CMD_TIMEOUT_MS = 300;   // 명령 끊기면 정지 (Pi 50ms 주기의 6배 → 행/크래시 시 빠른 정지)
+const unsigned long ODOM_INTERVAL_MS = 50;  // Pi odometry용 엔코더 누적값 송신 주기
 unsigned long lastPidMs = 0;
 unsigned long lastCmdMs = 0;
+unsigned long lastOdomMs = 0;
 
 // ── 엔코더 ────────────────────────────────────────────────
 volatile long EncoderCount_r = 0;
@@ -168,6 +170,15 @@ void readRPSerial() {
   }
 }
 
+void sendOdomSerial(unsigned long now, long enc_l, long enc_r) {
+  Serial1.print(F("O,"));
+  Serial1.print(enc_l);
+  Serial1.print(',');
+  Serial1.print(enc_r);
+  Serial1.print(',');
+  Serial1.println(now);
+}
+
 void setup() {
   Serial.begin(115200);
   Serial1.begin(9600);
@@ -192,6 +203,7 @@ void setup() {
 
   lastPidMs = millis();
   lastCmdMs = millis();
+  lastOdomMs = millis();
   Serial.println(F("[READY] project3 velocity controller"));
 }
 
@@ -224,5 +236,10 @@ void loop() {
     resolveWheelTargets(V_cmd, W_cmd);
     writeDriver_r(computePID(pidR, dt));
     writeDriver_l(computePID(pidL, dt));
+  }
+
+  if (now - lastOdomMs >= ODOM_INTERVAL_MS) {
+    lastOdomMs = now;
+    sendOdomSerial(now, enc_l, enc_r);
   }
 }

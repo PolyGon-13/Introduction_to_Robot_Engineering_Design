@@ -44,6 +44,19 @@ V_MIN_RATIO = 0.4                      # 감속 시 최소 속도 비율
 MAX_W = 1.0                            # 최대 회전속도
 W_RATE = 0.30                          # 루프당 w 변화 제한
 
+# 엔코더 odometry / 시험 영역 keep-in
+ODOM_WHEEL_R = 0.034                   # project3.ino WHEEL_R와 맞춘 값
+ODOM_WHEEL_BASE = 0.179                # project3.ino WHEEL_BASE와 맞춘 값
+ODOM_PPR = 1012.0                      # project3.ino PPR와 맞춘 값
+ODOM_COUNT_PER_RAD = ODOM_PPR / (2.0 * math.pi)
+ODOM_START_X = 0.0                     # centered 좌표계 기준 시작 x
+ODOM_START_Y = -1.0                    # centered 좌표계 기준 시작 y
+ODOM_START_TH = math.pi / 2.0          # +y 방향으로 출발
+ODOM_HOLD_S = 0.50                     # 이 시간 이상 엔코더 피드백이 없으면 안전 정지
+KEEPIN_ENABLED = True
+KEEPIN_SIZE_M = 2.30                   # 2m 시험영역보다 약간 큰 가상 주행 제한
+KEEPIN_MARGIN_M = ROBOT_RADIUS         # 로봇 중심이 이만큼 안쪽에 남도록 제한
+
 # DWA
 HORIZON_T = 1.2
 DT = 0.10
@@ -73,7 +86,7 @@ ARRIVE_CY = 0.85                       # 코앞 감지 → 정지 전 close/cree
 CLOSE_APPROACH_V = 0.07                # 코앞 감지 후 카메라를 보며 더 들어가는 저속
 CLOSE_APPROACH_MAX_S = 2.20            # 카메라가 계속 보여도 CLOSE를 끝내는 최대 시간
 BLIND_CREEP_V = 0.07                   # 카메라가 패치를 잃은 뒤 짧게 더 들어가는 속도
-BLIND_CREEP_DIST_M = 0.11              # 패치 위로 바퀴를 올리기 위한 추가 전진 거리
+BLIND_CREEP_DIST_M = 0.12              # 패치 위로 바퀴를 올리기 위한 추가 전진 거리
 BLIND_CREEP_S = BLIND_CREEP_DIST_M / max(1e-6, BLIND_CREEP_V)  # 호환/리포트용 환산 시간
 DWELL_S = 1.10                         # 패치 위 정지 유지 시간
 SEARCH_V = 0.06                        # 타깃 미검출 시 천천히 전진하며 탐색
@@ -127,6 +140,105 @@ def send_vw(ardu, v, w):
 
 def stop(ardu):
     ardu.write(b"S\n")
+
+
+def wrap_rad(a):
+    return (a + math.pi) % (2.0 * math.pi) - math.pi
+
+
+class OdomPose:
+    """centered map 좌표계의 로봇 위치. x/y 단위 m, theta 단위 rad."""
+    def __init__(self, x=ODOM_START_X, y=ODOM_START_Y, theta=ODOM_START_TH):
+        self.x = float(x)
+        self.y = float(y)
+        self.theta = float(theta)
+
+    def as_tuple(self):
+        return self.x, self.y, self.theta
+
+
+class WheelOdometry:
+    """Arduino가 보내는 엔코더 누적 카운트(O,L,R,ms)로 Pi에서 위치를 적분."""
+    def __init__(self):
+        self.pose = OdomPose()
+        self.prev_l = None
+        self.prev_r = None
+        self.last_msg_t = None
+        self.last_arduino_ms = None
+        self.total_distance_m = 0.0
+        self.line_count = 0
+
+    def reset(self, x=ODOM_START_X, y=ODOM_START_Y, theta=ODOM_START_TH):
+        self.pose = OdomPose(x, y, theta)
+        self.prev_l = None
+        self.prev_r = None
+        self.last_msg_t = None
+        self.last_arduino_ms = None
+        self.total_distance_m = 0.0
+        self.line_count = 0
+
+    def fresh(self, now):
+        return self.last_msg_t is not None and (now - self.last_msg_t) <= ODOM_HOLD_S
+
+    def update_counts(self, enc_l, enc_r, now=None, arduino_ms=None):
+        if self.prev_l is None or self.prev_r is None:
+            self.prev_l, self.prev_r = enc_l, enc_r
+            self.last_msg_t = now if now is not None else time.time()
+            self.last_arduino_ms = arduino_ms
+            return False
+
+        d_l = enc_l - self.prev_l
+        d_r = enc_r - self.prev_r
+        self.prev_l, self.prev_r = enc_l, enc_r
+
+        dist_l = (d_l / ODOM_COUNT_PER_RAD) * ODOM_WHEEL_R
+        dist_r = (d_r / ODOM_COUNT_PER_RAD) * ODOM_WHEEL_R
+        ds = 0.5 * (dist_r + dist_l)
+        dth = (dist_r - dist_l) / ODOM_WHEEL_BASE
+
+        th_mid = self.pose.theta + 0.5 * dth
+        self.pose.x += ds * math.cos(th_mid)
+        self.pose.y += ds * math.sin(th_mid)
+        self.pose.theta = wrap_rad(self.pose.theta + dth)
+        self.total_distance_m += abs(ds)
+        self.last_msg_t = now if now is not None else time.time()
+        self.last_arduino_ms = arduino_ms
+        return True
+
+    def parse_line(self, line, now=None):
+        line = line.strip()
+        if not line.startswith("O,"):
+            return False
+        parts = line.split(",")
+        if len(parts) < 4:
+            return False
+        try:
+            enc_l = int(parts[1])
+            enc_r = int(parts[2])
+            arduino_ms = int(parts[3])
+        except ValueError:
+            return False
+        self.line_count += 1
+        self.update_counts(enc_l, enc_r, now=now, arduino_ms=arduino_ms)
+        return True
+
+    def poll_serial(self, ardu, now=None, max_lines=20):
+        if now is None:
+            now = time.time()
+        parsed = 0
+        try:
+            waiting = int(getattr(ardu, "in_waiting", 0))
+            while waiting > 0 and parsed < max_lines:
+                raw = ardu.readline()
+                if not raw:
+                    break
+                line = raw.decode(errors="ignore") if isinstance(raw, (bytes, bytearray)) else str(raw)
+                if self.parse_line(line, now=now):
+                    parsed += 1
+                waiting = int(getattr(ardu, "in_waiting", 0))
+        except Exception:
+            return parsed
+        return parsed
 
 
 # ===================== 라이다 =====================
@@ -420,14 +532,61 @@ def path_clearance(v, w, points):
     return float(np.sqrt(dx * dx + dy * dy).min())
 
 
+def _pose_tuple(pose):
+    if pose is None:
+        return None
+    if hasattr(pose, "x") and hasattr(pose, "y") and hasattr(pose, "theta"):
+        return float(pose.x), float(pose.y), float(pose.theta)
+    try:
+        if len(pose) >= 3:
+            return float(pose[0]), float(pose[1]), float(pose[2])
+    except TypeError:
+        return None
+    return None
+
+
+def keepin_boundary_margin(v, w, pose):
+    """예측 궤적의 2.3m keep-in 경계 여유. 0 미만이면 영역 밖으로 나가는 후보."""
+    if not KEEPIN_ENABLED:
+        return MAX_RANGE_M
+    pose_t = _pose_tuple(pose)
+    if pose_t is None:
+        return MAX_RANGE_M
+
+    px, py, th = pose_t
+    allowed_half = KEEPIN_SIZE_M * 0.5 - KEEPIN_MARGIN_M
+    if allowed_half <= 0.0:
+        return -MAX_RANGE_M
+
+    xs, ys = predict_xy(v, w)
+    cs, sn = math.cos(th), math.sin(th)
+    gx = px + xs * cs - ys * sn
+    gy = py + xs * sn + ys * cs
+
+    left = gx + allowed_half
+    right = allowed_half - gx
+    bottom = gy + allowed_half
+    top = allowed_half - gy
+    return float(np.minimum.reduce((left, right, bottom, top)).min())
+
+
+def command_clearance(v, w, points, pose=None):
+    """장애물 여유와 keep-in 경계 여유를 함께 반영한 DWA용 clearance."""
+    obs_clr = path_clearance(v, w, points)
+    bnd_margin = keepin_boundary_margin(v, w, pose)
+    # 경계는 margin 0이 '딱 제한선'이므로 COLLISION_DIST 기준 clearance로 변환한다.
+    bnd_clr = COLLISION_DIST + bnd_margin
+    return min(obs_clr, bnd_clr)
+
+
 # 후보 w들을 평가해 (v, w) 선택.  반환: v, w, best_clear, blocked
-def choose_cmd(points, goal_bearing, prev_w):
+def choose_cmd(points, goal_bearing, prev_w, pose=None):
     best_w = 0.0
     best_clear = 0.0
     best_score = -float("inf")
 
     for w in W_SET:
-        clr = path_clearance(CRUISE_V, w, points)
+        clr = command_clearance(CRUISE_V, w, points, pose)
         if clr < COLLISION_DIST:
             score = -1000.0 + clr            # 충돌 후보: 강한 페널티(여유 큰 순으로 정렬)
         else:
@@ -499,16 +658,16 @@ class Controller:
         if abs(bearing) > 0.05:
             self.search_dir = 1.0 if bearing > 0.0 else -1.0
 
-    def _straight_creep_cmd(self, points, v, state):
+    def _straight_creep_cmd(self, points, v, state, pose=None):
         self.goal = 0.0
-        self.clr = path_clearance(max(v, 0.05), 0.0, points)
+        self.clr = command_clearance(max(v, 0.05), 0.0, points, pose)
         if self.clr < COLLISION_DIST:
             self.last_w = 0.0
             return 0.0, 0.0, "BLOCKED"
         self.last_w = 0.0
         return v, 0.0, state
 
-    def _search_cmd(self, points, now):
+    def _search_cmd(self, points, now, pose=None):
         if now - self.last_seen_t <= TARGET_LOST_MEMORY_S:
             if abs(self.last_seen_bearing) > 0.05:
                 self.search_dir = 1.0 if self.last_seen_bearing > 0.0 else -1.0
@@ -532,7 +691,7 @@ class Controller:
         chosen_w = target_w
         chosen_clr = -1.0
         for cand_w in (target_w, 0.0, -target_w):
-            clr = path_clearance(SEARCH_V, cand_w, points)
+            clr = command_clearance(SEARCH_V, cand_w, points, pose)
             if clr > chosen_clr:
                 chosen_w, chosen_clr = cand_w, clr
             if clr >= COLLISION_DIST:
@@ -541,7 +700,7 @@ class Controller:
 
         if chosen_clr < COLLISION_DIST:
             rot_w = SEARCH_W * self.search_dir
-            rot_clr = path_clearance(0.04, rot_w, points)
+            rot_clr = command_clearance(0.0, rot_w, points, pose)
             self.clr = rot_clr
             if rot_clr >= COLLISION_DIST:
                 w = rate_limit(self.last_w, rot_w, W_RATE)
@@ -555,7 +714,7 @@ class Controller:
         self.last_w = w
         return SEARCH_V, w, "SEARCH"
 
-    def tick(self, points, seen, bearing, cy_norm, now):
+    def tick(self, points, seen, bearing, cy_norm, now, pose=None):
         """한 주기 의사결정. 반환 (v, w, state).
            state ∈ DONE/HOLD/ARRIVE/CREEP/CLOSE/SEARCH/BLOCKED/SEEK.
            색 전환·정지 타이머는 내부 갱신."""
@@ -577,7 +736,7 @@ class Controller:
 
         if self.phase == "CREEP":                  # 카메라가 잃은 뒤 짧게 더 전진
             if now < self.creep_until:
-                return self._straight_creep_cmd(points, BLIND_CREEP_V, "CREEP")
+                return self._straight_creep_cmd(points, BLIND_CREEP_V, "CREEP", pose)
             self.phase = "HOLD"
             self.dwell_until = now + DWELL_S
             self.last_w = 0.0
@@ -587,10 +746,10 @@ class Controller:
             if now >= self.close_until:
                 self.phase = "CREEP"
                 self.creep_until = now + blind_creep_duration()
-                return self._straight_creep_cmd(points, BLIND_CREEP_V, "CREEP")
+                return self._straight_creep_cmd(points, BLIND_CREEP_V, "CREEP", pose)
             if seen:
                 self.goal = bearing
-                v, w, clr, blocked = choose_cmd(points, self.goal, self.last_w)
+                v, w, clr, blocked = choose_cmd(points, self.goal, self.last_w, pose)
                 self.last_w = w
                 self.clr = clr
                 if blocked:
@@ -598,13 +757,13 @@ class Controller:
                 return min(v, CLOSE_APPROACH_V), w, "CLOSE"
             self.phase = "CREEP"
             self.creep_until = now + blind_creep_duration()
-            return self._straight_creep_cmd(points, BLIND_CREEP_V, "CREEP")
+            return self._straight_creep_cmd(points, BLIND_CREEP_V, "CREEP", pose)
 
         if seen and cy_norm >= ARRIVE_CY:
             self.phase = "CLOSE"
             self.close_until = now + CLOSE_APPROACH_MAX_S
             self.goal = bearing
-            v, w, clr, blocked = choose_cmd(points, self.goal, self.last_w)
+            v, w, clr, blocked = choose_cmd(points, self.goal, self.last_w, pose)
             self.last_w = w
             self.clr = clr
             if blocked:
@@ -612,10 +771,10 @@ class Controller:
             return min(v, CLOSE_APPROACH_V), w, "CLOSE"
 
         if not seen:
-            return self._search_cmd(points, now)
+            return self._search_cmd(points, now, pose)
 
         self.goal = bearing
-        v, w, clr, blocked = choose_cmd(points, self.goal, self.last_w)
+        v, w, clr, blocked = choose_cmd(points, self.goal, self.last_w, pose)
         self.last_w = w
         self.clr = clr
         return v, w, ("BLOCKED" if blocked else "SEEK")
@@ -635,14 +794,29 @@ def main():
         input()
     except EOFError:
         print("[WARN] No stdin. Starting immediately.")
+    try:
+        ardu.reset_input_buffer()
+    except Exception:
+        pass
     print("[INFO] Go!!")
 
     ctrl = Controller()
+    odom = WheelOdometry()
     last_log = 0.0
 
     try:
         while True:
             now = time.time()
+            odom.poll_serial(ardu, now)
+            if KEEPIN_ENABLED and not odom.fresh(now):
+                send_vw(ardu, 0.0, 0.0)
+                ctrl.last_w = 0.0
+                if now - last_log > 0.3:
+                    print("[ODOM_WAIT] encoder feedback missing; holding stop")
+                    last_log = now
+                time.sleep(LOOP_DT)
+                continue
+
             scan, scan_time = lidar.get_scan()
 
             # 신선한 스캔이 없으면 안전하게 정지
@@ -657,18 +831,20 @@ def main():
             (visible, bearing, area_ratio, cy_norm, ncnt), cam_stamp = cam.get()
             seen = visible and (now - cam_stamp) <= VISION_HOLD_S
 
-            v, w, state = ctrl.tick(points, seen, bearing, cy_norm, now)
+            v, w, state = ctrl.tick(points, seen, bearing, cy_norm, now, pose=odom.pose)
             send_vw(ardu, v, w)
             if ctrl.done:
                 print("[DONE] RED→YELLOW→BLUE 완주")
                 break
 
             if now - last_log > 0.3:
+                bnd = keepin_boundary_margin(max(v, 0.05), w, odom.pose)
                 print(
                     f"[{state}] tgt={ctrl.target_color} see={'Y' if seen else 'n'} "
                     f"gb={ctrl.goal:+.2f} v={v:.2f} w={w:+.2f} "
                     f"cy={cy_norm:.2f} clr={ctrl.clr:.2f} pts={len(points)} "
-                    f"bk={lidar.backlog} vms={cam.proc_ms:.0f}"
+                    f"pose=({odom.pose.x:+.2f},{odom.pose.y:+.2f},{math.degrees(odom.pose.theta):+.0f}) "
+                    f"bnd={bnd:+.2f} bk={lidar.backlog} vms={cam.proc_ms:.0f}"
                 )
                 last_log = now
 
