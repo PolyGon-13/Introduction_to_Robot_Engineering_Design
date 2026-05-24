@@ -101,6 +101,21 @@ PARAM_TIPS = {
     "V_MIN_RATIO": "막혔을 때 유지할 최소 전진 속도 비율입니다.",
     "CLEAR_CAP": "여유거리 점수의 상한값입니다.",
     "HFOV_DEG": "색상 중심 오차를 방위각으로 바꾸는 기준 시야각입니다.",
+    "MIN_AREA": "실제 카메라 색상 인식에서 점 잡음을 거르는 최소 픽셀 면적입니다.",
+    "APPROACH_CY": "저속 정렬 접근을 시작하는 카메라 세로 위치 기준입니다.",
+    "APPROACH_ALIGN_MAX": "commit 전에 허용하는 색상 중심 방위각 오차입니다.",
+    "APPROACH_STABLE_S": "정렬 상태가 유지되어야 하는 시간입니다.",
+    "CLOSE_LOST_HOLD_CY": "가까이 본 뒤 색을 잃으면 도착으로 보고 멈추는 기준입니다.",
+    "CREEP_STEER_GAIN": "색을 잃은 뒤 마지막 bearing을 따라가는 조향 게인입니다.",
+    "CREEP_MAX_W": "CREEP 중 조향 회전속도 상한입니다.",
+    "DWELL_S": "도착 판정 후 다음 색으로 넘어가기 전 정지 유지 시간입니다.",
+    "SEARCH_V": "타깃 미검출 탐색 중 전진 속도입니다. 기본값은 0입니다.",
+    "SEARCH_W": "색상 미검출 시 좌우 스윕 회전 속도입니다.",
+    "SEARCH_SWEEP_ANGLE_DEG": "색상 미검출 시 현재 자세 기준 좌우로 훑는 각도입니다.",
+    "SEARCH_SETTLE_RAD": "스윕 목표 각도에 이만큼 가까워지면 반대 방향으로 바꿉니다.",
+    "SEARCH_SCAN_EDGE_HITS": "이 횟수만큼 좌우 끝을 훑고도 못 찾으면 전진 탐색합니다.",
+    "SEARCH_DRIVE_V": "스캔 후 못 찾았을 때 전진 탐색 속도입니다.",
+    "SEARCH_DRIVE_S": "스캔 후 못 찾았을 때 전진 탐색하는 시간입니다.",
     "BLIND_CREEP_DIST_M": "카메라가 색을 잃은 뒤 더 전진할 거리입니다.",
     "wheel tau": "바퀴 속도 응답이 목표에 따라가는 시간입니다.",
     "wheel accel": "바퀴 각속도의 최대 변화율입니다.",
@@ -380,7 +395,7 @@ class Simulator:
 
     def resize(self, window_w, window_h):
         configure_layout(window_w, window_h)
-        self.param_scroll = clamp(self.param_scroll, 0, ui(1600))
+        self.param_scroll = clamp(self.param_scroll, 0, ui(2200))
         self._build_ui()
 
     # ----- UI 구성 -----
@@ -484,7 +499,22 @@ class Simulator:
             ("V_MIN_RATIO", S("V_MIN_RATIO", p3get("V_MIN_RATIO"), p3set("V_MIN_RATIO"), 0.1, 1.0)),
             ("CLEAR_CAP", S("CLEAR_CAP", p3get("CLEAR_CAP"), p3set("CLEAR_CAP"), 0.2, 1.5)),
             ("HFOV_DEG", S("HFOV_DEG", p3get("HFOV_DEG"), p3set("HFOV_DEG"), 30.0, 120.0)),
+            ("MIN_AREA", S("MIN_AREA", p3get("MIN_AREA"), p3set("MIN_AREA"), 0, 500, is_int=True, fmt="{:.0f}")),
+            ("APPROACH_CY", S("APPROACH_CY", p3get("APPROACH_CY"), p3set("APPROACH_CY"), 0.40, 0.95)),
+            ("APPROACH_ALIGN_MAX", S("APPROACH_ALIGN_MAX", p3get("APPROACH_ALIGN_MAX"), p3set("APPROACH_ALIGN_MAX"), 0.03, 0.35, fmt="{:.3f}")),
+            ("APPROACH_STABLE_S", S("APPROACH_STABLE_S", p3get("APPROACH_STABLE_S"), p3set("APPROACH_STABLE_S"), 0.00, 1.00)),
+            ("CLOSE_LOST_HOLD_CY", S("CLOSE_LOST_HOLD_CY", p3get("CLOSE_LOST_HOLD_CY"), p3set("CLOSE_LOST_HOLD_CY"), 0.70, 1.00)),
             ("BLIND_CREEP_DIST_M", S("BLIND_CREEP_DIST_M", p3get("BLIND_CREEP_DIST_M"), p3set("BLIND_CREEP_DIST_M"), 0.02, 0.25, fmt="{:.3f}")),
+            ("CREEP_STEER_GAIN", S("CREEP_STEER_GAIN", p3get("CREEP_STEER_GAIN"), p3set("CREEP_STEER_GAIN"), 0.00, 1.20)),
+            ("CREEP_MAX_W", S("CREEP_MAX_W", p3get("CREEP_MAX_W"), p3set("CREEP_MAX_W"), 0.00, 0.50)),
+            ("DWELL_S", S("DWELL_S", p3get("DWELL_S"), p3set("DWELL_S"), 1.00, 2.00)),
+            ("SEARCH_V", S("SEARCH_V", p3get("SEARCH_V"), p3set("SEARCH_V"), 0.00, 0.20)),
+            ("SEARCH_W", S("SEARCH_W", p3get("SEARCH_W"), p3set("SEARCH_W"), 0.20, 1.50)),
+            ("SEARCH_SWEEP_ANGLE_DEG", S("SEARCH_SWEEP_ANGLE_DEG", p3get("SEARCH_SWEEP_ANGLE_DEG"), p3set("SEARCH_SWEEP_ANGLE_DEG"), 10.0, 90.0)),
+            ("SEARCH_SETTLE_RAD", S("SEARCH_SETTLE_RAD", p3get("SEARCH_SETTLE_RAD"), p3set("SEARCH_SETTLE_RAD"), 0.02, 0.25, fmt="{:.3f}")),
+            ("SEARCH_SCAN_EDGE_HITS", S("SEARCH_SCAN_EDGE_HITS", p3get("SEARCH_SCAN_EDGE_HITS"), p3set("SEARCH_SCAN_EDGE_HITS"), 1, 6, is_int=True, fmt="{:.0f}")),
+            ("SEARCH_DRIVE_V", S("SEARCH_DRIVE_V", p3get("SEARCH_DRIVE_V"), p3set("SEARCH_DRIVE_V"), 0.03, 0.25)),
+            ("SEARCH_DRIVE_S", S("SEARCH_DRIVE_S", p3get("SEARCH_DRIVE_S"), p3set("SEARCH_DRIVE_S"), 0.20, 3.00)),
             ("— Arduino (project3.ino) —", None),
             ("wheel tau", S("wheel tau", ardget("tau"), ardset("tau"), 0.02, 0.40)),
             ("wheel accel", S("wheel accel", ardget("wheel_accel_max"), ardset("wheel_accel_max"), 5.0, 100.0)),
@@ -721,8 +751,17 @@ class Simulator:
                 "clr": getattr(ctrl, "clr", None),
                 "search_dir": getattr(ctrl, "search_dir", None),
                 "search_switch_t": getattr(ctrl, "search_switch_t", None),
+                "search_anchor_theta": getattr(ctrl, "search_anchor_theta", None),
+                "search_mode": getattr(ctrl, "search_mode", None),
+                "search_edge_hits": getattr(ctrl, "search_edge_hits", None),
+                "search_drive_until": getattr(ctrl, "search_drive_until", None),
                 "last_seen_t": getattr(ctrl, "last_seen_t", None),
                 "last_seen_bearing": getattr(ctrl, "last_seen_bearing", None),
+                "last_seen_cy": getattr(ctrl, "last_seen_cy", None),
+                "smooth_bearing": getattr(ctrl, "smooth_bearing", None),
+                "close_peak_cy": getattr(ctrl, "close_peak_cy", None),
+                "approach_align_since": getattr(ctrl, "approach_align_since", None),
+                "approach_ready": getattr(ctrl, "approach_ready", None),
             },
             "keepin": self._keepin_report(),
             "judge": {
@@ -964,10 +1003,11 @@ class Simulator:
                 best = item
         return best
 
-    def _camera_blocker_report(self, patch):
+    def _camera_blocker_report(self, patch, target_xy=None):
         cam_x, cam_y = self._camera_world_pose()
+        target_x, target_y = target_xy if target_xy is not None else (patch.x, patch.y)
         blocked = sensors.camera_blocker(
-            self.world, cam_x, cam_y, patch.x, patch.y, self._camera_mount_height())
+            self.world, cam_x, cam_y, target_x, target_y, self._camera_mount_height())
         if blocked is None:
             return None
         obstacle, frac, line_z = blocked
@@ -976,12 +1016,13 @@ class Simulator:
             if candidate is obstacle:
                 obstacle_idx = i
                 break
-        d = math.hypot(patch.x - cam_x, patch.y - cam_y)
+        d = math.hypot(target_x - cam_x, target_y - cam_y)
         return {
             "obstacle_id": (
                 "obstacle_{:02d}".format(obstacle_idx + 1)
                 if obstacle_idx is not None else None
             ),
+            "target_point": self._point_report(target_x, target_y),
             "fraction_along_camera_ray": frac,
             "distance_from_camera_m": frac * d,
             "camera_ray_height_at_blocker_m": line_z,
@@ -1011,11 +1052,36 @@ class Simulator:
             projection_distance = x_c if x_c > 0.0 else distance
             side_px = focal_px * p.size / max(1e-6, projection_distance)
             area_px = side_px * side_px
-            blocker = self._camera_blocker_report(p)
+            center_blocker = self._camera_blocker_report(p)
             image_err = -clamp(y_c / half_width, -1.0, 1.0)
             simulated_bearing = self.p3.BEARING_SIGN * image_err * half_fov
             inside_width = abs(y_c) <= half_width
             inside_forward_range = near_x <= x_c <= far_x
+            overlap = sensors.patch_camera_overlap(
+                self.world, p, near_x, far_x, half_width,
+                self.camera_forward_offset, self.camera_left_offset)
+            overlap_visible = bool(overlap["visible"])
+            overlap_blocker = None
+            overlap_world = None
+            overlap_bearing = None
+            overlap_area_px = 0.0
+            overlap_cy_norm = None
+            if overlap_visible:
+                ox_c, oy_c = overlap["centroid"]
+                overlap_world = (
+                    cam_x + ox_c * cs - oy_c * sn,
+                    cam_y + ox_c * sn + oy_c * cs,
+                )
+                overlap_blocker = self._camera_blocker_report(p, overlap_world)
+                overlap_image_err = -clamp(oy_c / half_width, -1.0, 1.0)
+                overlap_bearing = self.p3.BEARING_SIGN * overlap_image_err * half_fov
+                overlap_projection_distance = ox_c if ox_c > 0.0 else math.hypot(ox_c, oy_c)
+                overlap_area_px = (
+                    focal_px * focal_px * overlap["area_m2"] /
+                    max(1e-6, overlap_projection_distance * overlap_projection_distance)
+                )
+                cy_span = max(1e-6, far_x - near_x)
+                overlap_cy_norm = clamp(1.0 - (ox_c - near_x) / cy_span, 0.0, 1.0)
             targets.append({
                 "id": "patch_{:02d}_{}".format(i + 1, p.color),
                 "center": self._point_report(p.x, p.y),
@@ -1036,10 +1102,40 @@ class Simulator:
                 "inside_camera_min_range": x_c >= near_x,
                 "inside_camera_max_range": x_c <= far_x,
                 "inside_camera_range": inside_forward_range,
-                "blocked_by_obstacle": blocker is not None,
-                "blocking_obstacle": blocker,
+                "center_blocked_by_obstacle": center_blocker is not None,
+                "center_blocking_obstacle": center_blocker,
+                "blocked_by_obstacle": overlap_visible and overlap_blocker is not None,
+                "blocking_obstacle": overlap_blocker,
                 "estimated_area_px": area_px,
                 "passes_min_area": area_px >= self.p3.MIN_AREA,
+                "sim_camera_uses_overlap_centroid": True,
+                "overlap_visible": overlap_visible,
+                "overlap_area_m2": overlap["area_m2"],
+                "overlap_ratio_of_patch": overlap["ratio"],
+                "overlap_polygon_camera_frame_m": [
+                    {"forward_x_m": x, "left_y_m": y}
+                    for x, y in overlap["polygon"]
+                ],
+                "overlap_centroid_camera_frame_m": (
+                    {
+                        "forward_x_m": overlap["centroid"][0],
+                        "left_y_m": overlap["centroid"][1],
+                    }
+                    if overlap_visible else None
+                ),
+                "overlap_centroid": (
+                    self._point_report(*overlap_world)
+                    if overlap_world is not None else None
+                ),
+                "overlap_bearing_rad": overlap_bearing,
+                "overlap_bearing_deg": (
+                    math.degrees(overlap_bearing)
+                    if overlap_bearing is not None else None
+                ),
+                "overlap_estimated_area_px": overlap_area_px,
+                "overlap_cy_norm": overlap_cy_norm,
+                "overlap_blocked_by_obstacle": overlap_visible and overlap_blocker is not None,
+                "overlap_blocking_obstacle": overlap_blocker,
             })
         targets.sort(key=lambda item: item["distance_m"])
         return targets
@@ -1090,6 +1186,8 @@ class Simulator:
                     "left_y_m": self.camera_left_offset,
                 },
                 "footprint_shape": "rectangle",
+                "recognition_basis": "any visible patch overlap; bearing uses visible overlap centroid",
+                "min_area_filter_applied_in_sim": False,
                 "ground_visible_range_m": {"min_m": near_x, "max_m": far_x},
                 "rect_forward_range_m": {"min_m": near_x, "max_m": far_x},
                 "rear_blind_from_robot_back_m": self.camera_rear_blind,
@@ -1202,21 +1300,23 @@ class Simulator:
                                 "left_y_m": self.camera_left_offset,
                             },
                             "HFOV_DEG_used_for_bearing": self.p3.HFOV_DEG,
-                            "MIN_AREA": self.p3.MIN_AREA}
-                if not nearest["in_front"]:
-                    msg = "The nearest target patch is behind the robot."
-                elif not nearest["inside_camera_min_range"]:
-                    msg = "The nearest target patch is closer than the rectangular camera minimum forward range."
-                elif not nearest["inside_camera_max_range"]:
-                    msg = "The nearest target patch is beyond the rectangular camera maximum forward range."
-                elif not nearest["inside_camera_rect_width"]:
-                    msg = "The nearest target patch is outside the rectangular camera footprint width."
+                            "project3_py_MIN_AREA_for_real_camera_px": self.p3.MIN_AREA,
+                            "min_area_filter_applied_in_sim": False}
+                if not nearest.get("overlap_visible", False):
+                    if not nearest["in_front"]:
+                        msg = "No part of the nearest target patch overlaps the camera rectangle; its center is behind the robot."
+                    elif not nearest["inside_camera_min_range"]:
+                        msg = "No part of the nearest target patch overlaps the camera rectangle; it is mainly closer than the camera minimum forward range."
+                    elif not nearest["inside_camera_max_range"]:
+                        msg = "No part of the nearest target patch overlaps the camera rectangle; it is mainly beyond the camera maximum forward range."
+                    elif not nearest["inside_camera_rect_width"]:
+                        msg = "No part of the nearest target patch overlaps the camera rectangle width."
+                    else:
+                        msg = "No visible area of the nearest target patch overlaps the rectangular camera footprint."
                 elif nearest["blocked_by_obstacle"]:
-                    msg = "The target patch is hidden by an obstacle that is taller than the camera sightline."
-                elif not nearest["passes_min_area"]:
-                    msg = "The nearest target patch appears too small for project3.py MIN_AREA."
+                    msg = "The visible target overlap is hidden by an obstacle that is taller than the camera sightline."
                 else:
-                    msg = "The camera model did not report the target despite a placed patch."
+                    msg = "The nearest target patch has visible overlap, but the simulator camera did not report it; check occlusion and numeric geometry."
                 add("camera_target_not_visible", "medium", msg, evidence)
 
         if required and current_target_patches:
@@ -1341,6 +1441,9 @@ class Simulator:
                         "left_y_m": self.camera_left_offset,
                     },
                     "footprint_shape": "rectangle",
+                    "recognition_basis": "any visible patch overlap; bearing uses visible overlap centroid",
+                    "min_area_filter_applied_in_sim": False,
+                    "project3_py_MIN_AREA_for_real_camera_px": self.p3.MIN_AREA,
                     "ground_visible_range_m": {"min_m": near_x, "max_m": far_x},
                     "rect_forward_range_m": {"min_m": near_x, "max_m": far_x},
                     "rear_blind_from_robot_back_m": self.camera_rear_blind,
@@ -1364,10 +1467,16 @@ class Simulator:
                     "ODOM_START_X", "ODOM_START_Y", "ODOM_START_TH", "ODOM_HOLD_S",
                     "MAX_RANGE_M", "V_MIN_RATIO", "CLEAR_CAP", "HFOV_DEG",
                     "DEFAULT_TARGET", "TARGET_SEQUENCE", "ARRIVE_CY",
+                    "APPROACH_CY", "APPROACH_ALIGN_MAX", "APPROACH_STABLE_S",
+                    "CLOSE_LOST_HOLD_CY",
+                    "BEARING_SMOOTH_ALPHA",
                     "CLOSE_APPROACH_V", "CLOSE_APPROACH_MAX_S",
-                    "BLIND_CREEP_V", "BLIND_CREEP_DIST_M", "BLIND_CREEP_S", "DWELL_S",
-                    "SEARCH_V", "SEARCH_W", "SEARCH_BEARING",
-                    "SEARCH_SWEEP_S", "TARGET_LOST_MEMORY_S",
+                    "BLIND_CREEP_V", "BLIND_CREEP_DIST_M", "BLIND_CREEP_S",
+                    "CREEP_STEER_GAIN", "CREEP_MAX_W", "DWELL_S",
+                    "SEARCH_V", "SEARCH_W", "SEARCH_SWEEP_ANGLE_DEG",
+                    "SEARCH_SWEEP_ANGLE_RAD", "SEARCH_SETTLE_RAD",
+                    "SEARCH_SCAN_EDGE_HITS", "SEARCH_DRIVE_V", "SEARCH_DRIVE_S",
+                    "SEARCH_BEARING", "SEARCH_SWEEP_S", "TARGET_LOST_MEMORY_S",
                     "BEARING_SIGN", "MIN_AREA", "LOOP_DT",
                 )
                 if hasattr(self.p3, name)
@@ -1411,8 +1520,32 @@ class Simulator:
                 "time_s": last_seen_t if last_seen_t > -1e8 else None,
                 "age_s": self.sim_time - last_seen_t if last_seen_t > -1e8 else None,
                 "bearing_rad": getattr(ctrl, "last_seen_bearing", None),
+                "cy_norm": getattr(ctrl, "last_seen_cy", None),
+                "smooth_bearing_rad": getattr(ctrl, "smooth_bearing", None),
                 "search_dir": getattr(ctrl, "search_dir", None),
                 "search_switch_t": getattr(ctrl, "search_switch_t", None),
+                "search_anchor_theta_rad": getattr(ctrl, "search_anchor_theta", None),
+                "search_anchor_theta_deg": (
+                    math.degrees(getattr(ctrl, "search_anchor_theta"))
+                    if getattr(ctrl, "search_anchor_theta", None) is not None else None
+                ),
+                "search_mode": getattr(ctrl, "search_mode", None),
+                "search_edge_hits": getattr(ctrl, "search_edge_hits", None),
+                "search_drive_until_s": getattr(ctrl, "search_drive_until", None),
+                "search_drive_remaining_s": (
+                    max(0.0, getattr(ctrl, "search_drive_until", 0.0) - self.sim_time)
+                    if getattr(ctrl, "search_mode", None) == "DRIVE" else 0.0
+                ),
+            },
+            "approach": {
+                "align_since_s": getattr(ctrl, "approach_align_since", None),
+                "aligned_for_s": (
+                    self.sim_time - getattr(ctrl, "approach_align_since", 0.0)
+                    if getattr(ctrl, "approach_align_since", -1.0) >= 0.0 else 0.0
+                ),
+                "ready": getattr(ctrl, "approach_ready", None),
+                "close_peak_cy": getattr(ctrl, "close_peak_cy", None),
+                "close_lost_hold_cy": getattr(self.p3, "CLOSE_LOST_HOLD_CY", None),
             },
         }
 
@@ -1674,7 +1807,7 @@ class Simulator:
 
     def on_wheel(self, y, pos):
         if pos[0] >= PANEL_X:
-            self.param_scroll = clamp(self.param_scroll - y * ui(24), 0, ui(1600))
+            self.param_scroll = clamp(self.param_scroll - y * ui(24), 0, ui(2200))
         elif self.in_arena(pos):
             self.zoom_at(y, pos)
 

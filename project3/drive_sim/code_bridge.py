@@ -86,6 +86,9 @@ def recompute_derived(p3):
     p3.CAM_AREA = float(p3.CAM_W * p3.CAM_H)
     if hasattr(p3, "BLIND_CREEP_DIST_M"):
         p3.BLIND_CREEP_S = p3.BLIND_CREEP_DIST_M / max(1e-6, p3.BLIND_CREEP_V)
+    if hasattr(p3, "SEARCH_SWEEP_ANGLE_DEG"):
+        p3.SEARCH_SWEEP_ANGLE_RAD = math.radians(p3.SEARCH_SWEEP_ANGLE_DEG)
+        p3.SEARCH_BEARING = p3.SEARCH_SWEEP_ANGLE_RAD
     if hasattr(p3, "ODOM_PPR"):
         p3.ODOM_COUNT_PER_RAD = p3.ODOM_PPR / (2.0 * math.pi)
 

@@ -3,7 +3,7 @@
 #
 # Project 3: 라이다 lean DWA + 카메라 색상영역 시퀀스 추적
 #   카메라로 현재 타깃 색 영역의 방위 β를 구해 DWA 목표 방위로 사용.
-#   미검출 시에는 직진하지 않고 제자리 탐색 회전으로 타깃을 다시 찾는다.
+#   미검출 시에는 제자리 좌우 스윕 회전으로 찾고, 안 보이면 짧게 주행한 뒤 다시 찾는다.
 #   도착 판정은 CLOSE→CREEP→HOLD 상태로 패치 위까지 더 들어간 뒤 정지한다.
 #   좌표계: 로봇 기준 x=전방, y=좌측(+).  w>0 = 좌회전.  β>0 = 타깃이 좌측.
 
@@ -83,16 +83,29 @@ VISION_MIN_DT = 0.05                   # 비전 처리 최소 주기(최대 ~20H
 DEFAULT_TARGET = "RED"                 # 시작 타깃 색
 TARGET_SEQUENCE = ["RED", "YELLOW", "BLUE"]   # 통과 순서
 ARRIVE_CY = 0.85                       # 코앞 감지 → 정지 전 close/creep 진입
+APPROACH_CY = 0.65                     # 이 이상 가까우면 저속 정렬 접근으로 전환
+APPROACH_ALIGN_MAX = 0.12              # 이 방위각 안에 안정적으로 들어와야 commit 허용
+APPROACH_STABLE_S = 0.25               # 정렬 상태가 유지되어야 하는 최소 시간
+BEARING_SMOOTH_ALPHA = 0.35            # 카메라 bearing 저역통과 필터 비율
+CLOSE_LOST_HOLD_CY = 0.95              # 이만큼 가까이 본 뒤 잃으면 패치 위로 보고 정지
 CLOSE_APPROACH_V = 0.07                # 코앞 감지 후 카메라를 보며 더 들어가는 저속
 CLOSE_APPROACH_MAX_S = 2.20            # 카메라가 계속 보여도 CLOSE를 끝내는 최대 시간
 BLIND_CREEP_V = 0.07                   # 카메라가 패치를 잃은 뒤 짧게 더 들어가는 속도
 BLIND_CREEP_DIST_M = 0.12              # 패치 위로 바퀴를 올리기 위한 추가 전진 거리
 BLIND_CREEP_S = BLIND_CREEP_DIST_M / max(1e-6, BLIND_CREEP_V)  # 호환/리포트용 환산 시간
-DWELL_S = 1.10                         # 패치 위 정지 유지 시간
-SEARCH_V = 0.06                        # 타깃 미검출 시 천천히 전진하며 탐색
-SEARCH_W = 0.45                        # 탐색 중 회전 속도 상한(막혔을 때 회전 fallback)
-SEARCH_BEARING = 0.65                  # 미검출 탐색 때 DWA에 주는 가상 목표 방위
-SEARCH_SWEEP_S = 3.0                   # 오래 못 찾으면 탐색 방향을 바꾸는 주기
+CREEP_STEER_GAIN = 0.45                # CREEP 중 마지막 bearing을 유지하는 작은 조향 게인
+CREEP_MAX_W = 0.16                     # CREEP 중 보정 회전속도 상한
+DWELL_S = 1.20                         # 패치 위 정지 유지 시간
+SEARCH_V = 0.0                         # 타깃 미검출 시 전진하지 않고 제자리 탐색
+SEARCH_W = 0.80                        # 탐색 스윕 회전 속도 상한
+SEARCH_SWEEP_ANGLE_DEG = 35.0          # 현재 자세 기준 좌우로 훑는 각도
+SEARCH_SWEEP_ANGLE_RAD = math.radians(SEARCH_SWEEP_ANGLE_DEG)
+SEARCH_SETTLE_RAD = 0.08               # 목표 스윕 각도에 이 정도 가까우면 반대로 전환
+SEARCH_SCAN_EDGE_HITS = 2              # 좌/우 끝점을 이 횟수만큼 훑고도 안 보이면 전진 탐색
+SEARCH_DRIVE_V = CRUISE_V              # 스캔 후 미검출 시 전진 탐색 속도
+SEARCH_DRIVE_S = 1.20                  # 한 번 스캔한 뒤 전진 탐색하는 시간
+SEARCH_BEARING = SEARCH_SWEEP_ANGLE_RAD  # 호환/로깅용: 탐색 목표 방위각
+SEARCH_SWEEP_S = 0.80                  # odometry가 없을 때 방향을 바꾸는 시간 fallback
 TARGET_LOST_MEMORY_S = 0.60            # 마지막으로 본 방향을 기억하는 시간
 
 
@@ -111,7 +124,7 @@ COLOR_RANGES = {
     "BLUE": [(np.array([95, 100, 80]), np.array([130, 255, 255]))],
 }
 CAM_AREA = float(CAM_W * CAM_H)
-MIN_AREA = 300                         # 640x480의 1200을 320x240로 환산(동일 면적비 ≈0.39%)
+MIN_AREA = 20                          # 작은 일부 노출도 쓰되, 점 잡음만 거르는 최소 픽셀 면적
 MIN_EXTENT = 0.45                      # 박스 채움 비율(가는/흩어진 잡음 제거)
 BLUR_SIZE = 5
 MORPH_KERNEL = np.ones((5, 5), np.uint8)
@@ -628,8 +641,18 @@ class Controller:
         self.clr = 0.0             # 직전 여유거리
         self.last_seen_t = -1e9
         self.last_seen_bearing = 0.0
+        self.last_seen_cy = 0.0
+        self.smooth_bearing = 0.0
+        self.close_peak_cy = 0.0
+        self.approach_align_since = -1.0
+        self.approach_ready = False
         self.search_dir = 1.0
         self.search_switch_t = 0.0
+        self.search_anchor_theta = None
+        self.search_switch_t = 0.0
+        self.search_mode = "SCAN"
+        self.search_edge_hits = 0
+        self.search_drive_until = 0.0
 
     @property
     def done(self):
@@ -649,74 +672,167 @@ class Controller:
         self.clr = 0.0
         self.last_seen_t = -1e9
         self.last_seen_bearing = 0.0
+        self.last_seen_cy = 0.0
+        self.smooth_bearing = 0.0
+        self.close_peak_cy = 0.0
+        self.approach_align_since = -1.0
+        self.approach_ready = False
         self.search_dir = 1.0
         self.search_switch_t = 0.0
+        self.search_anchor_theta = None
+        self.search_mode = "SCAN"
+        self.search_edge_hits = 0
+        self.search_drive_until = 0.0
 
-    def _note_seen(self, bearing, now):
+    def _note_seen(self, bearing, cy_norm, now):
+        if self.last_seen_t < -1e8:
+            self.smooth_bearing = bearing
+        else:
+            a = max(0.0, min(1.0, BEARING_SMOOTH_ALPHA))
+            self.smooth_bearing = (1.0 - a) * self.smooth_bearing + a * bearing
         self.last_seen_t = now
-        self.last_seen_bearing = bearing
-        if abs(bearing) > 0.05:
-            self.search_dir = 1.0 if bearing > 0.0 else -1.0
+        self.last_seen_bearing = self.smooth_bearing
+        self.last_seen_cy = cy_norm
+        if self.phase == "CLOSE":
+            self.close_peak_cy = max(self.close_peak_cy, cy_norm)
+        if abs(self.last_seen_bearing) > 0.05:
+            self.search_dir = 1.0 if self.last_seen_bearing > 0.0 else -1.0
+        self.search_anchor_theta = None
+        self.search_mode = "SCAN"
+        self.search_edge_hits = 0
+        self.search_drive_until = 0.0
 
-    def _straight_creep_cmd(self, points, v, state, pose=None):
+    def _update_approach_quality(self, cy_norm, now):
+        aligned = cy_norm >= ARRIVE_CY and abs(self.smooth_bearing) <= APPROACH_ALIGN_MAX
+        if aligned:
+            if self.approach_align_since < 0.0:
+                self.approach_align_since = now
+            if now - self.approach_align_since >= APPROACH_STABLE_S:
+                self.approach_ready = True
+        else:
+            self.approach_align_since = -1.0
+            self.approach_ready = False
+        return self.approach_ready
+
+    def _begin_creep(self, now):
+        self.phase = "CREEP"
+        self.creep_until = now + blind_creep_duration()
+
+    def _begin_hold(self, now):
+        self.phase = "HOLD"
+        self.dwell_until = now + DWELL_S
+        self.last_w = 0.0
+        self.clr = 0.0
+        self.close_peak_cy = 0.0
+        self._begin_search_scan()
+        return 0.0, 0.0, "ARRIVE"
+
+    def _begin_search_scan(self):
+        self.search_mode = "SCAN"
+        self.search_anchor_theta = None
+        self.search_switch_t = 0.0
+        self.search_edge_hits = 0
+        self.search_drive_until = 0.0
+
+    def _begin_search_drive(self, now):
+        self.search_mode = "DRIVE"
+        self.search_anchor_theta = None
+        self.search_switch_t = 0.0
+        self.search_edge_hits = 0
+        self.search_drive_until = now + SEARCH_DRIVE_S
+
+    def _search_drive_cmd(self, points, pose=None):
         self.goal = 0.0
-        self.clr = command_clearance(max(v, 0.05), 0.0, points, pose)
+        v, w, clr, blocked = choose_cmd(points, self.goal, self.last_w, pose)
+        self.clr = clr
+        if blocked:
+            self.last_w = 0.0
+            return 0.0, 0.0, "BLOCKED"
+        v = min(v, SEARCH_DRIVE_V)
+        self.last_w = w
+        return v, w, "SEARCH_DRIVE"
+
+    def _begin_and_try_search_drive(self, points, now, pose=None):
+        self._begin_search_drive(now)
+        v, w, state = self._search_drive_cmd(points, pose)
+        if state == "BLOCKED":
+            self._begin_search_scan()
+        return v, w, state
+
+    def _creep_cmd(self, points, v, state, pose=None):
+        steer = CREEP_STEER_GAIN * self.last_seen_bearing
+        steer = max(-CREEP_MAX_W, min(CREEP_MAX_W, steer))
+        self.goal = self.last_seen_bearing
+        self.clr = command_clearance(max(v, 0.05), steer, points, pose)
+        if self.clr < COLLISION_DIST and abs(steer) > 1e-6:
+            straight_clr = command_clearance(max(v, 0.05), 0.0, points, pose)
+            if straight_clr >= COLLISION_DIST:
+                steer = 0.0
+                self.clr = straight_clr
         if self.clr < COLLISION_DIST:
             self.last_w = 0.0
             return 0.0, 0.0, "BLOCKED"
-        self.last_w = 0.0
-        return v, 0.0, state
+        w = rate_limit(self.last_w, steer, W_RATE)
+        self.last_w = w
+        return v, w, state
 
     def _search_cmd(self, points, now, pose=None):
-        if now - self.last_seen_t <= TARGET_LOST_MEMORY_S:
-            if abs(self.last_seen_bearing) > 0.05:
-                self.search_dir = 1.0 if self.last_seen_bearing > 0.0 else -1.0
-                goal = max(-SEARCH_BEARING, min(SEARCH_BEARING, self.last_seen_bearing))
-            else:
-                goal = SEARCH_BEARING * self.search_dir
+        if self.search_mode == "DRIVE":
+            if now < self.search_drive_until:
+                v, w, state = self._search_drive_cmd(points, pose)
+                if state != "BLOCKED":
+                    return v, w, state
+            self._begin_search_scan()
+
+        pose_t = _pose_tuple(pose)
+        target_w = SEARCH_W * self.search_dir
+
+        if pose_t is not None:
+            theta = pose_t[2]
+            if self.search_anchor_theta is None:
+                self.search_anchor_theta = theta
+                if now - self.last_seen_t <= TARGET_LOST_MEMORY_S and abs(self.last_seen_bearing) > 0.05:
+                    self.search_dir = 1.0 if self.last_seen_bearing > 0.0 else -1.0
+
+            target_theta = self.search_anchor_theta + self.search_dir * SEARCH_SWEEP_ANGLE_RAD
+            err = wrap_rad(target_theta - theta)
+            if abs(err) <= SEARCH_SETTLE_RAD:
+                self.search_dir *= -1.0
+                self.search_edge_hits += 1
+                if self.search_edge_hits >= SEARCH_SCAN_EDGE_HITS:
+                    return self._begin_and_try_search_drive(points, now, pose)
+                target_theta = self.search_anchor_theta + self.search_dir * SEARCH_SWEEP_ANGLE_RAD
+                err = wrap_rad(target_theta - theta)
+
+            self.goal = err
+            target_w = max(-SEARCH_W, min(SEARCH_W, 2.2 * err))
+            min_w = min(SEARCH_W, max(0.20, 0.35 * SEARCH_W))
+            if abs(target_w) < min_w:
+                target_w = min_w * (1.0 if err >= 0.0 else -1.0)
         else:
             if self.search_switch_t <= 0.0:
                 self.search_switch_t = now + SEARCH_SWEEP_S
             elif now >= self.search_switch_t:
                 self.search_dir *= -1.0
+                self.search_edge_hits += 1
+                if self.search_edge_hits >= SEARCH_SCAN_EDGE_HITS:
+                    return self._begin_and_try_search_drive(points, now, pose)
                 self.search_switch_t = now + SEARCH_SWEEP_S
-            goal = SEARCH_BEARING * self.search_dir
+            self.goal = SEARCH_SWEEP_ANGLE_RAD * self.search_dir
+            target_w = SEARCH_W * self.search_dir
 
-        self.goal = goal
-        turn_scale = max(0.35, min(1.0, abs(goal) / max(1e-6, SEARCH_BEARING)))
-        target_w = SEARCH_W * (1.0 if goal >= 0.0 else -1.0) * turn_scale
-
-        # SEARCH는 카메라 footprint를 쓸어야 하므로 CRUISE_V 기준 DWA보다
-        # 느린 실제 탐색 속도(SEARCH_V) 기준으로 안전한 후보를 고른다.
-        chosen_w = target_w
-        chosen_clr = -1.0
-        for cand_w in (target_w, 0.0, -target_w):
-            clr = command_clearance(SEARCH_V, cand_w, points, pose)
-            if clr > chosen_clr:
-                chosen_w, chosen_clr = cand_w, clr
-            if clr >= COLLISION_DIST:
-                chosen_w, chosen_clr = cand_w, clr
-                break
-
-        if chosen_clr < COLLISION_DIST:
-            rot_w = SEARCH_W * self.search_dir
-            rot_clr = command_clearance(0.0, rot_w, points, pose)
-            self.clr = rot_clr
-            if rot_clr >= COLLISION_DIST:
-                w = rate_limit(self.last_w, rot_w, W_RATE)
-                self.last_w = w
-                return 0.0, w, "SEARCH"
+        self.clr = command_clearance(0.0, target_w, points, pose)
+        if self.clr < COLLISION_DIST:
             self.last_w = 0.0
             return 0.0, 0.0, "BLOCKED"
 
-        self.clr = chosen_clr
-        w = rate_limit(self.last_w, chosen_w, W_RATE)
+        w = rate_limit(self.last_w, target_w, W_RATE)
         self.last_w = w
-        return SEARCH_V, w, "SEARCH"
+        return 0.0, w, "SEARCH"
 
     def tick(self, points, seen, bearing, cy_norm, now, pose=None):
         """한 주기 의사결정. 반환 (v, w, state).
-           state ∈ DONE/HOLD/ARRIVE/CREEP/CLOSE/SEARCH/BLOCKED/SEEK.
+           state ∈ DONE/HOLD/ARRIVE/CREEP/CLOSE/SEARCH/SEARCH_DRIVE/BLOCKED/SEEK.
            색 전환·정지 타이머는 내부 갱신."""
         self.goal = 0.0
         self.clr = 0.0
@@ -725,7 +841,7 @@ class Controller:
             return 0.0, 0.0, "DONE"
 
         if seen:
-            self._note_seen(bearing, now)
+            self._note_seen(bearing, cy_norm, now)
 
         if self.phase == "HOLD":                   # 패치 위 정지 유지
             self.last_w = 0.0
@@ -736,33 +852,46 @@ class Controller:
 
         if self.phase == "CREEP":                  # 카메라가 잃은 뒤 짧게 더 전진
             if now < self.creep_until:
-                return self._straight_creep_cmd(points, BLIND_CREEP_V, "CREEP", pose)
-            self.phase = "HOLD"
-            self.dwell_until = now + DWELL_S
-            self.last_w = 0.0
-            return 0.0, 0.0, "ARRIVE"
+                return self._creep_cmd(points, BLIND_CREEP_V, "CREEP", pose)
+            return self._begin_hold(now)
 
         if self.phase == "CLOSE":                  # 코앞 감지 후 바로 멈추지 않고 진입
             if now >= self.close_until:
-                self.phase = "CREEP"
-                self.creep_until = now + blind_creep_duration()
-                return self._straight_creep_cmd(points, BLIND_CREEP_V, "CREEP", pose)
+                if self.close_peak_cy >= CLOSE_LOST_HOLD_CY:
+                    return self._begin_hold(now)
+                if self.approach_ready:
+                    self._begin_creep(now)
+                    return self._creep_cmd(points, BLIND_CREEP_V, "CREEP", pose)
+                self.close_until = now + CLOSE_APPROACH_MAX_S
+                self.approach_align_since = -1.0
+                self.approach_ready = False
             if seen:
-                self.goal = bearing
+                self.close_peak_cy = max(self.close_peak_cy, cy_norm)
+                self._update_approach_quality(cy_norm, now)
+                self.goal = self.smooth_bearing
                 v, w, clr, blocked = choose_cmd(points, self.goal, self.last_w, pose)
                 self.last_w = w
                 self.clr = clr
                 if blocked:
                     return 0.0, 0.0, "BLOCKED"
                 return min(v, CLOSE_APPROACH_V), w, "CLOSE"
-            self.phase = "CREEP"
-            self.creep_until = now + blind_creep_duration()
-            return self._straight_creep_cmd(points, BLIND_CREEP_V, "CREEP", pose)
+            if self.close_peak_cy >= CLOSE_LOST_HOLD_CY or self.last_seen_cy >= CLOSE_LOST_HOLD_CY:
+                return self._begin_hold(now)
+            if self.approach_ready:
+                self._begin_creep(now)
+                return self._creep_cmd(points, BLIND_CREEP_V, "CREEP", pose)
+            self.phase = "SEEK"
+            self.close_peak_cy = 0.0
+            self.approach_align_since = -1.0
+            self.approach_ready = False
+            return self._search_cmd(points, now, pose)
 
-        if seen and cy_norm >= ARRIVE_CY:
+        if seen and cy_norm >= APPROACH_CY:
             self.phase = "CLOSE"
             self.close_until = now + CLOSE_APPROACH_MAX_S
-            self.goal = bearing
+            self.close_peak_cy = max(self.close_peak_cy, cy_norm)
+            self._update_approach_quality(cy_norm, now)
+            self.goal = self.smooth_bearing
             v, w, clr, blocked = choose_cmd(points, self.goal, self.last_w, pose)
             self.last_w = w
             self.clr = clr
@@ -773,7 +902,7 @@ class Controller:
         if not seen:
             return self._search_cmd(points, now, pose)
 
-        self.goal = bearing
+        self.goal = self.smooth_bearing
         v, w, clr, blocked = choose_cmd(points, self.goal, self.last_w, pose)
         self.last_w = w
         self.clr = clr

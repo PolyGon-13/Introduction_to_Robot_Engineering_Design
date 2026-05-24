@@ -129,6 +129,114 @@ def camera_world_pose(robot, camera_forward_offset_m=0.0, camera_left_offset_m=0
     )
 
 
+def _polygon_area(poly):
+    if len(poly) < 3:
+        return 0.0
+    acc = 0.0
+    for i, p0 in enumerate(poly):
+        p1 = poly[(i + 1) % len(poly)]
+        acc += p0[0] * p1[1] - p1[0] * p0[1]
+    return 0.5 * acc
+
+
+def _polygon_centroid(poly):
+    area = _polygon_area(poly)
+    if abs(area) < 1e-12:
+        if not poly:
+            return 0.0, 0.0
+        return (
+            sum(p[0] for p in poly) / len(poly),
+            sum(p[1] for p in poly) / len(poly),
+        )
+    cx = cy = 0.0
+    for i, p0 in enumerate(poly):
+        p1 = poly[(i + 1) % len(poly)]
+        cross = p0[0] * p1[1] - p1[0] * p0[1]
+        cx += (p0[0] + p1[0]) * cross
+        cy += (p0[1] + p1[1]) * cross
+    scale = 1.0 / (6.0 * area)
+    return cx * scale, cy * scale
+
+
+def _clip_axis(poly, axis, value, keep_greater):
+    if not poly:
+        return []
+
+    def inside(p):
+        return p[axis] >= value if keep_greater else p[axis] <= value
+
+    def intersect(a, b):
+        da = a[axis] - value
+        db = b[axis] - value
+        denom = da - db
+        t = 0.0 if abs(denom) < 1e-12 else da / denom
+        return (
+            a[0] + t * (b[0] - a[0]),
+            a[1] + t * (b[1] - a[1]),
+        )
+
+    out = []
+    prev = poly[-1]
+    prev_in = inside(prev)
+    for cur in poly:
+        cur_in = inside(cur)
+        if cur_in:
+            if not prev_in:
+                out.append(intersect(prev, cur))
+            out.append(cur)
+        elif prev_in:
+            out.append(intersect(prev, cur))
+        prev, prev_in = cur, cur_in
+    return out
+
+
+def _clip_to_camera_rect(poly, near_x, far_x, half_width):
+    clipped = _clip_axis(poly, 0, near_x, True)
+    clipped = _clip_axis(clipped, 0, far_x, False)
+    clipped = _clip_axis(clipped, 1, -half_width, True)
+    clipped = _clip_axis(clipped, 1, half_width, False)
+    return clipped
+
+
+def patch_camera_overlap(world, pch, near_x, far_x, half_width,
+                         camera_forward_offset_m=0.0, camera_left_offset_m=0.0):
+    """카메라 직사각형과 색종이 사각형의 겹침을 카메라 프레임에서 계산."""
+    rb = world.robot
+    cam_x, cam_y = camera_world_pose(rb, camera_forward_offset_m, camera_left_offset_m)
+    cs = math.cos(rb.theta)
+    sn = math.sin(rb.theta)
+    h = pch.size * 0.5
+    poly = []
+    for wx, wy in (
+        (pch.x - h, pch.y - h),
+        (pch.x + h, pch.y - h),
+        (pch.x + h, pch.y + h),
+        (pch.x - h, pch.y + h),
+    ):
+        rx = wx - cam_x
+        ry = wy - cam_y
+        poly.append((rx * cs + ry * sn, -rx * sn + ry * cs))
+
+    clipped = _clip_to_camera_rect(poly, near_x, far_x, half_width)
+    overlap_area = abs(_polygon_area(clipped))
+    if overlap_area <= 1e-10:
+        return {
+            "visible": False,
+            "area_m2": 0.0,
+            "ratio": 0.0,
+            "centroid": (0.0, 0.0),
+            "polygon": [],
+        }
+    cx, cy = _polygon_centroid(clipped)
+    return {
+        "visible": True,
+        "area_m2": overlap_area,
+        "ratio": overlap_area / max(1e-12, pch.size * pch.size),
+        "centroid": (cx, cy),
+        "polygon": clipped,
+    }
+
+
 def segment_enter_fraction_obstacle(x0, y0, x1, y1, obstacle):
     """선분이 회전 직사각형 발자국에 들어가는 0..1 비율. 미교차면 None."""
     ox, oy = obstacle.world_to_local(x0, y0)
@@ -176,8 +284,9 @@ def simulate_camera(world, p3, target_color, cam_max=2.5, cam_far=1.5,
                     cam_rear_blind_m=None, robot_radius_m=None,
                     robot_body_length_m=None, camera_forward_offset_m=0.0,
                     camera_left_offset_m=0.0):
-    """기하 기반 인식. 실제 상수(BEARING_SIGN, CAM_W/H, MIN_AREA) 사용.
+    """기하 기반 인식. 실제 상수(BEARING_SIGN, CAM_W/H)를 사용.
        로봇 상단 카메라가 바닥을 내려다본다고 보고 직사각형 발자국만 본다.
+       패치 중심이 아니라 카메라 footprint와 겹친 영역의 중심을 추적한다.
        반환: (visible, bearing_rad, area_ratio, cy_norm, n_visible)."""
     rb = world.robot
     half_fov = p3.HALF_HFOV_RAD
@@ -197,21 +306,23 @@ def simulate_camera(world, p3, target_color, cam_max=2.5, cam_far=1.5,
     for pch in world.patches:
         if pch.color != target_color:
             continue
-        rx = pch.x - cam_x
-        ry = pch.y - cam_y
-        x_r = rx * cs + ry * sn       # 전방
-        y_r = -rx * sn + ry * cs      # 좌측(+)
-        if x_r < near_x or x_r > far_x or abs(y_r) > half_width:
+        overlap = patch_camera_overlap(
+            world, pch, near_x, far_x, half_width,
+            camera_forward_offset_m, camera_left_offset_m)
+        if not overlap["visible"]:
             continue
-        if camera_blocker(world, cam_x, cam_y, pch.x, pch.y, camera_height_m) is not None:
+        x_r, y_r = overlap["centroid"]
+        target_x = cam_x + x_r * cs - y_r * sn
+        target_y = cam_y + x_r * sn + y_r * cs
+        if camera_blocker(world, cam_x, cam_y, target_x, target_y, camera_height_m) is not None:
             continue
         image_err = -max(-1.0, min(1.0, y_r / half_width))
         bearing = p3.BEARING_SIGN * image_err * half_fov
         projection_distance = x_r if x_r > 0.0 else math.hypot(x_r, y_r)
-        side_px = focal_px * pch.size / max(1e-6, projection_distance)
-        area_px = side_px * side_px
-        if area_px < p3.MIN_AREA:        # 너무 멀어 작게 보이면 미검출(실제 필터)
-            continue
+        area_px = (
+            focal_px * focal_px * overlap["area_m2"] /
+            max(1e-6, projection_distance * projection_distance)
+        )
         n_visible += 1
         if area_px > best_area_px:
             best_area_px = area_px
