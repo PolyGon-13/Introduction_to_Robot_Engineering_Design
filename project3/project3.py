@@ -53,7 +53,7 @@ CLEAR_CAP = 0.5                        # 이 이상 뚫려 있으면 동일 취�
 W_CLEAR = 1.5                          # 여유(clearance) 가중치  ┐ goal/clearance
 W_GOAL = 1.0                           # 목표 방향 가중치        ┘ 비율 = 핵심 노브
 
-GOAL_BEARING_FALLBACK = 0.0            # 호환용 상수. Controller는 미검출 시 SEARCH 회전 사용
+GOAL_BEARING_FALLBACK = 0.0            # 호환용 상수. Controller는 미검출 시 SEARCH sweep 사용
 LOOP_DT = 0.05
 
 # ===================== 카메라 / 색상 인식 =====================
@@ -73,11 +73,21 @@ ARRIVE_CY = 0.85                       # 코앞 감지 → 정지 전 close/cree
 CLOSE_APPROACH_V = 0.07                # 코앞 감지 후 카메라를 보며 더 들어가는 저속
 CLOSE_APPROACH_MAX_S = 2.20            # 카메라가 계속 보여도 CLOSE를 끝내는 최대 시간
 BLIND_CREEP_V = 0.07                   # 카메라가 패치를 잃은 뒤 짧게 더 들어가는 속도
-BLIND_CREEP_S = 1.00                   # 패치 위로 바퀴를 올리기 위한 추가 전진 시간
+BLIND_CREEP_DIST_M = 0.11              # 패치 위로 바퀴를 올리기 위한 추가 전진 거리
+BLIND_CREEP_S = BLIND_CREEP_DIST_M / max(1e-6, BLIND_CREEP_V)  # 호환/리포트용 환산 시간
 DWELL_S = 1.10                         # 패치 위 정지 유지 시간
-SEARCH_V = 0.0                         # 타깃 미검출 시 전진 금지
-SEARCH_W = 0.45                        # 타깃 미검출 시 제자리 탐색 회전 속도
+SEARCH_V = 0.06                        # 타깃 미검출 시 천천히 전진하며 탐색
+SEARCH_W = 0.45                        # 탐색 중 회전 속도 상한(막혔을 때 회전 fallback)
+SEARCH_BEARING = 0.65                  # 미검출 탐색 때 DWA에 주는 가상 목표 방위
+SEARCH_SWEEP_S = 3.0                   # 오래 못 찾으면 탐색 방향을 바꾸는 주기
 TARGET_LOST_MEMORY_S = 0.60            # 마지막으로 본 방향을 기억하는 시간
+
+
+def blind_creep_duration():
+    """BLIND_CREEP_DIST_M만큼 전진하기 위한 CREEP 지속 시간."""
+    return BLIND_CREEP_DIST_M / max(1e-6, BLIND_CREEP_V)
+
+
 # HSV 범위 (sihyun 검증값).  RED는 H=0/179 양쪽 두 구간.
 COLOR_RANGES = {
     "RED": [
@@ -460,6 +470,7 @@ class Controller:
         self.last_seen_t = -1e9
         self.last_seen_bearing = 0.0
         self.search_dir = 1.0
+        self.search_switch_t = 0.0
 
     @property
     def done(self):
@@ -479,6 +490,8 @@ class Controller:
         self.clr = 0.0
         self.last_seen_t = -1e9
         self.last_seen_bearing = 0.0
+        self.search_dir = 1.0
+        self.search_switch_t = 0.0
 
     def _note_seen(self, bearing, now):
         self.last_seen_t = now
@@ -498,17 +511,47 @@ class Controller:
     def _search_cmd(self, points, now):
         if now - self.last_seen_t <= TARGET_LOST_MEMORY_S:
             if abs(self.last_seen_bearing) > 0.05:
-                target_w = SEARCH_W * (1.0 if self.last_seen_bearing > 0.0 else -1.0)
+                self.search_dir = 1.0 if self.last_seen_bearing > 0.0 else -1.0
+                goal = max(-SEARCH_BEARING, min(SEARCH_BEARING, self.last_seen_bearing))
             else:
-                target_w = SEARCH_W * self.search_dir
+                goal = SEARCH_BEARING * self.search_dir
         else:
-            target_w = SEARCH_W * self.search_dir
-        self.goal = target_w
-        self.clr = path_clearance(0.05, target_w, points)
-        if self.clr < COLLISION_DIST:
+            if self.search_switch_t <= 0.0:
+                self.search_switch_t = now + SEARCH_SWEEP_S
+            elif now >= self.search_switch_t:
+                self.search_dir *= -1.0
+                self.search_switch_t = now + SEARCH_SWEEP_S
+            goal = SEARCH_BEARING * self.search_dir
+
+        self.goal = goal
+        turn_scale = max(0.35, min(1.0, abs(goal) / max(1e-6, SEARCH_BEARING)))
+        target_w = SEARCH_W * (1.0 if goal >= 0.0 else -1.0) * turn_scale
+
+        # SEARCH는 카메라 footprint를 쓸어야 하므로 CRUISE_V 기준 DWA보다
+        # 느린 실제 탐색 속도(SEARCH_V) 기준으로 안전한 후보를 고른다.
+        chosen_w = target_w
+        chosen_clr = -1.0
+        for cand_w in (target_w, 0.0, -target_w):
+            clr = path_clearance(SEARCH_V, cand_w, points)
+            if clr > chosen_clr:
+                chosen_w, chosen_clr = cand_w, clr
+            if clr >= COLLISION_DIST:
+                chosen_w, chosen_clr = cand_w, clr
+                break
+
+        if chosen_clr < COLLISION_DIST:
+            rot_w = SEARCH_W * self.search_dir
+            rot_clr = path_clearance(0.04, rot_w, points)
+            self.clr = rot_clr
+            if rot_clr >= COLLISION_DIST:
+                w = rate_limit(self.last_w, rot_w, W_RATE)
+                self.last_w = w
+                return 0.0, w, "SEARCH"
             self.last_w = 0.0
             return 0.0, 0.0, "BLOCKED"
-        w = rate_limit(self.last_w, target_w, W_RATE)
+
+        self.clr = chosen_clr
+        w = rate_limit(self.last_w, chosen_w, W_RATE)
         self.last_w = w
         return SEARCH_V, w, "SEARCH"
 
@@ -543,7 +586,7 @@ class Controller:
         if self.phase == "CLOSE":                  # 코앞 감지 후 바로 멈추지 않고 진입
             if now >= self.close_until:
                 self.phase = "CREEP"
-                self.creep_until = now + BLIND_CREEP_S
+                self.creep_until = now + blind_creep_duration()
                 return self._straight_creep_cmd(points, BLIND_CREEP_V, "CREEP")
             if seen:
                 self.goal = bearing
@@ -554,7 +597,7 @@ class Controller:
                     return 0.0, 0.0, "BLOCKED"
                 return min(v, CLOSE_APPROACH_V), w, "CLOSE"
             self.phase = "CREEP"
-            self.creep_until = now + BLIND_CREEP_S
+            self.creep_until = now + blind_creep_duration()
             return self._straight_creep_cmd(points, BLIND_CREEP_V, "CREEP")
 
         if seen and cy_norm >= ARRIVE_CY:

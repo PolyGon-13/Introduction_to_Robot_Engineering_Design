@@ -81,6 +81,8 @@ def recompute_derived(p3):
     p3._TS = (np.arange(p3.STEPS) + 1) * p3.DT
     p3.HALF_HFOV_RAD = math.radians(p3.HFOV_DEG) * 0.5
     p3.CAM_AREA = float(p3.CAM_W * p3.CAM_H)
+    if hasattr(p3, "BLIND_CREEP_DIST_M"):
+        p3.BLIND_CREEP_S = p3.BLIND_CREEP_DIST_M / max(1e-6, p3.BLIND_CREEP_V)
 
 
 # ---------------------------------------------------------------- project3.ino

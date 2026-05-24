@@ -17,6 +17,37 @@ TEST_ZONE_X = (ARENA_M - TEST_ZONE_M) * 0.5
 TEST_ZONE_Y = (ARENA_M - TEST_ZONE_M) * 0.5
 ORDER = ["RED", "YELLOW", "BLUE"]   # 통과 순서
 DEFAULT_OBSTACLE_Z_H = 0.23         # 장애물 수직 높이 23cm
+DEFAULT_ROBOT_BODY_LENGTH_M = 0.165 # 로봇 전후 길이 16.5cm
+DEFAULT_ROBOT_BODY_WIDTH_M = 0.21   # 로봇 좌우 폭 21cm
+
+
+def _dot(a, b):
+    return a[0] * b[0] + a[1] * b[1]
+
+
+def _polygon_axes(points):
+    axes = []
+    for i, p0 in enumerate(points):
+        p1 = points[(i + 1) % len(points)]
+        ex, ey = p1[0] - p0[0], p1[1] - p0[1]
+        n = math.hypot(ex, ey)
+        if n > 1e-9:
+            axes.append((-ey / n, ex / n))
+    return axes
+
+
+def _project(points, axis):
+    vals = [_dot(p, axis) for p in points]
+    return min(vals), max(vals)
+
+
+def polygons_intersect(a, b):
+    for axis in _polygon_axes(a) + _polygon_axes(b):
+        amin, amax = _project(a, axis)
+        bmin, bmax = _project(b, axis)
+        if amax < bmin or bmax < amin:
+            return False
+    return True
 
 
 class Obstacle:
@@ -88,6 +119,30 @@ class Robot:
         self.theta = theta   # +x 기준 CCW
         self.v = 0.0         # 현재 실제 선속도(텔레메트리)
         self.w = 0.0
+        self.body_length = DEFAULT_ROBOT_BODY_LENGTH_M
+        self.body_width = DEFAULT_ROBOT_BODY_WIDTH_M
+
+    @property
+    def half_length(self):
+        return self.body_length * 0.5
+
+    @property
+    def half_width(self):
+        return self.body_width * 0.5
+
+    def local_to_world(self, lx, ly):
+        c = math.cos(self.theta)
+        s = math.sin(self.theta)
+        return self.x + c * lx - s * ly, self.y + s * lx + c * ly
+
+    def corners(self):
+        hl, hw = self.half_length, self.half_width
+        return [
+            self.local_to_world(-hl, -hw),
+            self.local_to_world(hl, -hw),
+            self.local_to_world(hl, hw),
+            self.local_to_world(-hl, hw),
+        ]
 
     def wheel_contacts(self, wheel_base):
         """좌/우 바퀴 바닥 접점 (월드 좌표). 좌측 = heading 기준 +90°."""
@@ -157,16 +212,19 @@ class World:
     def set_robot_radius(self, r):
         self._rr = r
 
+    def set_robot_body_size(self, length_m, width_m):
+        self.robot.body_length = length_m
+        self.robot.body_width = width_m
+
     def _update_collisions(self, wheel_base):
-        rr = self._robot_radius()
+        body = self.robot.corners()
         hit = False
         for o in self.obstacles:
-            if o.distance_to_point(self.robot.x, self.robot.y) < rr:
+            if polygons_intersect(body, o.corners()):
                 hit = True
                 break
         if not hit and self.walls_on:
-            x, y = self.robot.x, self.robot.y
-            if x - rr < 0 or x + rr > ARENA_M or y - rr < 0 or y + rr > ARENA_M:
+            if any(x < 0 or x > ARENA_M or y < 0 or y > ARENA_M for x, y in body):
                 hit = True
         # 새로 충돌이 시작될 때만 1회 카운트(디바운스)
         if hit and not self._colliding:

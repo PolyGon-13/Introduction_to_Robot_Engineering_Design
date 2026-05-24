@@ -91,13 +91,42 @@ def simulate_lidar_raw(world, p3, n_rays=360, sensor_max=6.0, noise_m=0.0):
 
 
 # ===================== 카메라 =====================
-def camera_rect_half_width(p3, cam_max):
-    """top-down 카메라 바닥 직사각형의 좌우 반폭.
-
-    별도 폭 파라미터를 늘리지 않기 위해 기존 HFOV_DEG가 만들던 cam_max 위치의
-    좌우 폭을 직사각형 전체 폭으로 사용한다.
-    """
+def camera_rect_half_width(p3, cam_max=None, cam_width_m=None):
+    """top-down 카메라 바닥 직사각형의 좌우 반폭."""
+    if cam_width_m is not None:
+        return max(0.01, cam_width_m * 0.5)
     return max(0.01, cam_max * math.tan(p3.HALF_HFOV_RAD))
+
+
+def camera_forward_range(cam_min=0.0, cam_max=2.5,
+                         cam_rear_blind_m=None, cam_depth_m=None,
+                         robot_radius_m=None, robot_body_length_m=None,
+                         camera_forward_offset_m=0.0):
+    """카메라 기준 직사각형의 전방 시작/끝 x 좌표.
+
+    cam_rear_blind_m 은 로봇의 가장 뒤쪽 점에서부터 보이지 않는 전방 거리다.
+    로봇이 직사각형이면 rear point=-body_length/2, 원형이면 -radius 로 본다.
+    """
+    if (cam_rear_blind_m is None or cam_depth_m is None or
+            (robot_radius_m is None and robot_body_length_m is None)):
+        return cam_min, cam_max
+    rear_x_robot = (
+        -robot_body_length_m * 0.5
+        if robot_body_length_m is not None else -robot_radius_m
+    )
+    near_x_robot = rear_x_robot + cam_rear_blind_m
+    near_x_camera = near_x_robot - camera_forward_offset_m
+    return near_x_camera, near_x_camera + cam_depth_m
+
+
+def camera_world_pose(robot, camera_forward_offset_m=0.0, camera_left_offset_m=0.0):
+    """로봇 로컬 오프셋(x=전방, y=좌측)을 월드 카메라 위치로 변환."""
+    cs = math.cos(robot.theta)
+    sn = math.sin(robot.theta)
+    return (
+        robot.x + camera_forward_offset_m * cs - camera_left_offset_m * sn,
+        robot.y + camera_forward_offset_m * sn + camera_left_offset_m * cs,
+    )
 
 
 def segment_enter_fraction_obstacle(x0, y0, x1, y1, obstacle):
@@ -142,14 +171,22 @@ def camera_blocker(world, camera_x, camera_y, target_x, target_y, camera_height_
 
 
 def simulate_camera(world, p3, target_color, cam_max=2.5, cam_far=1.5,
-                    bearing_noise_deg=0.0, cam_min=0.0, camera_height_m=0.18):
+                    bearing_noise_deg=0.0, cam_min=0.0, camera_height_m=0.18,
+                    cam_width_m=None, cam_depth_m=None,
+                    cam_rear_blind_m=None, robot_radius_m=None,
+                    robot_body_length_m=None, camera_forward_offset_m=0.0,
+                    camera_left_offset_m=0.0):
     """기하 기반 인식. 실제 상수(BEARING_SIGN, CAM_W/H, MIN_AREA) 사용.
        로봇 상단 카메라가 바닥을 내려다본다고 보고 직사각형 발자국만 본다.
        반환: (visible, bearing_rad, area_ratio, cy_norm, n_visible)."""
     rb = world.robot
     half_fov = p3.HALF_HFOV_RAD
     focal_px = (p3.CAM_W * 0.5) / max(1e-6, math.tan(half_fov))
-    half_width = camera_rect_half_width(p3, cam_max)
+    near_x, far_x = camera_forward_range(
+        cam_min, cam_max, cam_rear_blind_m, cam_depth_m, robot_radius_m,
+        robot_body_length_m, camera_forward_offset_m)
+    half_width = camera_rect_half_width(p3, far_x, cam_width_m)
+    cam_x, cam_y = camera_world_pose(rb, camera_forward_offset_m, camera_left_offset_m)
 
     best = None
     best_area_px = 0.0
@@ -160,17 +197,18 @@ def simulate_camera(world, p3, target_color, cam_max=2.5, cam_far=1.5,
     for pch in world.patches:
         if pch.color != target_color:
             continue
-        rx = pch.x - rb.x
-        ry = pch.y - rb.y
+        rx = pch.x - cam_x
+        ry = pch.y - cam_y
         x_r = rx * cs + ry * sn       # 전방
         y_r = -rx * sn + ry * cs      # 좌측(+)
-        if x_r < cam_min or x_r > cam_max or abs(y_r) > half_width:
+        if x_r < near_x or x_r > far_x or abs(y_r) > half_width:
             continue
-        if camera_blocker(world, rb.x, rb.y, pch.x, pch.y, camera_height_m) is not None:
+        if camera_blocker(world, cam_x, cam_y, pch.x, pch.y, camera_height_m) is not None:
             continue
         image_err = -max(-1.0, min(1.0, y_r / half_width))
         bearing = p3.BEARING_SIGN * image_err * half_fov
-        side_px = focal_px * pch.size / max(1e-6, x_r)
+        projection_distance = x_r if x_r > 0.0 else math.hypot(x_r, y_r)
+        side_px = focal_px * pch.size / max(1e-6, projection_distance)
         area_px = side_px * side_px
         if area_px < p3.MIN_AREA:        # 너무 멀어 작게 보이면 미검출(실제 필터)
             continue
@@ -186,6 +224,6 @@ def simulate_camera(world, p3, target_color, cam_max=2.5, cam_far=1.5,
     if bearing_noise_deg > 0.0:
         bearing += math.radians(np.random.normal(0.0, bearing_noise_deg))
     area_ratio = best_area_px / p3.CAM_AREA
-    cy_span = max(1e-6, cam_far - cam_min)
-    cy_norm = max(0.0, min(1.0, 1.0 - (forward_x - cam_min) / cy_span))
+    cy_span = max(1e-6, far_x - near_x)
+    cy_norm = max(0.0, min(1.0, 1.0 - (forward_x - near_x) / cy_span))
     return (True, float(bearing), float(area_ratio), float(cy_norm), n_visible)
