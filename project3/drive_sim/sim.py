@@ -131,6 +131,16 @@ PARAM_TIPS = {
     "SEARCH_SCAN_EDGE_HITS": "이 횟수만큼 좌우 끝을 훑고도 못 찾으면 전진 탐색합니다.",
     "SEARCH_DRIVE_V": "스캔 후 못 찾았을 때 전진 탐색 속도입니다.",
     "SEARCH_DRIVE_S": "스캔 후 못 찾았을 때 전진 탐색하는 시간입니다.",
+    "EXPLORE_SPACING_M": "전역 탐색 waypoint 사이 간격입니다.",
+    "EXPLORE_REACH_DIST_M": "전역 탐색 waypoint 도착 판정 거리입니다.",
+    "EXPLORE_SCAN_EDGE_HITS": "waypoint 도착 후 좌우 스캔을 반복하는 횟수입니다.",
+    "EXPLORE_MAX_V": "전역 탐색 중 최대 전진 속도입니다.",
+    "EXPLORE_SLOW_DIST_M": "waypoint 근처에서 감속하는 거리입니다.",
+    "EXPLORE_BLOCKED_S": "waypoint가 막혔다고 보고 다음 목표로 넘기는 시간입니다.",
+    "EXPLORE_STUCK_S": "진전이 없을 때 다른 waypoint로 전환하는 시간입니다.",
+    "WRONG_COLOR_AVOID_RADIUS_M": "현재 목표가 아닌 색의 기억 위치 주변을 후순위로 미는 반경입니다.",
+    "WRONG_COLOR_SCORE_PENALTY": "현재 목표가 아닌 색 주변 waypoint에 주는 패널티입니다.",
+    "TARGET_MEMORY_REACHED_DIST_M": "기억한 목표 색 위치에 도착했다고 보는 거리입니다.",
     "BLIND_CREEP_DIST_M": "카메라가 색을 잃은 뒤 더 전진할 거리입니다.",
     "CENTER_TOL_M": "색상 중심과 로봇 중심이 이 거리 안이면 도착으로 봅니다.",
     "CENTER_MAX_V": "색상 중심 정렬 단계의 최대 전진 속도입니다.",
@@ -388,6 +398,7 @@ class Simulator:
                 "cy_norm": 0.0,
                 "visible_candidate_count": 0,
                 "target_center_robot_frame_m": None,
+                "all_color_detections": {},
             },
             "lidar": {
                 "raw_return_count": 0,
@@ -485,6 +496,8 @@ class Simulator:
                 if attr == "ROBOT_RADIUS":
                     self.world.set_robot_radius(v)
                 recompute_derived(self.p3)
+                if attr.startswith("EXPLORE_") and hasattr(self.ctrl, "_reset_explore"):
+                    self.ctrl._reset_explore()
             return f
 
         def p3get(attr):
@@ -583,6 +596,16 @@ class Simulator:
             ("SEARCH_SCAN_EDGE_HITS", S("SEARCH_SCAN_EDGE_HITS", p3get("SEARCH_SCAN_EDGE_HITS"), p3set("SEARCH_SCAN_EDGE_HITS"), 1, 6, is_int=True, fmt="{:.0f}")),
             ("SEARCH_DRIVE_V", S("SEARCH_DRIVE_V", p3get("SEARCH_DRIVE_V"), p3set("SEARCH_DRIVE_V"), 0.03, 0.25)),
             ("SEARCH_DRIVE_S", S("SEARCH_DRIVE_S", p3get("SEARCH_DRIVE_S"), p3set("SEARCH_DRIVE_S"), 0.20, 3.00)),
+            ("EXPLORE_SPACING_M", S("EXPLORE_SPACING_M", p3get("EXPLORE_SPACING_M"), p3set("EXPLORE_SPACING_M"), 0.20, 0.60)),
+            ("EXPLORE_REACH_DIST_M", S("EXPLORE_REACH_DIST_M", p3get("EXPLORE_REACH_DIST_M"), p3set("EXPLORE_REACH_DIST_M"), 0.05, 0.25)),
+            ("EXPLORE_SCAN_EDGE_HITS", S("EXPLORE_SCAN_EDGE_HITS", p3get("EXPLORE_SCAN_EDGE_HITS"), p3set("EXPLORE_SCAN_EDGE_HITS"), 0, 6, is_int=True, fmt="{:.0f}")),
+            ("EXPLORE_MAX_V", S("EXPLORE_MAX_V", p3get("EXPLORE_MAX_V"), p3set("EXPLORE_MAX_V"), 0.03, 0.25)),
+            ("EXPLORE_SLOW_DIST_M", S("EXPLORE_SLOW_DIST_M", p3get("EXPLORE_SLOW_DIST_M"), p3set("EXPLORE_SLOW_DIST_M"), 0.10, 0.60)),
+            ("EXPLORE_BLOCKED_S", S("EXPLORE_BLOCKED_S", p3get("EXPLORE_BLOCKED_S"), p3set("EXPLORE_BLOCKED_S"), 0.20, 3.00)),
+            ("EXPLORE_STUCK_S", S("EXPLORE_STUCK_S", p3get("EXPLORE_STUCK_S"), p3set("EXPLORE_STUCK_S"), 0.50, 6.00)),
+            ("WRONG_COLOR_AVOID_RADIUS_M", S("WRONG_COLOR_AVOID_RADIUS_M", p3get("WRONG_COLOR_AVOID_RADIUS_M"), p3set("WRONG_COLOR_AVOID_RADIUS_M"), 0.10, 1.20)),
+            ("WRONG_COLOR_SCORE_PENALTY", S("WRONG_COLOR_SCORE_PENALTY", p3get("WRONG_COLOR_SCORE_PENALTY"), p3set("WRONG_COLOR_SCORE_PENALTY"), 0.00, 4.00)),
+            ("TARGET_MEMORY_REACHED_DIST_M", S("TARGET_MEMORY_REACHED_DIST_M", p3get("TARGET_MEMORY_REACHED_DIST_M"), p3set("TARGET_MEMORY_REACHED_DIST_M"), 0.10, 0.80)),
             ("— Arduino (project3.ino) —", None),
             ("wheel tau", S("wheel tau", ardget("tau"), ardset("tau"), 0.02, 0.40)),
             ("wheel accel", S("wheel accel", ardget("wheel_accel_max"), ardset("wheel_accel_max"), 5.0, 100.0)),
@@ -767,6 +790,7 @@ class Simulator:
                 "cy_norm": 0.0,
                 "visible_candidate_count": 0,
                 "target_center_robot_frame_m": None,
+                "all_color_detections": {},
             },
             "lidar": {
                 "raw_return_count": 0,
@@ -828,7 +852,24 @@ class Simulator:
                 "search_anchor_theta": getattr(ctrl, "search_anchor_theta", None),
                 "search_mode": getattr(ctrl, "search_mode", None),
                 "search_edge_hits": getattr(ctrl, "search_edge_hits", None),
+                "search_force_explore": getattr(ctrl, "search_force_explore", None),
                 "search_drive_until": getattr(ctrl, "search_drive_until", None),
+                "explore_target_idx": getattr(ctrl, "explore_target_idx", None),
+                "explore_target_world_m": (
+                    {
+                        "x_m": ctrl.explore_waypoints[ctrl.explore_target_idx][0],
+                        "y_m": ctrl.explore_waypoints[ctrl.explore_target_idx][1],
+                    }
+                    if getattr(ctrl, "explore_target_idx", None) is not None
+                    and 0 <= ctrl.explore_target_idx < len(getattr(ctrl, "explore_waypoints", []))
+                    else None
+                ),
+                "explore_cycle": getattr(ctrl, "explore_cycle", None),
+                "explore_visited_count": sum(1 for v in getattr(ctrl, "explore_visited", []) if v),
+                "explore_deferred_count": sum(1 for v in getattr(ctrl, "explore_deferred", []) if v),
+                "explore_waypoint_count": len(getattr(ctrl, "explore_waypoints", [])),
+                "explore_priority_count": getattr(ctrl, "explore_priority_count", None),
+                "color_memory": dict(getattr(ctrl, "color_memory", {})),
                 "avoid_active": getattr(ctrl, "avoid_active", None),
                 "avoid_goal": getattr(ctrl, "avoid_goal", None),
                 "avoid_direct_clr": getattr(ctrl, "avoid_direct_clr", None),
@@ -1273,6 +1314,26 @@ class Simulator:
         else:
             vis, bearing, area_ratio, cy_norm, n_visible = cam_res
             target_xy = None
+        all_color_detections = {}
+        for c in self.p3.TARGET_SEQUENCE:
+            res = sensors.simulate_camera(
+                self.world, self.p3, c,
+                cam_max=far_x, cam_far=far_x, cam_min=near_x,
+                camera_height_m=self._camera_mount_height(),
+                cam_width_m=self.camera_width, cam_depth_m=self.camera_depth,
+                cam_rear_blind_m=self.camera_rear_blind,
+                robot_body_length_m=self.robot_body_length,
+                camera_forward_offset_m=self.camera_forward_offset,
+                camera_left_offset_m=self.camera_left_offset)
+            if len(res) >= 7 and res[0] and res[5] is not None and res[6] is not None:
+                all_color_detections[c] = {
+                    "visible": True,
+                    "bearing_rad": res[1],
+                    "area_ratio": res[2],
+                    "cy_norm": res[3],
+                    "n_blobs": res[4],
+                    "target_center_robot_frame_m": {"x_m": res[5], "y_m": res[6]},
+                }
         return {
             "lidar": {
                 "raw_return_count": int(len(scan[0])),
@@ -1312,6 +1373,7 @@ class Simulator:
                 "cy_norm": cy_norm,
                 "visible_candidate_count": n_visible,
                 "target_center_robot_frame_m": target_xy,
+                "all_color_detections": all_color_detections,
             },
         }
 
@@ -1603,6 +1665,13 @@ class Simulator:
                     "SEARCH_SWEEP_ANGLE_RAD", "SEARCH_SETTLE_RAD",
                     "SEARCH_SCAN_EDGE_HITS", "SEARCH_DRIVE_V", "SEARCH_DRIVE_S",
                     "SEARCH_BEARING", "SEARCH_SWEEP_S", "TARGET_LOST_MEMORY_S",
+                    "EXPLORE_ENABLED", "EXPLORE_SPACING_M", "EXPLORE_EDGE_MARGIN_M",
+                    "EXPLORE_REACH_DIST_M", "EXPLORE_SCAN_EDGE_HITS", "EXPLORE_MAX_V",
+                    "EXPLORE_SLOW_DIST_M", "EXPLORE_TURN_IN_PLACE_RAD",
+                    "EXPLORE_BLOCKED_S", "EXPLORE_STUCK_S", "EXPLORE_STUCK_DIST_M",
+                    "COLOR_MEMORY_TTL_S", "WRONG_COLOR_AVOID_RADIUS_M",
+                    "WRONG_COLOR_SCORE_PENALTY", "TARGET_MEMORY_REACHED_DIST_M",
+                    "TARGET_MEMORY_MAX_V",
                     "BEARING_SIGN", "MIN_AREA", "LOOP_DT",
                     "PRACTICE10_FX_640", "PRACTICE10_FY_480",
                     "PRACTICE10_CX_640", "PRACTICE10_CY_480",
@@ -1669,6 +1738,37 @@ class Simulator:
                     if getattr(ctrl, "search_mode", None) == "DRIVE" else 0.0
                 ),
             },
+            "exploration": {
+                "enabled": getattr(self.p3, "EXPLORE_ENABLED", None),
+                "mode": getattr(ctrl, "search_mode", None),
+                "target_idx": getattr(ctrl, "explore_target_idx", None),
+                "target_world_m": (
+                    {
+                        "x_m": ctrl.explore_waypoints[ctrl.explore_target_idx][0],
+                        "y_m": ctrl.explore_waypoints[ctrl.explore_target_idx][1],
+                    }
+                    if getattr(ctrl, "explore_target_idx", None) is not None
+                    and 0 <= ctrl.explore_target_idx < len(getattr(ctrl, "explore_waypoints", []))
+                    else None
+                ),
+                "visited_count": sum(1 for v in getattr(ctrl, "explore_visited", []) if v),
+                "deferred_count": sum(1 for v in getattr(ctrl, "explore_deferred", []) if v),
+                "waypoint_count": len(getattr(ctrl, "explore_waypoints", [])),
+                "priority_count": getattr(ctrl, "explore_priority_count", None),
+                "cycle": getattr(ctrl, "explore_cycle", None),
+                "anchor_world_m": (
+                    {
+                        "x_m": getattr(ctrl, "explore_anchor_x", None),
+                        "y_m": getattr(ctrl, "explore_anchor_y", None),
+                    }
+                    if getattr(ctrl, "explore_anchor_x", None) is not None else None
+                ),
+                "last_distance_m": getattr(ctrl, "explore_last_dist", None),
+                "blocked_since_s": getattr(ctrl, "explore_blocked_since", None),
+                "spacing_m": getattr(self.p3, "EXPLORE_SPACING_M", None),
+                "reach_dist_m": getattr(self.p3, "EXPLORE_REACH_DIST_M", None),
+            },
+            "color_memory": dict(getattr(ctrl, "color_memory", {})),
             "avoidance": {
                 "active": getattr(ctrl, "avoid_active", None),
                 "gap_goal_rad": getattr(ctrl, "avoid_goal", None),
@@ -1781,19 +1881,34 @@ class Simulator:
         if color is None:
             seen, bearing, ar, cy, ncnt = False, 0.0, 0.0, 0.0, 0
             target_xy = None
+            color_detections = {}
         else:
             near_x, far_x = self._camera_forward_range()
-            cam_res = sensors.simulate_camera(
-                self.world, p3, color,
-                cam_max=far_x, cam_far=far_x, cam_min=near_x,
-                camera_height_m=self._camera_mount_height(),
-                cam_width_m=self.camera_width, cam_depth_m=self.camera_depth,
-                cam_rear_blind_m=self.camera_rear_blind,
-                robot_body_length_m=self.robot_body_length,
-                camera_forward_offset_m=self.camera_forward_offset,
-                camera_left_offset_m=self.camera_left_offset)
+            color_detections = {}
+            cam_results = {}
+            for c in p3.TARGET_SEQUENCE:
+                res = sensors.simulate_camera(
+                    self.world, p3, c,
+                    cam_max=far_x, cam_far=far_x, cam_min=near_x,
+                    camera_height_m=self._camera_mount_height(),
+                    cam_width_m=self.camera_width, cam_depth_m=self.camera_depth,
+                    cam_rear_blind_m=self.camera_rear_blind,
+                    robot_body_length_m=self.robot_body_length,
+                    camera_forward_offset_m=self.camera_forward_offset,
+                    camera_left_offset_m=self.camera_left_offset)
+                cam_results[c] = res
+                if len(res) >= 7 and res[0] and res[5] is not None and res[6] is not None:
+                    color_detections[c] = {
+                        "visible": True,
+                        "bearing_rad": res[1],
+                        "area_ratio": res[2],
+                        "cy_norm": res[3],
+                        "n_blobs": res[4],
+                        "target_center_robot_frame_m": {"x_m": res[5], "y_m": res[6]},
+                    }
+            cam_res = cam_results.get(color, (False, 0.0, 0.0, 0.0, 0, None, None))
             if len(cam_res) >= 7:
-                vis, bearing, ar, cy, ncnt, target_x, target_y = cam_res
+                vis, bearing, ar, cy, ncnt, target_x, target_y = cam_res[:7]
                 target_xy = (target_x, target_y) if target_x is not None and target_y is not None else None
             else:
                 vis, bearing, ar, cy, ncnt = cam_res
@@ -1802,9 +1917,10 @@ class Simulator:
 
         # 결정/상태 전이는 전부 Controller.tick() 에 위임(= 실제 코드).
         # 미리보기(commit=False)는 복사본으로 돌려 상태를 바꾸지 않는다.
-        ctrl = self.ctrl if commit else copy.copy(self.ctrl)
+        ctrl = self.ctrl if commit else copy.deepcopy(self.ctrl)
         v, w, state = ctrl.tick(pts, seen, bearing, cy, self.sim_time,
-                                pose=self._p3_pose_tuple(), target_xy=target_xy)
+                                pose=self._p3_pose_tuple(), target_xy=target_xy,
+                                color_detections=color_detections)
         if commit:
             p3.send_vw(self.link, v, w)
 
@@ -1838,6 +1954,7 @@ class Simulator:
                     {"x_m": target_xy[0], "y_m": target_xy[1]}
                     if target_xy is not None else None
                 ),
+                "all_color_detections": color_detections,
             },
             "lidar": {
                 "raw_return_count": int(len(scan[0])),

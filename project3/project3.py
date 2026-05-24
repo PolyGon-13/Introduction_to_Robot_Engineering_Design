@@ -3,7 +3,7 @@
 #
 # Project 3: 라이다 lean DWA + 카메라 색상영역 시퀀스 추적
 #   카메라로 현재 타깃 색 영역의 방위 β를 구해 DWA 목표 방위로 사용.
-#   미검출 시에는 제자리 좌우 스윕 회전으로 찾고, 안 보이면 짧게 주행한 뒤 다시 찾는다.
+#   미검출 시에는 제자리 스윕 후 odometry 기반 waypoint를 훑으며 전역 탐색한다.
 #   도착 판정은 CLOSE→CREEP→HOLD 상태로 패치 위까지 더 들어간 뒤 정지한다.
 #   좌표계: 로봇 기준 x=전방, y=좌측(+).  w>0 = 좌회전.  β>0 = 타깃이 좌측.
 
@@ -157,6 +157,27 @@ SEARCH_DRIVE_S = 1.20                  # 한 번 스캔한 뒤 전진 탐색하�
 SEARCH_BEARING = SEARCH_SWEEP_ANGLE_RAD  # 호환/로깅용: 탐색 목표 방위각
 SEARCH_SWEEP_S = 0.80                  # odometry가 없을 때 방향을 바꾸는 시간 fallback
 TARGET_LOST_MEMORY_S = 0.60            # 마지막으로 본 방향을 기억하는 시간
+
+# Odometry 기반 전역 탐색. 색이 안 보이면 2.3m keep-in 영역 안의 waypoint를 훑는다.
+EXPLORE_ENABLED = True
+EXPLORE_SPACING_M = 0.35               # 카메라 폭 0.39m보다 약간 작게 겹치며 훑는 간격
+EXPLORE_EDGE_MARGIN_M = 0.12           # keep-in 경계에서 waypoint가 추가로 떨어질 거리
+EXPLORE_REACH_DIST_M = 0.12            # waypoint 도착 판정 거리
+EXPLORE_SCAN_EDGE_HITS = 0             # waypoint 도착 후 스캔 횟수. 0이면 멈추지 않고 다음 지점으로 간다
+EXPLORE_MAX_V = CRUISE_V               # 전역 탐색 중 최대 전진 속도
+EXPLORE_SLOW_DIST_M = 0.28             # waypoint 근처 감속 거리
+EXPLORE_TURN_IN_PLACE_RAD = 1.10       # 목표가 크게 옆/뒤면 먼저 제자리 회전
+EXPLORE_BLOCKED_S = 0.90               # 이 시간 이상 막히면 해당 waypoint를 포기
+EXPLORE_STUCK_S = 2.00                 # 거의 움직이지 못하면 다른 waypoint로 전환
+EXPLORE_STUCK_DIST_M = 0.04            # stuck 판정에 쓰는 최소 이동량
+
+# 목표가 아닌 색을 보았을 때의 위치 기억. 나중에 그 색이 목표가 되면 먼저 찾아가고,
+# 현재 목표가 아니면 그 주변 waypoint를 후순위로 밀어 탐색 시간을 줄인다.
+COLOR_MEMORY_TTL_S = 240.0
+WRONG_COLOR_AVOID_RADIUS_M = 0.55
+WRONG_COLOR_SCORE_PENALTY = 1.60
+TARGET_MEMORY_REACHED_DIST_M = 0.35
+TARGET_MEMORY_MAX_V = CRUISE_V
 
 
 def blind_creep_duration():
@@ -498,15 +519,16 @@ def open_camera():
 
 
 class ColorPerception:
-    """전용 스레드에서 현재 타깃 색만 인식 → 최신 결과 1칸만 유지(프레임 누적 없음).
-       결과 튜플: (visible, bearing_rad, area_ratio, cy_norm, n_blobs, target_x_m, target_y_m)."""
+    """전용 스레드에서 색상 인식 → 최신 결과 1칸만 유지(프레임 누적 없음).
+       결과 튜플:
+       (visible, bearing_rad, area_ratio, cy_norm, n_blobs, target_x_m, target_y_m, all_detections)."""
 
     def __init__(self, target_color=DEFAULT_TARGET):
         self.cam, self.is_picam = open_camera()
         self.enabled = self.cam is not None
         self.target_color = target_color
         self.lock = threading.Lock()
-        self.result = (False, 0.0, 0.0, 0.0, 0, None, None)
+        self.result = (False, 0.0, 0.0, 0.0, 0, None, None, {})
         self.stamp = 0.0
         self.proc_ms = 0.0
         self.running = True
@@ -533,11 +555,7 @@ class ColorPerception:
             frame = cv2.flip(frame, -1)
         return frame
 
-    def _detect(self, frame, color):
-        if BLUR_SIZE > 1:
-            frame = cv2.GaussianBlur(frame, (BLUR_SIZE, BLUR_SIZE), 0)
-        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
-
+    def _detect_color_from_hsv(self, hsv, color):
         mask = None
         for lo, hi in COLOR_RANGES[color]:
             m = cv2.inRange(hsv, lo, hi)
@@ -584,6 +602,40 @@ class ColorPerception:
         cy_norm = (y + h) / CAM_H                  # 영역 하단의 세로위치(1=프레임 바닥=가까움)
         target_x, target_y = pixel_to_robot_ground(cx, cy)
         return (True, float(bearing), float(area_ratio), float(cy_norm), n, target_x, target_y)
+
+    def _detect(self, frame, color):
+        if BLUR_SIZE > 1:
+            frame = cv2.GaussianBlur(frame, (BLUR_SIZE, BLUR_SIZE), 0)
+        hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+
+        all_detections = {}
+        for c in TARGET_SEQUENCE:
+            res = self._detect_color_from_hsv(hsv, c)
+            if not res[0]:
+                continue
+            all_detections[c] = {
+                "visible": True,
+                "bearing_rad": res[1],
+                "area_ratio": res[2],
+                "cy_norm": res[3],
+                "n_blobs": res[4],
+                "target_center_robot_frame_m": {"x_m": res[5], "y_m": res[6]},
+            }
+
+        if color in all_detections:
+            d = all_detections[color]
+            center = d["target_center_robot_frame_m"]
+            return (
+                True,
+                d["bearing_rad"],
+                d["area_ratio"],
+                d["cy_norm"],
+                d["n_blobs"],
+                center["x_m"],
+                center["y_m"],
+                all_detections,
+            )
+        return (False, 0.0, 0.0, 0.0, 0, None, None, all_detections)
 
     def _loop(self):
         while self.running:
@@ -983,6 +1035,19 @@ class Controller:
         self.search_mode = "SCAN"
         self.search_edge_hits = 0
         self.search_drive_until = 0.0
+        self.search_force_explore = False
+        self.explore_waypoints = []
+        self.explore_visited = []
+        self.explore_deferred = []
+        self.explore_target_idx = None
+        self.explore_cycle = 0
+        self.explore_blocked_since = 0.0
+        self.explore_last_progress_t = 0.0
+        self.explore_last_progress_pose = None
+        self.explore_last_dist = None
+        self.explore_anchor_x = None
+        self.explore_anchor_y = None
+        self.explore_priority_count = 0
         self.avoid_active = False
         self.avoid_goal = 0.0
         self.avoid_direct_clr = 0.0
@@ -994,6 +1059,7 @@ class Controller:
         self.last_target_x = None      # 로봇 좌표계의 최근 색상 중심 x
         self.last_target_y = None
         self.last_center_dist = None
+        self.color_memory = {}         # color -> centered/world 좌표계의 최근 관측 위치
 
     @property
     def done(self):
@@ -1024,6 +1090,8 @@ class Controller:
         self.search_mode = "SCAN"
         self.search_edge_hits = 0
         self.search_drive_until = 0.0
+        self.search_force_explore = True
+        self._reset_explore()
         self._reset_avoidance()
         self._reset_center()
 
@@ -1042,6 +1110,81 @@ class Controller:
         self.last_target_y = None
         self.last_center_dist = None
 
+    def _memory_valid(self, mem, now):
+        return (
+            mem is not None and
+            now - mem.get("time_s", -1e9) <= COLOR_MEMORY_TTL_S and
+            math.isfinite(mem.get("x_m", float("nan"))) and
+            math.isfinite(mem.get("y_m", float("nan")))
+        )
+
+    def _remember_color_detection(self, color, det, pose, now):
+        if color not in TARGET_SEQUENCE or not det or not det.get("visible", False):
+            return
+        pose_t = _pose_tuple(pose)
+        if pose_t is None:
+            return
+        center = det.get("target_center_robot_frame_m") or {}
+        try:
+            tx = float(center.get("x_m"))
+            ty = float(center.get("y_m"))
+        except (TypeError, ValueError):
+            return
+        if not (math.isfinite(tx) and math.isfinite(ty)):
+            return
+
+        px, py, th = pose_t
+        cs, sn = math.cos(th), math.sin(th)
+        gx = px + tx * cs - ty * sn
+        gy = py + tx * sn + ty * cs
+        self.color_memory[color] = {
+            "x_m": gx,
+            "y_m": gy,
+            "time_s": now,
+            "bearing_rad": det.get("bearing_rad"),
+            "area_ratio": det.get("area_ratio"),
+            "cy_norm": det.get("cy_norm"),
+        }
+
+    def _note_color_detections(self, detections, pose, now):
+        if not detections:
+            return
+        for color, det in detections.items():
+            self._remember_color_detection(color, det, pose, now)
+
+    def _wrong_color_waypoint_penalty(self, wx, wy, now):
+        penalty = 0.0
+        current = self.target_color
+        radius = max(1e-6, WRONG_COLOR_AVOID_RADIUS_M)
+        for color, mem in self.color_memory.items():
+            if color == current or not self._memory_valid(mem, now):
+                continue
+            d = math.hypot(wx - mem["x_m"], wy - mem["y_m"])
+            if d < radius:
+                penalty += WRONG_COLOR_SCORE_PENALTY * (1.0 - d / radius)
+        return penalty
+
+    def _target_memory(self, now):
+        color = self.target_color
+        if color is None:
+            return None
+        mem = self.color_memory.get(color)
+        return mem if self._memory_valid(mem, now) else None
+
+    def _reset_explore(self):
+        self.explore_waypoints = []
+        self.explore_visited = []
+        self.explore_deferred = []
+        self.explore_target_idx = None
+        self.explore_cycle = 0
+        self.explore_blocked_since = 0.0
+        self.explore_last_progress_t = 0.0
+        self.explore_last_progress_pose = None
+        self.explore_last_dist = None
+        self.explore_anchor_x = None
+        self.explore_anchor_y = None
+        self.explore_priority_count = 0
+
     def _note_seen(self, bearing, cy_norm, now):
         if self.last_seen_t < -1e8:
             self.smooth_bearing = bearing
@@ -1059,6 +1202,7 @@ class Controller:
         self.search_mode = "SCAN"
         self.search_edge_hits = 0
         self.search_drive_until = 0.0
+        self.search_force_explore = False
 
     def _update_approach_quality(self, cy_norm, now):
         aligned = cy_norm >= ARRIVE_CY and abs(self.smooth_bearing) <= APPROACH_ALIGN_MAX
@@ -1112,6 +1256,250 @@ class Controller:
         v = min(v, SEARCH_DRIVE_V)
         self.last_w = w
         return v, w, "SEARCH_DRIVE"
+
+    def _explore_half_span(self):
+        if KEEPIN_ENABLED:
+            half = KEEPIN_SIZE_M * 0.5 - KEEPIN_MARGIN_M - EXPLORE_EDGE_MARGIN_M
+        else:
+            half = 1.0
+        return max(EXPLORE_REACH_DIST_M * 2.0, half)
+
+    def _build_explore_waypoints(self):
+        """centered odometry 좌표계에서 keep-in 내부를 훑는 lawnmower waypoint."""
+        half = self._explore_half_span()
+        spacing = max(0.15, EXPLORE_SPACING_M)
+        coarse = [
+            (0.0, -half), (half, -half), (half, 0.0), (half, half),
+            (0.0, half), (-half, half), (-half, 0.0), (-half, -half),
+            (0.0, 0.0),
+        ]
+        n = max(2, int(math.floor((2.0 * half) / spacing)) + 1)
+        coords = np.linspace(-half, half, n)
+        waypoints = [(float(x), float(y)) for x, y in coarse]
+        self.explore_priority_count = len(waypoints)
+        for row_i, y in enumerate(coords):
+            xs = coords if row_i % 2 == 0 else coords[::-1]
+            for x in xs:
+                pt = (float(x), float(y))
+                if any(math.hypot(pt[0] - qx, pt[1] - qy) < 0.05 for qx, qy in waypoints):
+                    continue
+                waypoints.append(pt)
+        return waypoints
+
+    def _ensure_explore_plan(self):
+        if not self.explore_waypoints:
+            self.explore_waypoints = self._build_explore_waypoints()
+            self.explore_visited = [False] * len(self.explore_waypoints)
+            self.explore_deferred = [0] * len(self.explore_waypoints)
+            self.explore_target_idx = None
+        elif (len(self.explore_visited) != len(self.explore_waypoints) or
+              len(self.explore_deferred) != len(self.explore_waypoints)):
+            self.explore_visited = [False] * len(self.explore_waypoints)
+            self.explore_deferred = [0] * len(self.explore_waypoints)
+            self.explore_target_idx = None
+        return bool(self.explore_waypoints)
+
+    def _select_next_explore_waypoint(self, pose_t, now, skip_current=False, prefer_far=False):
+        if not self._ensure_explore_plan():
+            return False
+        if skip_current and self.explore_target_idx is not None:
+            if prefer_far:
+                self.explore_deferred[self.explore_target_idx] = max(
+                    self.explore_deferred[self.explore_target_idx], 4)
+            else:
+                self.explore_visited[self.explore_target_idx] = True
+
+        self.explore_deferred = [max(0, d - 1) for d in self.explore_deferred]
+
+        if all(self.explore_visited):
+            self.explore_visited = [False] * len(self.explore_waypoints)
+            self.explore_deferred = [0] * len(self.explore_waypoints)
+            self.explore_cycle += 1
+
+        px, py, _ = pose_t
+        if self.explore_anchor_x is None or self.explore_anchor_y is None:
+            self.explore_anchor_x = px
+            self.explore_anchor_y = py
+        priority_stop = min(self.explore_priority_count, len(self.explore_waypoints))
+        priority_candidates = [
+            i for i in range(priority_stop)
+            if not self.explore_visited[i] and self.explore_deferred[i] <= 0
+        ]
+        candidate_indices = priority_candidates or [
+            i for i, visited in enumerate(self.explore_visited)
+            if not visited and self.explore_deferred[i] <= 0
+        ]
+        if not candidate_indices:
+            self.explore_deferred = [0] * len(self.explore_waypoints)
+            candidate_indices = [
+                i for i, visited in enumerate(self.explore_visited)
+                if not visited
+            ]
+
+        best_i = None
+        best_score = float("inf")
+        for i in candidate_indices:
+            wx, wy = self.explore_waypoints[i]
+            dist = math.hypot(wx - px, wy - py)
+            anchor_dist = math.hypot(wx - self.explore_anchor_x, wy - self.explore_anchor_y)
+            wrong_penalty = self._wrong_color_waypoint_penalty(wx, wy, now)
+            if prefer_far:
+                score = -dist + 0.10 * anchor_dist + 1.5 * wrong_penalty
+            else:
+                score = (
+                    anchor_dist
+                    + 0.20 * dist
+                    + wrong_penalty
+                    + 0.02 * (i / max(1, len(self.explore_waypoints) - 1))
+                )
+            if score < best_score:
+                best_score = score
+                best_i = i
+
+        if best_i is None:
+            return False
+        self.explore_target_idx = best_i
+        self.search_mode = "EXPLORE_GOTO"
+        self.explore_blocked_since = 0.0
+        self.explore_last_progress_t = now
+        self.explore_last_progress_pose = (px, py)
+        wx, wy = self.explore_waypoints[best_i]
+        self.explore_last_dist = math.hypot(wx - px, wy - py)
+        return True
+
+    def _begin_explore_goto(self, now, pose=None):
+        pose_t = _pose_tuple(pose)
+        if (not EXPLORE_ENABLED) or pose_t is None:
+            self._begin_search_drive(now)
+            return False
+        return self._select_next_explore_waypoint(pose_t, now)
+
+    def _explore_target_error_robot(self, pose_t):
+        if self.explore_target_idx is None:
+            return None
+        try:
+            wx, wy = self.explore_waypoints[self.explore_target_idx]
+        except (IndexError, TypeError):
+            return None
+        px, py, th = pose_t
+        dx = wx - px
+        dy = wy - py
+        cs, sn = math.cos(th), math.sin(th)
+        return (
+            dx * cs + dy * sn,
+            -dx * sn + dy * cs,
+            math.hypot(dx, dy),
+            wx,
+            wy,
+        )
+
+    def _finish_explore_waypoint(self):
+        if self.explore_target_idx is not None and self.explore_visited:
+            if 0 <= self.explore_target_idx < len(self.explore_visited):
+                self.explore_visited[self.explore_target_idx] = True
+                if self.explore_deferred:
+                    self.explore_deferred[self.explore_target_idx] = 0
+        self.explore_target_idx = None
+        self.explore_blocked_since = 0.0
+        self.explore_last_dist = None
+
+    def _explore_stuck(self, pose_t, dist, now):
+        if self.explore_last_dist is None or dist < self.explore_last_dist - EXPLORE_STUCK_DIST_M:
+            self.explore_last_dist = dist
+            self.explore_last_progress_t = now
+            self.explore_last_progress_pose = (pose_t[0], pose_t[1])
+            return False
+        return now - self.explore_last_progress_t >= EXPLORE_STUCK_S
+
+    def _explore_cmd(self, points, now, pose=None):
+        pose_t = _pose_tuple(pose)
+        if pose_t is None:
+            if self.search_mode == "DRIVE" and now < self.search_drive_until:
+                return self._search_drive_cmd(points, pose)
+            self._begin_search_drive(now)
+            return self._search_drive_cmd(points, pose)
+
+        if self.explore_target_idx is None:
+            if not self._select_next_explore_waypoint(pose_t, now):
+                return self._search_cmd(points, now, pose)
+
+        err = self._explore_target_error_robot(pose_t)
+        if err is None:
+            if not self._select_next_explore_waypoint(pose_t, now):
+                return self._search_cmd(points, now, pose)
+            err = self._explore_target_error_robot(pose_t)
+            if err is None:
+                return self._search_cmd(points, now, pose)
+
+        ex, ey, dist, _, _ = err
+        if dist <= EXPLORE_REACH_DIST_M:
+            self._finish_explore_waypoint()
+            if EXPLORE_SCAN_EDGE_HITS > 0:
+                self._begin_search_scan()
+                return self._search_cmd(points, now, pose)
+            if self._select_next_explore_waypoint(pose_t, now):
+                return self._explore_cmd(points, now, pose)
+            self._begin_search_scan()
+            return self._search_cmd(points, now, pose)
+
+        if self._explore_stuck(pose_t, dist, now):
+            self._select_next_explore_waypoint(pose_t, now, skip_current=True, prefer_far=True)
+            return self._explore_cmd(points, now, pose)
+
+        goal_bearing = math.atan2(ey, ex)
+        if abs(goal_bearing) > EXPLORE_TURN_IN_PLACE_RAD:
+            target_w = max(-SEARCH_W, min(SEARCH_W, 1.6 * goal_bearing))
+            clr = command_clearance(0.0, target_w, points, pose)
+            self.goal = goal_bearing
+            self.clr = clr
+            if clr >= escape_rotate_clearance_min():
+                self._reset_avoidance()
+                w = rate_limit(self.last_w, target_w, W_RATE)
+                self.last_w = w
+                return 0.0, w, "EXPLORE_TURN"
+
+        v, w, state = self._goal_cmd(points, goal_bearing, pose, allow_avoid=True)
+        if state == "BLOCKED":
+            if self.explore_blocked_since <= 0.0:
+                self.explore_blocked_since = now
+            if now - self.explore_blocked_since >= EXPLORE_BLOCKED_S:
+                self._select_next_explore_waypoint(pose_t, now, skip_current=True, prefer_far=True)
+            return 0.0, 0.0, "EXPLORE_BLOCKED"
+
+        self.explore_blocked_since = 0.0
+        v_scale = float(np.clip(dist / max(1e-6, EXPLORE_SLOW_DIST_M), 0.45, 1.0))
+        v = min(v, EXPLORE_MAX_V * v_scale)
+        if state == "AVOID":
+            return v, w, "EXPLORE_AVOID"
+        return v, w, "EXPLORE_GOTO"
+
+    def _target_memory_cmd(self, points, now, pose=None):
+        mem = self._target_memory(now)
+        pose_t = _pose_tuple(pose)
+        if mem is None or pose_t is None:
+            return None
+
+        px, py, th = pose_t
+        dx = mem["x_m"] - px
+        dy = mem["y_m"] - py
+        dist = math.hypot(dx, dy)
+        if dist <= TARGET_MEMORY_REACHED_DIST_M:
+            # 기억 위치까지 왔는데도 안 보이면 잘못된/가려진 기억으로 보고 일반 탐색으로 복귀.
+            self.color_memory.pop(self.target_color, None)
+            self._begin_search_scan()
+            return self._search_cmd(points, now, pose)
+
+        cs, sn = math.cos(th), math.sin(th)
+        ex = dx * cs + dy * sn
+        ey = -dx * sn + dy * cs
+        goal_bearing = math.atan2(ey, ex)
+        v, w, state = self._goal_cmd(points, goal_bearing, pose, allow_avoid=True)
+        if state == "BLOCKED":
+            return 0.0, 0.0, "MEMORY_BLOCKED"
+        v = min(v, TARGET_MEMORY_MAX_V)
+        if state == "AVOID":
+            return v, w, "MEMORY_AVOID"
+        return v, w, "MEMORY_GOTO"
 
     def _goal_cmd(self, points, goal_bearing, pose=None, allow_avoid=True):
         """목표 bearing으로 DWA를 시도하고, 막힌 경우 열린 gap을 임시 목표로 쓴다."""
@@ -1240,6 +1628,8 @@ class Controller:
         return v, w, ("CENTER" if visible and state == "SEEK" else "CENTER_BLIND" if state == "SEEK" else state)
 
     def _begin_and_try_search_drive(self, points, now, pose=None):
+        if self._begin_explore_goto(now, pose):
+            return self._explore_cmd(points, now, pose)
         self._begin_search_drive(now)
         v, w, state = self._search_drive_cmd(points, pose)
         if state == "BLOCKED":
@@ -1264,15 +1654,22 @@ class Controller:
         return v, w, state
 
     def _search_cmd(self, points, now, pose=None):
+        if self.search_force_explore and _pose_tuple(pose) is not None:
+            self.search_force_explore = False
+            return self._begin_and_try_search_drive(points, now, pose)
+
         if self.search_mode == "DRIVE":
             if now < self.search_drive_until:
                 v, w, state = self._search_drive_cmd(points, pose)
                 if state != "BLOCKED":
                     return v, w, state
             self._begin_search_scan()
+        elif self.search_mode == "EXPLORE_GOTO":
+            return self._explore_cmd(points, now, pose)
 
         pose_t = _pose_tuple(pose)
         target_w = SEARCH_W * self.search_dir
+        edge_limit = EXPLORE_SCAN_EDGE_HITS if self.explore_waypoints else SEARCH_SCAN_EDGE_HITS
 
         if pose_t is not None:
             theta = pose_t[2]
@@ -1286,7 +1683,7 @@ class Controller:
             if abs(err) <= SEARCH_SETTLE_RAD:
                 self.search_dir *= -1.0
                 self.search_edge_hits += 1
-                if self.search_edge_hits >= SEARCH_SCAN_EDGE_HITS:
+                if self.search_edge_hits >= edge_limit:
                     return self._begin_and_try_search_drive(points, now, pose)
                 target_theta = self.search_anchor_theta + self.search_dir * SEARCH_SWEEP_ANGLE_RAD
                 err = wrap_rad(target_theta - theta)
@@ -1302,7 +1699,7 @@ class Controller:
             elif now >= self.search_switch_t:
                 self.search_dir *= -1.0
                 self.search_edge_hits += 1
-                if self.search_edge_hits >= SEARCH_SCAN_EDGE_HITS:
+                if self.search_edge_hits >= edge_limit:
                     return self._begin_and_try_search_drive(points, now, pose)
                 self.search_switch_t = now + SEARCH_SWEEP_S
             self.goal = SEARCH_SWEEP_ANGLE_RAD * self.search_dir
@@ -1317,15 +1714,20 @@ class Controller:
         self.last_w = w
         return 0.0, w, "SEARCH"
 
-    def tick(self, points, seen, bearing, cy_norm, now, pose=None, target_xy=None):
+    def tick(self, points, seen, bearing, cy_norm, now, pose=None, target_xy=None,
+             color_detections=None):
         """한 주기 의사결정. 반환 (v, w, state).
-           state ∈ DONE/HOLD/ARRIVE/CENTER/CENTER_BLIND/CREEP/CLOSE/SEARCH/SEARCH_DRIVE/AVOID/BLOCKED/SEEK.
+           state ∈ DONE/HOLD/ARRIVE/CENTER/CENTER_BLIND/CREEP/CLOSE/SEARCH/
+                    SEARCH_DRIVE/EXPLORE_GOTO/EXPLORE_TURN/EXPLORE_AVOID/
+                    EXPLORE_BLOCKED/MEMORY_GOTO/MEMORY_AVOID/AVOID/BLOCKED/SEEK.
            색 전환·정지 타이머는 내부 갱신."""
         self.goal = 0.0
         self.clr = 0.0
         if self.done:                              # 완주 → 정지 유지
             self.last_w = 0.0
             return 0.0, 0.0, "DONE"
+
+        self._note_color_detections(color_detections, pose, now)
 
         if seen:
             self._note_seen(bearing, cy_norm, now)
@@ -1415,6 +1817,9 @@ class Controller:
                 keep_goal = self.avoid_goal if abs(self.avoid_goal) > 0.03 else self.last_seen_bearing
                 v, w, state = self._goal_cmd(points, keep_goal, pose, allow_avoid=True)
                 return v, w, ("AVOID" if state != "BLOCKED" else "BLOCKED")
+            mem_cmd = self._target_memory_cmd(points, now, pose)
+            if mem_cmd is not None:
+                return mem_cmd
             self._reset_avoidance()
             return self._search_cmd(points, now, pose)
 
@@ -1471,15 +1876,19 @@ def main():
             cam.set_target(ctrl.target_color)      # 시퀀스 진행에 맞춰 카메라 타깃 동기화
             cam_res, cam_stamp = cam.get()
             if len(cam_res) >= 7:
-                visible, bearing, area_ratio, cy_norm, ncnt, target_x, target_y = cam_res
+                visible, bearing, area_ratio, cy_norm, ncnt, target_x, target_y = cam_res[:7]
                 target_xy = (target_x, target_y) if target_x is not None and target_y is not None else None
             else:
                 visible, bearing, area_ratio, cy_norm, ncnt = cam_res
                 target_xy = None
-            seen = visible and (now - cam_stamp) <= VISION_HOLD_S
+            color_detections = cam_res[7] if len(cam_res) >= 8 and isinstance(cam_res[7], dict) else {}
+            vision_fresh = (now - cam_stamp) <= VISION_HOLD_S
+            seen = visible and vision_fresh
+            if not vision_fresh:
+                color_detections = {}
 
             v, w, state = ctrl.tick(points, seen, bearing, cy_norm, now, pose=odom.pose,
-                                    target_xy=target_xy)
+                                    target_xy=target_xy, color_detections=color_detections)
             send_vw(ardu, v, w)
             if ctrl.done:
                 print("[DONE] RED→YELLOW→BLUE 완주")
