@@ -91,6 +91,9 @@ PARAM_TIPS = {
     "W_RATE": "회전 변화량을 부드럽게 제한합니다.",
     "W_CLEAR": "장애물 여유거리 점수의 비중입니다.",
     "W_GOAL": "목표 방향 정렬 점수의 비중입니다.",
+    "W_SPEED": "안전한 후보 중 빠른 전진을 선호하는 비중입니다.",
+    "W_TURN": "큰 회전 명령을 줄이는 비중입니다.",
+    "W_SMOOTH": "직전 회전속도와 비슷한 명령을 선호하는 비중입니다.",
     "HORIZON_T": "DWA가 앞으로 예측해보는 시간입니다.",
     "COLLISION_DIST": "이 거리 안의 장애물은 충돌 위험으로 봅니다.",
     "SLOW_DIST": "장애물 근처에서 감속을 시작하는 거리입니다.",
@@ -99,7 +102,19 @@ PARAM_TIPS = {
     "KEEPIN_MARGIN_M": "keep-in 경계에서 로봇 중심이 남겨야 하는 여유입니다.",
     "MAX_RANGE_M": "project3.py가 사용할 라이다 최대 거리입니다.",
     "V_MIN_RATIO": "막혔을 때 유지할 최소 전진 속도 비율입니다.",
+    "V_SET_MIN": "다중 속도 DWA가 평가할 최저 전진 속도입니다.",
     "CLEAR_CAP": "여유거리 점수의 상한값입니다.",
+    "GAP_BEARING_MAX": "막힌 목표를 우회할 때 탐색할 좌우 최대 방위각입니다.",
+    "GAP_BEARING_STEP": "회피 gap 후보 방위각의 샘플 간격입니다.",
+    "GAP_WINDOW_RAD": "gap 후보 주변 장애물을 확인하는 각도 폭입니다.",
+    "GAP_MIN_CLEAR_MARGIN": "gap 후보가 충돌거리보다 더 가져야 하는 최소 여유입니다.",
+    "AVOID_TRIGGER_MARGIN": "직접 경로 여유가 이 값보다 작으면 회피를 검토합니다.",
+    "AVOID_RELEASE_MARGIN": "직접 경로가 이만큼 넓어지면 회피 상태를 풉니다.",
+    "AVOID_LOST_MEMORY_S": "회피 중 색을 잠깐 잃어도 gap 방향을 유지하는 시간입니다.",
+    "ESCAPE_ROTATE_MARGIN": "안전 여유 안에서 제자리 회전 탈출을 허용할 몸체 추가 여유입니다.",
+    "ESCAPE_CREEP_MAX_V": "안전 여유 안에서 탈출용으로만 허용하는 최대 저속 전진입니다.",
+    "ESCAPE_REVERSE_V": "안전 여유 안쪽에서만 쓰는 후진 탈출 속도 크기입니다.",
+    "ESCAPE_REVERSE_MIN_GAIN": "후진 탈출 후보가 현재보다 좋아져야 하는 최소 여유 증가량입니다.",
     "HFOV_DEG": "색상 중심 오차를 방위각으로 바꾸는 기준 시야각입니다.",
     "MIN_AREA": "실제 카메라 색상 인식에서 점 잡음을 거르는 최소 픽셀 면적입니다.",
     "APPROACH_CY": "저속 정렬 접근을 시작하는 카메라 세로 위치 기준입니다.",
@@ -117,6 +132,19 @@ PARAM_TIPS = {
     "SEARCH_DRIVE_V": "스캔 후 못 찾았을 때 전진 탐색 속도입니다.",
     "SEARCH_DRIVE_S": "스캔 후 못 찾았을 때 전진 탐색하는 시간입니다.",
     "BLIND_CREEP_DIST_M": "카메라가 색을 잃은 뒤 더 전진할 거리입니다.",
+    "CENTER_TOL_M": "색상 중심과 로봇 중심이 이 거리 안이면 도착으로 봅니다.",
+    "CENTER_MAX_V": "색상 중심 정렬 단계의 최대 전진 속도입니다.",
+    "CENTER_SLOW_RADIUS_M": "색상 중심에 가까워질수록 감속을 시작하는 거리입니다.",
+    "CENTER_GOAL_ALPHA": "색상 중심 좌표 추정값을 부드럽게 갱신하는 비율입니다.",
+    "CENTER_LOST_MEMORY_S": "색을 잠깐 잃어도 마지막 중심 좌표로 접근하는 시간입니다.",
+    "CENTER_MAX_BEARING": "중심 정렬 목표 방위각의 최대 크기입니다.",
+    "PRACTICE10_FX_640": "practice10.py의 640x480 기준 fx 값입니다.",
+    "PRACTICE10_FY_480": "practice10.py의 640x480 기준 fy 값입니다.",
+    "PRACTICE10_CX_640": "practice10.py의 640x480 기준 cx 값입니다.",
+    "PRACTICE10_CY_480": "practice10.py의 640x480 기준 cy 값입니다.",
+    "CAMERA_RECT_WIDTH_M": "project3.py가 실제 카메라 픽셀을 바닥 좌표로 바꿀 때 쓰는 시야 폭입니다.",
+    "CAMERA_RECT_DEPTH_M": "project3.py가 실제 카메라 픽셀을 바닥 좌표로 바꿀 때 쓰는 시야 깊이입니다.",
+    "CAMERA_REAR_BLIND_M": "project3.py 기준 로봇 뒤쪽 끝에서 보이지 않는 거리입니다.",
     "wheel tau": "바퀴 속도 응답이 목표에 따라가는 시간입니다.",
     "wheel accel": "바퀴 각속도의 최대 변화율입니다.",
     "sim speed": "시뮬레이션 시간 배속입니다.",
@@ -324,20 +352,13 @@ class Simulator:
         self.sim_speed = 1.0
         self.n_rays = 360
         self.lidar_noise = 0.0
-        self.robot_body_length = DEFAULT_ROBOT_BODY_LENGTH_M
-        self.robot_body_width = DEFAULT_ROBOT_BODY_WIDTH_M
         self.robot_height = 0.22
         self.camera_lift = 0.22
-        self.camera_forward_offset = -0.05
-        self.camera_left_offset = 0.0
-        self.camera_rear_blind = 0.25
-        self.camera_width = 0.39
-        self.camera_depth = 0.54
         self.obstacle_w = 0.30
         self.obstacle_h = 0.15
         self.obstacle_z_h = DEFAULT_OBSTACLE_Z_H
         self.patch_size = 0.25
-        self.world.set_robot_body_size(self.robot_body_length, self.robot_body_width)
+        self._sync_project3_geometry()
 
         # 월드 보기 상태: 마우스 휠로 아레나를 확대/축소한다.
         self.view_zoom = 1.0
@@ -366,6 +387,7 @@ class Simulator:
                 "area_ratio": 0.0,
                 "cy_norm": 0.0,
                 "visible_candidate_count": 0,
+                "target_center_robot_frame_m": None,
             },
             "lidar": {
                 "raw_return_count": 0,
@@ -392,6 +414,17 @@ class Simulator:
         self.link = _Link()
 
         self._build_ui()
+
+    def _sync_project3_geometry(self):
+        """project3.py의 로봇/카메라 치수 상수를 시뮬레이터 기본값으로 반영."""
+        self.robot_body_length = getattr(self.p3, "ROBOT_BODY_LENGTH_M", DEFAULT_ROBOT_BODY_LENGTH_M)
+        self.robot_body_width = getattr(self.p3, "ROBOT_BODY_WIDTH_M", DEFAULT_ROBOT_BODY_WIDTH_M)
+        self.camera_forward_offset = getattr(self.p3, "CAMERA_FORWARD_OFFSET_M", -0.05)
+        self.camera_left_offset = getattr(self.p3, "CAMERA_LEFT_OFFSET_M", 0.0)
+        self.camera_rear_blind = getattr(self.p3, "CAMERA_REAR_BLIND_M", 0.25)
+        self.camera_width = getattr(self.p3, "CAMERA_RECT_WIDTH_M", 0.39)
+        self.camera_depth = getattr(self.p3, "CAMERA_RECT_DEPTH_M", 0.54)
+        self.world.set_robot_body_size(self.robot_body_length, self.robot_body_width)
 
     def resize(self, window_w, window_h):
         configure_layout(window_w, window_h)
@@ -472,10 +505,24 @@ class Simulator:
         def set_robot_body_length(v):
             self.robot_body_length = v
             self.world.set_robot_body_size(self.robot_body_length, self.robot_body_width)
+            if hasattr(self.p3, "ROBOT_BODY_LENGTH_M"):
+                self.p3.ROBOT_BODY_LENGTH_M = v
 
         def set_robot_body_width(v):
             self.robot_body_width = v
             self.world.set_robot_body_size(self.robot_body_length, self.robot_body_width)
+            if hasattr(self.p3, "ROBOT_BODY_WIDTH_M"):
+                self.p3.ROBOT_BODY_WIDTH_M = v
+
+        def p3simget(p3_attr, sim_attr):
+            return lambda: getattr(self.p3, p3_attr, getattr(self, sim_attr))
+
+        def p3simset(p3_attr, sim_attr):
+            def f(v):
+                setattr(self.p3, p3_attr, v)
+                setattr(self, sim_attr, v)
+                recompute_derived(self.p3)
+            return f
 
         def S(label, get, set_, lo, hi, is_int=False, fmt="{:.2f}"):
             return Slider(
@@ -489,6 +536,9 @@ class Simulator:
             ("W_RATE", S("W_RATE", p3get("W_RATE"), p3set("W_RATE"), 0.05, 1.0)),
             ("W_CLEAR", S("W_CLEAR", p3get("W_CLEAR"), p3set("W_CLEAR"), 0.0, 3.0)),
             ("W_GOAL", S("W_GOAL", p3get("W_GOAL"), p3set("W_GOAL"), 0.0, 3.0)),
+            ("W_SPEED", S("W_SPEED", p3get("W_SPEED"), p3set("W_SPEED"), 0.0, 1.0)),
+            ("W_TURN", S("W_TURN", p3get("W_TURN"), p3set("W_TURN"), 0.0, 1.0)),
+            ("W_SMOOTH", S("W_SMOOTH", p3get("W_SMOOTH"), p3set("W_SMOOTH"), 0.0, 1.0)),
             ("HORIZON_T", S("HORIZON_T", p3get("HORIZON_T"), p3set("HORIZON_T"), 0.4, 2.5)),
             ("COLLISION_DIST", S("COLLISION_DIST", p3get("COLLISION_DIST"), p3set("COLLISION_DIST"), 0.10, 0.40)),
             ("SLOW_DIST", S("SLOW_DIST", p3get("SLOW_DIST"), p3set("SLOW_DIST"), 0.15, 0.80)),
@@ -497,7 +547,19 @@ class Simulator:
             ("KEEPIN_MARGIN_M", S("KEEPIN_MARGIN_M", p3get("KEEPIN_MARGIN_M"), p3set("KEEPIN_MARGIN_M"), 0.00, 0.25)),
             ("MAX_RANGE_M", S("MAX_RANGE_M", p3get("MAX_RANGE_M"), p3set("MAX_RANGE_M"), 0.5, 4.0)),
             ("V_MIN_RATIO", S("V_MIN_RATIO", p3get("V_MIN_RATIO"), p3set("V_MIN_RATIO"), 0.1, 1.0)),
+            ("V_SET_MIN", S("V_SET_MIN", p3get("V_SET_MIN"), p3set("V_SET_MIN"), 0.00, 0.10, fmt="{:.3f}")),
             ("CLEAR_CAP", S("CLEAR_CAP", p3get("CLEAR_CAP"), p3set("CLEAR_CAP"), 0.2, 1.5)),
+            ("GAP_BEARING_MAX", S("GAP_BEARING_MAX", p3get("GAP_BEARING_MAX"), p3set("GAP_BEARING_MAX"), 0.30, 1.80)),
+            ("GAP_BEARING_STEP", S("GAP_BEARING_STEP", p3get("GAP_BEARING_STEP"), p3set("GAP_BEARING_STEP"), 0.05, 0.40, fmt="{:.3f}")),
+            ("GAP_WINDOW_RAD", S("GAP_WINDOW_RAD", p3get("GAP_WINDOW_RAD"), p3set("GAP_WINDOW_RAD"), 0.05, 0.60, fmt="{:.3f}")),
+            ("GAP_MIN_CLEAR_MARGIN", S("GAP_MIN_CLEAR_MARGIN", p3get("GAP_MIN_CLEAR_MARGIN"), p3set("GAP_MIN_CLEAR_MARGIN"), 0.00, 0.12, fmt="{:.3f}")),
+            ("AVOID_TRIGGER_MARGIN", S("AVOID_TRIGGER_MARGIN", p3get("AVOID_TRIGGER_MARGIN"), p3set("AVOID_TRIGGER_MARGIN"), 0.00, 0.12, fmt="{:.3f}")),
+            ("AVOID_RELEASE_MARGIN", S("AVOID_RELEASE_MARGIN", p3get("AVOID_RELEASE_MARGIN"), p3set("AVOID_RELEASE_MARGIN"), 0.00, 0.20, fmt="{:.3f}")),
+            ("AVOID_LOST_MEMORY_S", S("AVOID_LOST_MEMORY_S", p3get("AVOID_LOST_MEMORY_S"), p3set("AVOID_LOST_MEMORY_S"), 0.00, 4.00)),
+            ("ESCAPE_ROTATE_MARGIN", S("ESCAPE_ROTATE_MARGIN", p3get("ESCAPE_ROTATE_MARGIN"), p3set("ESCAPE_ROTATE_MARGIN"), 0.00, 0.08, fmt="{:.3f}")),
+            ("ESCAPE_CREEP_MAX_V", S("ESCAPE_CREEP_MAX_V", p3get("ESCAPE_CREEP_MAX_V"), p3set("ESCAPE_CREEP_MAX_V"), 0.00, 0.10, fmt="{:.3f}")),
+            ("ESCAPE_REVERSE_V", S("ESCAPE_REVERSE_V", p3get("ESCAPE_REVERSE_V"), p3set("ESCAPE_REVERSE_V"), 0.00, 0.10, fmt="{:.3f}")),
+            ("ESCAPE_REVERSE_MIN_GAIN", S("ESCAPE_REVERSE_MIN_GAIN", p3get("ESCAPE_REVERSE_MIN_GAIN"), p3set("ESCAPE_REVERSE_MIN_GAIN"), 0.00, 0.02, fmt="{:.3f}")),
             ("HFOV_DEG", S("HFOV_DEG", p3get("HFOV_DEG"), p3set("HFOV_DEG"), 30.0, 120.0)),
             ("MIN_AREA", S("MIN_AREA", p3get("MIN_AREA"), p3set("MIN_AREA"), 0, 500, is_int=True, fmt="{:.0f}")),
             ("APPROACH_CY", S("APPROACH_CY", p3get("APPROACH_CY"), p3set("APPROACH_CY"), 0.40, 0.95)),
@@ -508,6 +570,12 @@ class Simulator:
             ("CREEP_STEER_GAIN", S("CREEP_STEER_GAIN", p3get("CREEP_STEER_GAIN"), p3set("CREEP_STEER_GAIN"), 0.00, 1.20)),
             ("CREEP_MAX_W", S("CREEP_MAX_W", p3get("CREEP_MAX_W"), p3set("CREEP_MAX_W"), 0.00, 0.50)),
             ("DWELL_S", S("DWELL_S", p3get("DWELL_S"), p3set("DWELL_S"), 1.00, 2.00)),
+            ("CENTER_TOL_M", S("CENTER_TOL_M", p3get("CENTER_TOL_M"), p3set("CENTER_TOL_M"), 0.005, 0.080, fmt="{:.3f}")),
+            ("CENTER_MAX_V", S("CENTER_MAX_V", p3get("CENTER_MAX_V"), p3set("CENTER_MAX_V"), 0.03, 0.20, fmt="{:.3f}")),
+            ("CENTER_SLOW_RADIUS_M", S("CENTER_SLOW_RADIUS_M", p3get("CENTER_SLOW_RADIUS_M"), p3set("CENTER_SLOW_RADIUS_M"), 0.08, 0.80)),
+            ("CENTER_GOAL_ALPHA", S("CENTER_GOAL_ALPHA", p3get("CENTER_GOAL_ALPHA"), p3set("CENTER_GOAL_ALPHA"), 0.05, 1.00)),
+            ("CENTER_LOST_MEMORY_S", S("CENTER_LOST_MEMORY_S", p3get("CENTER_LOST_MEMORY_S"), p3set("CENTER_LOST_MEMORY_S"), 0.00, 5.00)),
+            ("CENTER_MAX_BEARING", S("CENTER_MAX_BEARING", p3get("CENTER_MAX_BEARING"), p3set("CENTER_MAX_BEARING"), 0.20, 1.60)),
             ("SEARCH_V", S("SEARCH_V", p3get("SEARCH_V"), p3set("SEARCH_V"), 0.00, 0.20)),
             ("SEARCH_W", S("SEARCH_W", p3get("SEARCH_W"), p3set("SEARCH_W"), 0.20, 1.50)),
             ("SEARCH_SWEEP_ANGLE_DEG", S("SEARCH_SWEEP_ANGLE_DEG", p3get("SEARCH_SWEEP_ANGLE_DEG"), p3set("SEARCH_SWEEP_ANGLE_DEG"), 10.0, 90.0)),
@@ -526,11 +594,11 @@ class Simulator:
             ("robot length", S("robot length", simget("robot_body_length"), set_robot_body_length, 0.08, 0.40)),
             ("robot width", S("robot width", simget("robot_body_width"), set_robot_body_width, 0.08, 0.40)),
             ("camera lift", S("camera lift", simget("camera_lift"), simset("camera_lift"), 0.00, 0.60)),
-            ("cam forward ofs", S("cam forward ofs", simget("camera_forward_offset"), simset("camera_forward_offset"), -0.30, 0.30)),
-            ("cam left ofs", S("cam left ofs", simget("camera_left_offset"), simset("camera_left_offset"), -0.30, 0.30)),
-            ("cam rear blind", S("cam rear blind", simget("camera_rear_blind"), simset("camera_rear_blind"), 0.00, 0.80)),
-            ("cam width", S("cam width", simget("camera_width"), simset("camera_width"), 0.10, 1.20)),
-            ("cam depth", S("cam depth", simget("camera_depth"), simset("camera_depth"), 0.10, 1.50)),
+            ("cam forward ofs", S("cam forward ofs", p3simget("CAMERA_FORWARD_OFFSET_M", "camera_forward_offset"), p3simset("CAMERA_FORWARD_OFFSET_M", "camera_forward_offset"), -0.30, 0.30)),
+            ("cam left ofs", S("cam left ofs", p3simget("CAMERA_LEFT_OFFSET_M", "camera_left_offset"), p3simset("CAMERA_LEFT_OFFSET_M", "camera_left_offset"), -0.30, 0.30)),
+            ("cam rear blind", S("cam rear blind", p3simget("CAMERA_REAR_BLIND_M", "camera_rear_blind"), p3simset("CAMERA_REAR_BLIND_M", "camera_rear_blind"), 0.00, 0.80)),
+            ("cam width", S("cam width", p3simget("CAMERA_RECT_WIDTH_M", "camera_width"), p3simset("CAMERA_RECT_WIDTH_M", "camera_width"), 0.10, 1.20)),
+            ("cam depth", S("cam depth", p3simget("CAMERA_RECT_DEPTH_M", "camera_depth"), p3simset("CAMERA_RECT_DEPTH_M", "camera_depth"), 0.10, 1.50)),
             ("obstacle w", S("obstacle w", simget("obstacle_w"), simset("obstacle_w"), 0.05, 0.80)),
             ("obstacle depth", S("obstacle depth", simget("obstacle_h"), simset("obstacle_h"), 0.05, 0.50)),
             ("obstacle z", S("obstacle z", simget("obstacle_z_h"), simset("obstacle_z_h"), 0.05, 0.50)),
@@ -595,7 +663,7 @@ class Simulator:
 
     def _make_save_data(self):
         data = {
-            "schema": "drive_sim_layout_v5",
+            "schema": "drive_sim_layout_v6",
             "saved_at": datetime.now().astimezone().isoformat(timespec="seconds"),
             "note": (
                 "robot/obstacles/patches are the compact loadable layout. "
@@ -698,6 +766,7 @@ class Simulator:
                 "area_ratio": self.tele.get("ar", 0.0),
                 "cy_norm": 0.0,
                 "visible_candidate_count": 0,
+                "target_center_robot_frame_m": None,
             },
             "lidar": {
                 "raw_return_count": 0,
@@ -740,6 +809,11 @@ class Simulator:
                 "goal_bearing_rad": self.tele.get("gb", 0.0),
                 "clearance_m": self.tele.get("clr", 0.0),
                 "blocked": bool(self.tele.get("blocked", False)),
+                "avoid_active": bool(self.tele.get("avoid_active", False)),
+                "avoid_goal_rad": self.tele.get("avoid_goal", 0.0),
+                "direct_clearance_m": self.tele.get("avoid_direct_clr", None),
+                "target_sector_clearance_m": self.tele.get("avoid_target_sector_clear", None),
+                "gap_sector_clearance_m": self.tele.get("avoid_sector_clear", None),
             },
             "controller": {
                 "seq_idx": getattr(ctrl, "seq_idx", None),
@@ -755,6 +829,12 @@ class Simulator:
                 "search_mode": getattr(ctrl, "search_mode", None),
                 "search_edge_hits": getattr(ctrl, "search_edge_hits", None),
                 "search_drive_until": getattr(ctrl, "search_drive_until", None),
+                "avoid_active": getattr(ctrl, "avoid_active", None),
+                "avoid_goal": getattr(ctrl, "avoid_goal", None),
+                "avoid_direct_clr": getattr(ctrl, "avoid_direct_clr", None),
+                "avoid_target_sector_clear": getattr(ctrl, "avoid_target_sector_clear", None),
+                "avoid_sector_clear": getattr(ctrl, "avoid_sector_clear", None),
+                "avoid_score": getattr(ctrl, "avoid_score", None),
                 "last_seen_t": getattr(ctrl, "last_seen_t", None),
                 "last_seen_bearing": getattr(ctrl, "last_seen_bearing", None),
                 "last_seen_cy": getattr(ctrl, "last_seen_cy", None),
@@ -762,6 +842,21 @@ class Simulator:
                 "close_peak_cy": getattr(ctrl, "close_peak_cy", None),
                 "approach_align_since": getattr(ctrl, "approach_align_since", None),
                 "approach_ready": getattr(ctrl, "approach_ready", None),
+                "center_goal_world_m": (
+                    {
+                        "x_m": getattr(ctrl, "center_goal_x", None),
+                        "y_m": getattr(ctrl, "center_goal_y", None),
+                    }
+                    if getattr(ctrl, "center_goal_x", None) is not None else None
+                ),
+                "last_center_error_robot_frame_m": (
+                    {
+                        "x_m": getattr(ctrl, "last_target_x", None),
+                        "y_m": getattr(ctrl, "last_target_y", None),
+                        "distance_m": getattr(ctrl, "last_center_dist", None),
+                    }
+                    if getattr(ctrl, "last_center_dist", None) is not None else None
+                ),
             },
             "keepin": self._keepin_report(),
             "judge": {
@@ -1160,7 +1255,7 @@ class Simulator:
             lidar_error = None
 
         near_x, far_x = self._camera_forward_range()
-        vis, bearing, area_ratio, cy_norm, n_visible = sensors.simulate_camera(
+        cam_res = sensors.simulate_camera(
             self.world, self.p3, self.target_color,
             cam_max=far_x, cam_far=far_x, cam_min=near_x,
             camera_height_m=self._camera_mount_height(),
@@ -1169,6 +1264,15 @@ class Simulator:
             robot_body_length_m=self.robot_body_length,
             camera_forward_offset_m=self.camera_forward_offset,
             camera_left_offset_m=self.camera_left_offset)
+        if len(cam_res) >= 7:
+            vis, bearing, area_ratio, cy_norm, n_visible, target_x, target_y = cam_res
+            target_xy = (
+                {"x_m": target_x, "y_m": target_y}
+                if target_x is not None and target_y is not None else None
+            )
+        else:
+            vis, bearing, area_ratio, cy_norm, n_visible = cam_res
+            target_xy = None
         return {
             "lidar": {
                 "raw_return_count": int(len(scan[0])),
@@ -1192,15 +1296,22 @@ class Simulator:
                 "rect_forward_range_m": {"min_m": near_x, "max_m": far_x},
                 "rear_blind_from_robot_back_m": self.camera_rear_blind,
                 "rect_width_m": self.camera_width,
-                "rect_depth_m": self.camera_depth,
-                "rect_half_width_m": self._camera_rect_half_width(),
-                "HFOV_DEG_used_for_bearing": self.p3.HFOV_DEG,
-                "visible": bool(vis),
+                    "rect_depth_m": self.camera_depth,
+                    "rect_half_width_m": self._camera_rect_half_width(),
+                    "HFOV_DEG_used_for_bearing": self.p3.HFOV_DEG,
+                    "project3_camera_matrix_source": "practice/camera_2/practice10.py scaled to CAM_W x CAM_H",
+                    "project3_camera_matrix_px": [
+                        [getattr(self.p3, "CAMERA_FX_PX", None), 0.0, getattr(self.p3, "CAMERA_CX_PX", None)],
+                        [0.0, getattr(self.p3, "CAMERA_FY_PX", None), getattr(self.p3, "CAMERA_CY_PX", None)],
+                        [0.0, 0.0, 1.0],
+                    ],
+                    "visible": bool(vis),
                 "bearing_rad": bearing,
                 "bearing_deg": math.degrees(bearing),
                 "area_ratio": area_ratio,
                 "cy_norm": cy_norm,
                 "visible_candidate_count": n_visible,
+                "target_center_robot_frame_m": target_xy,
             },
         }
 
@@ -1451,6 +1562,12 @@ class Simulator:
                     "rect_depth_m": self.camera_depth,
                     "rect_half_width_m": self._camera_rect_half_width(),
                     "HFOV_DEG_used_for_bearing": self.p3.HFOV_DEG,
+                    "project3_camera_matrix_source": "practice/camera_2/practice10.py scaled to CAM_W x CAM_H",
+                    "project3_camera_matrix_px": [
+                        [getattr(self.p3, "CAMERA_FX_PX", None), 0.0, getattr(self.p3, "CAMERA_CX_PX", None)],
+                        [0.0, getattr(self.p3, "CAMERA_FY_PX", None), getattr(self.p3, "CAMERA_CY_PX", None)],
+                        [0.0, 0.0, 1.0],
+                    ],
                     "occlusion_uses_obstacle_height": True,
                 },
                 "obstacle_default_footprint_m": {"width_m": self.obstacle_w, "depth_m": self.obstacle_h},
@@ -1461,11 +1578,18 @@ class Simulator:
                 name: getattr(self.p3, name)
                 for name in (
                     "CRUISE_V", "MAX_W", "W_RATE", "W_CLEAR", "W_GOAL",
+                    "W_SPEED", "W_TURN", "W_SMOOTH",
                     "HORIZON_T", "COLLISION_DIST", "SLOW_DIST", "ROBOT_RADIUS",
                     "KEEPIN_ENABLED", "KEEPIN_SIZE_M", "KEEPIN_MARGIN_M",
                     "ODOM_WHEEL_R", "ODOM_WHEEL_BASE", "ODOM_PPR",
                     "ODOM_START_X", "ODOM_START_Y", "ODOM_START_TH", "ODOM_HOLD_S",
-                    "MAX_RANGE_M", "V_MIN_RATIO", "CLEAR_CAP", "HFOV_DEG",
+                    "MAX_RANGE_M", "V_MIN_RATIO", "V_SET_RATIOS", "V_SET_MIN", "V_SET",
+                    "CLEAR_CAP", "GAP_BEARING_MAX", "GAP_BEARING_STEP",
+                    "GAP_WINDOW_RAD", "GAP_MIN_CLEAR_MARGIN",
+                    "GAP_W_CLEAR", "GAP_W_TARGET", "GAP_W_TURN", "GAP_W_AWAY",
+                    "AVOID_TRIGGER_MARGIN", "AVOID_RELEASE_MARGIN", "AVOID_LOST_MEMORY_S",
+                    "ESCAPE_ROTATE_MARGIN", "ESCAPE_CREEP_MAX_V",
+                    "ESCAPE_REVERSE_V", "ESCAPE_REVERSE_MIN_GAIN", "HFOV_DEG",
                     "DEFAULT_TARGET", "TARGET_SEQUENCE", "ARRIVE_CY",
                     "APPROACH_CY", "APPROACH_ALIGN_MAX", "APPROACH_STABLE_S",
                     "CLOSE_LOST_HOLD_CY",
@@ -1473,11 +1597,19 @@ class Simulator:
                     "CLOSE_APPROACH_V", "CLOSE_APPROACH_MAX_S",
                     "BLIND_CREEP_V", "BLIND_CREEP_DIST_M", "BLIND_CREEP_S",
                     "CREEP_STEER_GAIN", "CREEP_MAX_W", "DWELL_S",
+                    "CENTER_TOL_M", "CENTER_MAX_V", "CENTER_SLOW_RADIUS_M",
+                    "CENTER_GOAL_ALPHA", "CENTER_LOST_MEMORY_S", "CENTER_MAX_BEARING",
                     "SEARCH_V", "SEARCH_W", "SEARCH_SWEEP_ANGLE_DEG",
                     "SEARCH_SWEEP_ANGLE_RAD", "SEARCH_SETTLE_RAD",
                     "SEARCH_SCAN_EDGE_HITS", "SEARCH_DRIVE_V", "SEARCH_DRIVE_S",
                     "SEARCH_BEARING", "SEARCH_SWEEP_S", "TARGET_LOST_MEMORY_S",
                     "BEARING_SIGN", "MIN_AREA", "LOOP_DT",
+                    "PRACTICE10_FX_640", "PRACTICE10_FY_480",
+                    "PRACTICE10_CX_640", "PRACTICE10_CY_480",
+                    "CAMERA_FX_PX", "CAMERA_FY_PX", "CAMERA_CX_PX", "CAMERA_CY_PX",
+                    "ROBOT_BODY_LENGTH_M", "ROBOT_BODY_WIDTH_M",
+                    "CAMERA_FORWARD_OFFSET_M", "CAMERA_LEFT_OFFSET_M",
+                    "CAMERA_REAR_BLIND_M", "CAMERA_RECT_WIDTH_M", "CAMERA_RECT_DEPTH_M",
                 )
                 if hasattr(self.p3, name)
             },
@@ -1537,6 +1669,20 @@ class Simulator:
                     if getattr(ctrl, "search_mode", None) == "DRIVE" else 0.0
                 ),
             },
+            "avoidance": {
+                "active": getattr(ctrl, "avoid_active", None),
+                "gap_goal_rad": getattr(ctrl, "avoid_goal", None),
+                "gap_goal_deg": (
+                    math.degrees(getattr(ctrl, "avoid_goal"))
+                    if getattr(ctrl, "avoid_goal", None) is not None else None
+                ),
+                "direct_clearance_m": getattr(ctrl, "avoid_direct_clr", None),
+                "target_sector_clearance_m": getattr(ctrl, "avoid_target_sector_clear", None),
+                "gap_sector_clearance_m": getattr(ctrl, "avoid_sector_clear", None),
+                "gap_score": getattr(ctrl, "avoid_score", None),
+                "trigger_margin_m": getattr(self.p3, "AVOID_TRIGGER_MARGIN", None),
+                "release_margin_m": getattr(self.p3, "AVOID_RELEASE_MARGIN", None),
+            },
             "approach": {
                 "align_since_s": getattr(ctrl, "approach_align_since", None),
                 "aligned_for_s": (
@@ -1546,6 +1692,26 @@ class Simulator:
                 "ready": getattr(ctrl, "approach_ready", None),
                 "close_peak_cy": getattr(ctrl, "close_peak_cy", None),
                 "close_lost_hold_cy": getattr(self.p3, "CLOSE_LOST_HOLD_CY", None),
+            },
+            "center_alignment": {
+                "goal_world_m": (
+                    {
+                        "x_m": getattr(ctrl, "center_goal_x", None),
+                        "y_m": getattr(ctrl, "center_goal_y", None),
+                    }
+                    if getattr(ctrl, "center_goal_x", None) is not None else None
+                ),
+                "last_error_robot_frame_m": (
+                    {
+                        "x_m": getattr(ctrl, "last_target_x", None),
+                        "y_m": getattr(ctrl, "last_target_y", None),
+                        "distance_m": getattr(ctrl, "last_center_dist", None),
+                    }
+                    if getattr(ctrl, "last_center_dist", None) is not None else None
+                ),
+                "tolerance_m": getattr(self.p3, "CENTER_TOL_M", None),
+                "max_v_mps": getattr(self.p3, "CENTER_MAX_V", None),
+                "lost_memory_s": getattr(self.p3, "CENTER_LOST_MEMORY_S", None),
             },
         }
 
@@ -1614,9 +1780,10 @@ class Simulator:
             lidar_min = None
         if color is None:
             seen, bearing, ar, cy, ncnt = False, 0.0, 0.0, 0.0, 0
+            target_xy = None
         else:
             near_x, far_x = self._camera_forward_range()
-            vis, bearing, ar, cy, ncnt = sensors.simulate_camera(
+            cam_res = sensors.simulate_camera(
                 self.world, p3, color,
                 cam_max=far_x, cam_far=far_x, cam_min=near_x,
                 camera_height_m=self._camera_mount_height(),
@@ -1625,26 +1792,38 @@ class Simulator:
                 robot_body_length_m=self.robot_body_length,
                 camera_forward_offset_m=self.camera_forward_offset,
                 camera_left_offset_m=self.camera_left_offset)
+            if len(cam_res) >= 7:
+                vis, bearing, ar, cy, ncnt, target_x, target_y = cam_res
+                target_xy = (target_x, target_y) if target_x is not None and target_y is not None else None
+            else:
+                vis, bearing, ar, cy, ncnt = cam_res
+                target_xy = None
             seen = vis
 
         # 결정/상태 전이는 전부 Controller.tick() 에 위임(= 실제 코드).
         # 미리보기(commit=False)는 복사본으로 돌려 상태를 바꾸지 않는다.
         ctrl = self.ctrl if commit else copy.copy(self.ctrl)
         v, w, state = ctrl.tick(pts, seen, bearing, cy, self.sim_time,
-                                pose=self._p3_pose_tuple())
+                                pose=self._p3_pose_tuple(), target_xy=target_xy)
         if commit:
             p3.send_vw(self.link, v, w)
 
         # 시각화/텔레메트리
         self._update_viz(pts, v, w)
-        if seen and state in ("SEEK", "CLOSE", "BLOCKED"):
+        if seen and state in ("SEEK", "CENTER", "CENTER_BLIND", "CLOSE", "AVOID", "BLOCKED"):
             d = 0.6
             self.bear_pt = (self.world.robot.x + d * math.cos(self.world.robot.theta + bearing),
                             self.world.robot.y + d * math.sin(self.world.robot.theta + bearing))
         else:
             self.bear_pt = None
         self.tele.update(v=v, w=w, gb=ctrl.goal, clr=ctrl.clr, blocked=(state == "BLOCKED"),
-                         see=seen, npts=len(pts), ar=ar, bstate=state)
+                         see=seen, npts=len(pts), ar=ar, bstate=state,
+                         avoid_active=getattr(ctrl, "avoid_active", False),
+                         avoid_goal=getattr(ctrl, "avoid_goal", 0.0),
+                         avoid_direct_clr=getattr(ctrl, "avoid_direct_clr", None),
+                         avoid_target_sector_clear=getattr(ctrl, "avoid_target_sector_clear", None),
+                         avoid_sector_clear=getattr(ctrl, "avoid_sector_clear", None),
+                         avoid_score=getattr(ctrl, "avoid_score", None))
         self.last_brain_snapshot = {
             "t_s": self.sim_time,
             "target_color": color,
@@ -1655,11 +1834,23 @@ class Simulator:
                 "area_ratio": ar,
                 "cy_norm": cy,
                 "visible_candidate_count": ncnt,
+                "target_center_robot_frame_m": (
+                    {"x_m": target_xy[0], "y_m": target_xy[1]}
+                    if target_xy is not None else None
+                ),
             },
             "lidar": {
                 "raw_return_count": int(len(scan[0])),
                 "project3_filtered_point_count": int(len(pts)),
                 "nearest_project3_point_m": lidar_min,
+            },
+            "avoidance": {
+                "active": getattr(ctrl, "avoid_active", False),
+                "gap_goal_rad": getattr(ctrl, "avoid_goal", 0.0),
+                "direct_clearance_m": getattr(ctrl, "avoid_direct_clr", None),
+                "target_sector_clearance_m": getattr(ctrl, "avoid_target_sector_clear", None),
+                "gap_sector_clearance_m": getattr(ctrl, "avoid_sector_clear", None),
+                "gap_score": getattr(ctrl, "avoid_score", None),
             },
         }
 
@@ -1683,7 +1874,7 @@ class Simulator:
             self.p3 = self.bridge.p3
             self.arduino.ino = self.bridge.ino
             self.world.set_robot_radius(self.p3.ROBOT_RADIUS)
-            self.world.set_robot_body_size(self.robot_body_length, self.robot_body_width)
+            self._sync_project3_geometry()
             # 새 코드의 Controller 로 교체하되 진행 상태(시퀀스/타이머)는 보존
             new_ctrl = self.p3.Controller()
             new_ctrl.__dict__.update(self.ctrl.__dict__)

@@ -62,9 +62,32 @@ HORIZON_T = 1.2
 DT = 0.10
 STEPS = int(HORIZON_T / DT)
 W_SET = np.linspace(-MAX_W, MAX_W, 11)
+V_SET_RATIOS = np.array([1.0, 0.70, 0.47, 0.33])
+V_SET_MIN = 0.03
+V_SET = np.maximum(V_SET_MIN, CRUISE_V * V_SET_RATIOS)
 CLEAR_CAP = 0.5                        # 이 이상 뚫려 있으면 동일 취급
 W_CLEAR = 1.5                          # 여유(clearance) 가중치  ┐ goal/clearance
 W_GOAL = 1.0                           # 목표 방향 가중치        ┘ 비율 = 핵심 노브
+W_SPEED = 0.25                         # 같은 안전도면 빠른 후보를 약간 선호
+W_TURN = 0.08                          # 불필요하게 큰 회전을 약간 억제
+W_SMOOTH = 0.10                        # 직전 회전속도와 가까운 후보를 약간 선호
+
+# 목표 방향이 장애물로 막혔을 때 라이다 gap을 임시 목표로 쓰는 회피.
+GAP_BEARING_MAX = 1.20                 # gap 후보 최대 좌우 방위각(rad)
+GAP_BEARING_STEP = 0.15                # gap 후보 샘플 간격(rad)
+GAP_WINDOW_RAD = 0.22                  # 후보 방위 주변 장애물 확인 폭(rad)
+GAP_MIN_CLEAR_MARGIN = 0.02            # gap 후보가 가져야 하는 최소 추가 여유
+GAP_W_CLEAR = 1.20
+GAP_W_TARGET = 1.00
+GAP_W_TURN = 0.15
+GAP_W_AWAY = 0.60
+AVOID_TRIGGER_MARGIN = 0.02            # 직접 경로가 이 여유보다 좁으면 gap 회피를 검토
+AVOID_RELEASE_MARGIN = 0.06            # 직접 목표 경로가 이만큼 여유로워지면 회피 해제
+AVOID_LOST_MEMORY_S = 1.50             # 회피 중 색을 잠깐 잃어도 gap 방향으로 유지하는 시간
+ESCAPE_ROTATE_MARGIN = 0.01            # 안전 여유 안에서도 회전 탈출을 허용할 최소 몸체 여유
+ESCAPE_CREEP_MAX_V = 0.035             # 안전 여유 안에서 허용할 탈출용 최대 저속 전진
+ESCAPE_REVERSE_V = 0.04                # 안전 여유 안쪽에서만 쓰는 후진 탈출 속도 크기
+ESCAPE_REVERSE_MIN_GAIN = 0.002        # 후진 후보가 현재 여유보다 최소 이만큼 좋아야 채택
 
 GOAL_BEARING_FALLBACK = 0.0            # 호환용 상수. Controller는 미검출 시 SEARCH sweep 사용
 LOOP_DT = 0.05
@@ -79,6 +102,27 @@ HALF_HFOV_RAD = math.radians(HFOV_DEG) * 0.5
 BEARING_SIGN = -1.0                    # cx 우측(+err)→우회전(β<0). 하드웨어서 반대로 돌면 +1.0
 VISION_HOLD_S = 0.30                   # 인식 결과 신선도 (이보다 오래되면 미검출 취급)
 VISION_MIN_DT = 0.05                   # 비전 처리 최소 주기(최대 ~20Hz로 CPU 양보)
+
+# practice/camera_2/practice10.py 의 임시 카메라 행렬(640x480 기준)을 현재 해상도에 맞춰 축소.
+# 체커보드 실측 전까지만 쓰는 초기값이며, 중심 정렬은 아래 바닥 footprint 실측값과 함께 근사한다.
+PRACTICE10_FX_640 = 700.0
+PRACTICE10_FY_480 = 700.0
+PRACTICE10_CX_640 = 320.0
+PRACTICE10_CY_480 = 240.0
+CAMERA_FX_PX = PRACTICE10_FX_640 * (CAM_W / 640.0)
+CAMERA_FY_PX = PRACTICE10_FY_480 * (CAM_H / 480.0)
+CAMERA_CX_PX = PRACTICE10_CX_640 * (CAM_W / 640.0)
+CAMERA_CY_PX = PRACTICE10_CY_480 * (CAM_H / 480.0)
+CAMERA_DIST_COEFFS = np.zeros(5, dtype=np.float32)
+
+# 실측한 top-down 바닥 시야. 로봇 좌표 x=전방, y=좌측.
+ROBOT_BODY_LENGTH_M = 0.165
+ROBOT_BODY_WIDTH_M = 0.21
+CAMERA_FORWARD_OFFSET_M = -0.05
+CAMERA_LEFT_OFFSET_M = 0.0
+CAMERA_REAR_BLIND_M = 0.25
+CAMERA_RECT_WIDTH_M = 0.39
+CAMERA_RECT_DEPTH_M = 0.54
 
 DEFAULT_TARGET = "RED"                 # 시작 타깃 색
 TARGET_SEQUENCE = ["RED", "YELLOW", "BLUE"]   # 통과 순서
@@ -96,6 +140,12 @@ BLIND_CREEP_S = BLIND_CREEP_DIST_M / max(1e-6, BLIND_CREEP_V)  # 호환/리포�
 CREEP_STEER_GAIN = 0.45                # CREEP 중 마지막 bearing을 유지하는 작은 조향 게인
 CREEP_MAX_W = 0.16                     # CREEP 중 보정 회전속도 상한
 DWELL_S = 1.20                         # 패치 위 정지 유지 시간
+CENTER_TOL_M = 0.030                   # 로봇 중심과 색상 중심의 허용 오차
+CENTER_MAX_V = 0.12                    # 중심 정렬 접근 최대 속도
+CENTER_SLOW_RADIUS_M = 0.35            # 중심 목표에 가까워질수록 감속하는 반경
+CENTER_GOAL_ALPHA = 0.35               # 색상 중심 world 좌표 저역통과 비율
+CENTER_LOST_MEMORY_S = 2.00            # 색을 잃어도 마지막 중심 좌표로 마무리하는 시간
+CENTER_MAX_BEARING = 1.20              # 중심 목표 방위각 제한
 SEARCH_V = 0.0                         # 타깃 미검출 시 전진하지 않고 제자리 탐색
 SEARCH_W = 0.80                        # 탐색 스윕 회전 속도 상한
 SEARCH_SWEEP_ANGLE_DEG = 35.0          # 현재 자세 기준 좌우로 훑는 각도
@@ -112,6 +162,38 @@ TARGET_LOST_MEMORY_S = 0.60            # 마지막으로 본 방향을 기억하
 def blind_creep_duration():
     """BLIND_CREEP_DIST_M만큼 전진하기 위한 CREEP 지속 시간."""
     return BLIND_CREEP_DIST_M / max(1e-6, BLIND_CREEP_V)
+
+
+def camera_ground_forward_range_robot():
+    """로봇 중심 기준 카메라 바닥 footprint의 전방 시작/끝 x 좌표."""
+    rear_x = -ROBOT_BODY_LENGTH_M * 0.5
+    near_x = rear_x + CAMERA_REAR_BLIND_M
+    return near_x, near_x + CAMERA_RECT_DEPTH_M
+
+
+def pixel_to_robot_ground(u_px, v_px):
+    """색상 중심 픽셀을 로봇 기준 바닥 좌표(x=전방, y=좌측)로 근사 변환.
+
+    practice10.py의 임시 intrinsics로 픽셀을 정규화하고, 실측한 직사각형
+    바닥 시야(CAMERA_RECT_WIDTH/DEPTH)에 선형 대응시킨다.
+    """
+    near_x, far_x = camera_ground_forward_range_robot()
+    top_ray = (0.0 - CAMERA_CY_PX) / max(1e-6, CAMERA_FY_PX)
+    bottom_ray = (CAM_H - CAMERA_CY_PX) / max(1e-6, CAMERA_FY_PX)
+    ray_v = (float(v_px) - CAMERA_CY_PX) / max(1e-6, CAMERA_FY_PX)
+    frac_down = float(np.clip((ray_v - top_ray) / max(1e-6, bottom_ray - top_ray), 0.0, 1.0))
+    x_robot = far_x - frac_down * (far_x - near_x)
+
+    left_ray = (0.0 - CAMERA_CX_PX) / max(1e-6, CAMERA_FX_PX)
+    right_ray = (CAM_W - CAMERA_CX_PX) / max(1e-6, CAMERA_FX_PX)
+    ray_u = (float(u_px) - CAMERA_CX_PX) / max(1e-6, CAMERA_FX_PX)
+    frac_right = float(np.clip((ray_u - left_ray) / max(1e-6, right_ray - left_ray), 0.0, 1.0))
+    y_camera = (0.5 - frac_right) * CAMERA_RECT_WIDTH_M
+
+    return (
+        float(x_robot),
+        float(CAMERA_LEFT_OFFSET_M + y_camera),
+    )
 
 
 # HSV 범위 (sihyun 검증값).  RED는 H=0/179 양쪽 두 구간.
@@ -417,14 +499,14 @@ def open_camera():
 
 class ColorPerception:
     """전용 스레드에서 현재 타깃 색만 인식 → 최신 결과 1칸만 유지(프레임 누적 없음).
-       결과 튜플: (visible, bearing_rad, area_ratio, cy_norm, n_blobs)."""
+       결과 튜플: (visible, bearing_rad, area_ratio, cy_norm, n_blobs, target_x_m, target_y_m)."""
 
     def __init__(self, target_color=DEFAULT_TARGET):
         self.cam, self.is_picam = open_camera()
         self.enabled = self.cam is not None
         self.target_color = target_color
         self.lock = threading.Lock()
-        self.result = (False, 0.0, 0.0, 0.0, 0)
+        self.result = (False, 0.0, 0.0, 0.0, 0, None, None)
         self.stamp = 0.0
         self.proc_ms = 0.0
         self.running = True
@@ -468,6 +550,7 @@ class ColorPerception:
         )
 
         best = None
+        best_cnt = None
         best_area = 0.0
         n = 0
         for cnt in contours:
@@ -481,17 +564,26 @@ class ColorPerception:
             if area > best_area:
                 best_area = area
                 best = (x, y, w, h)
+                best_cnt = cnt
 
         if best is None:
-            return (False, 0.0, 0.0, 0.0, 0)
+            return (False, 0.0, 0.0, 0.0, 0, None, None)
 
         x, y, w, h = best
+        # bounding box보다 contour moment 중심이 색종이 중심 추정에 더 안정적이다.
         cx = x + w * 0.5
+        cy = y + h * 0.5
+        if best_cnt is not None:
+            m = cv2.moments(best_cnt)
+            if abs(m["m00"]) > 1e-6:
+                cx = m["m10"] / m["m00"]
+                cy = m["m01"] / m["m00"]
         err = (cx - CAM_W * 0.5) / (CAM_W * 0.5)   # -1(좌) .. +1(우)
         bearing = BEARING_SIGN * err * HALF_HFOV_RAD
         area_ratio = best_area / CAM_AREA          # 0..1 (대략 가까울수록 큼)
         cy_norm = (y + h) / CAM_H                  # 영역 하단의 세로위치(1=프레임 바닥=가까움)
-        return (True, float(bearing), float(area_ratio), float(cy_norm), n)
+        target_x, target_y = pixel_to_robot_ground(cx, cy)
+        return (True, float(bearing), float(area_ratio), float(cy_norm), n, target_x, target_y)
 
     def _loop(self):
         while self.running:
@@ -592,35 +684,273 @@ def command_clearance(v, w, points, pose=None):
     return min(obs_clr, bnd_clr)
 
 
-# 후보 w들을 평가해 (v, w) 선택.  반환: v, w, best_clear, blocked
+def _speed_candidates():
+    """CRUISE_V에서 저속까지 내려가며 DWA 후보 속도를 만든다."""
+    vals = [CRUISE_V, V_SET_MIN]
+    try:
+        vals.extend(float(v) for v in np.asarray(V_SET).ravel())
+    except Exception:
+        pass
+    vals = [max(0.0, float(v)) for v in vals if float(v) > 1e-6]
+    vals = sorted({round(v, 5): v for v in vals}.values(), reverse=True)
+    return vals if vals else [max(0.0, CRUISE_V)]
+
+
+def escape_rotate_clearance_min():
+    """전진은 금지하되 제자리 회전 탈출은 허용할 최소 라이다 여유."""
+    return ROBOT_RADIUS + ESCAPE_ROTATE_MARGIN
+
+
+def _escape_rotate_cmd(points, goal_bearing, prev_w, pose=None):
+    if command_clearance(0.0, 0.0, points, pose) < escape_rotate_clearance_min():
+        return None
+
+    if abs(goal_bearing) > 0.05:
+        target_w = max(-MAX_W, min(MAX_W, goal_bearing / max(0.3, HORIZON_T * 0.5)))
+    elif abs(prev_w) > 0.05:
+        target_w = math.copysign(max(0.25, 0.35 * MAX_W), prev_w)
+    else:
+        target_w = max(0.25, 0.35 * MAX_W)
+
+    w = rate_limit(prev_w, target_w, W_RATE)
+    if abs(w) < 1e-4:
+        w = math.copysign(min(MAX_W, max(0.25, 0.35 * MAX_W)), target_w or 1.0)
+    clr = command_clearance(0.0, w, points, pose)
+    if clr >= escape_rotate_clearance_min():
+        return 0.0, w, clr, False
+    return None
+
+
+def _escape_reverse_cmd(points, goal_bearing, prev_w, pose=None):
+    """전방 장애물에 너무 붙었을 때만 쓰는 짧은 후진 탈출 후보."""
+    current = command_clearance(0.0, 0.0, points, pose)
+    if current >= COLLISION_DIST or current < escape_rotate_clearance_min():
+        return None
+
+    v = -min(abs(ESCAPE_REVERSE_V), max(0.02, CRUISE_V * 0.5))
+    best = None
+    max_w = max(1e-6, abs(MAX_W))
+    for w in W_SET:
+        w = float(w)
+        clr = command_clearance(v, w, points, pose)
+        if clr < current + ESCAPE_REVERSE_MIN_GAIN:
+            continue
+        theta_f = w * HORIZON_T
+        goal_align = 0.5 * (1.0 + math.cos(wrap_rad(theta_f - goal_bearing)))
+        smooth_norm = abs(w - prev_w) / max_w
+        score = min(clr, CLEAR_CAP) / max(1e-6, CLEAR_CAP) + 0.20 * goal_align - W_SMOOTH * smooth_norm
+        if best is None or score > best[0]:
+            best = (score, w, clr)
+
+    if best is None:
+        return None
+    w = rate_limit(prev_w, best[1], W_RATE)
+    clr = command_clearance(v, w, points, pose)
+    if clr >= current + ESCAPE_REVERSE_MIN_GAIN:
+        return v, w, clr, False
+    return None
+
+
+# 후보 (v,w)들을 평가해 선택.  반환: v, w, best_clear, blocked
 def choose_cmd(points, goal_bearing, prev_w, pose=None):
+    best_v = 0.0
     best_w = 0.0
     best_clear = 0.0
     best_score = -float("inf")
+    best_blocked_clear = -float("inf")
+    best_escape_v = 0.0
+    best_escape_w = 0.0
+    best_escape_score = -float("inf")
 
-    for w in W_SET:
-        clr = command_clearance(CRUISE_V, w, points, pose)
-        if clr < COLLISION_DIST:
-            score = -1000.0 + clr            # 충돌 후보: 강한 페널티(여유 큰 순으로 정렬)
-        else:
+    max_w = max(1e-6, abs(MAX_W))
+    cruise_v = max(1e-6, CRUISE_V)
+    clear_cap = max(1e-6, CLEAR_CAP)
+    escape_min = escape_rotate_clearance_min()
+    escape_v_max = max(0.0, ESCAPE_CREEP_MAX_V)
+
+    for v in _speed_candidates():
+        for w in W_SET:
+            w = float(w)
+            clr = command_clearance(v, w, points, pose)
+            if clr > best_blocked_clear:
+                best_blocked_clear = clr
+
+            if clr < COLLISION_DIST:
+                if 0.0 < v <= escape_v_max + 1e-6 and clr >= escape_min:
+                    theta_f = w * HORIZON_T
+                    goal_align = 0.5 * (1.0 + math.cos(wrap_rad(theta_f - goal_bearing)))
+                    clear_norm = min(clr, clear_cap) / clear_cap
+                    speed_norm = min(v, cruise_v) / cruise_v
+                    smooth_norm = abs(w - prev_w) / max_w
+                    esc_score = (
+                        W_CLEAR * clear_norm
+                        + 0.7 * W_GOAL * goal_align
+                        - 0.35 * speed_norm
+                        - W_SMOOTH * smooth_norm
+                    )
+                    if esc_score > best_escape_score:
+                        best_escape_score = esc_score
+                        best_escape_v = v
+                        best_escape_w = w
+                continue
+
             theta_f = w * HORIZON_T
-            goal_align = 0.5 * (1.0 + math.cos(theta_f - goal_bearing))
-            clear_norm = min(clr, CLEAR_CAP) / CLEAR_CAP
-            score = W_CLEAR * clear_norm + W_GOAL * goal_align
+            goal_align = 0.5 * (1.0 + math.cos(wrap_rad(theta_f - goal_bearing)))
+            clear_norm = min(clr, clear_cap) / clear_cap
+            speed_norm = min(v, cruise_v) / cruise_v
+            turn_norm = abs(w) / max_w
+            smooth_norm = abs(w - prev_w) / max_w
+            score = (
+                W_CLEAR * clear_norm
+                + W_GOAL * goal_align
+                + W_SPEED * speed_norm
+                - W_TURN * turn_norm
+                - W_SMOOTH * smooth_norm
+            )
 
-        if score > best_score:
-            best_score = score
-            best_w = w
-            best_clear = clr
+            if score > best_score:
+                best_score = score
+                best_v = v
+                best_w = w
+                best_clear = clr
 
-    if best_clear < COLLISION_DIST:
-        return 0.0, 0.0, best_clear, True    # 막힘 → 정지 (탈출은 Step 5)
+    if best_score == -float("inf"):
+        reverse = _escape_reverse_cmd(points, goal_bearing, prev_w, pose)
+        if reverse is not None:
+            return reverse
+        if best_escape_score > -float("inf"):
+            w = rate_limit(prev_w, best_escape_w, W_RATE)
+            clr = command_clearance(best_escape_v, w, points, pose)
+            if clr >= escape_min:
+                return best_escape_v, w, clr, False
+            for rv in sorted([s for s in _speed_candidates() if 0.0 < s <= best_escape_v + 1e-6], reverse=True):
+                retry_clear = command_clearance(rv, w, points, pose)
+                if retry_clear >= escape_min:
+                    return rv, w, retry_clear, False
+        escape = _escape_rotate_cmd(points, goal_bearing, prev_w, pose)
+        if escape is not None:
+            return escape
+        return 0.0, 0.0, max(0.0, best_blocked_clear), True
 
-    # 가까울수록 감속
+    # 가까울수록 감속하되, 이미 저속 후보를 고른 경우 그 속도보다 빠르게 올리지 않는다.
     span = max(1e-6, SLOW_DIST - COLLISION_DIST)
-    v = CRUISE_V * float(np.clip((best_clear - COLLISION_DIST) / span, V_MIN_RATIO, 1.0))
+    v_limit = CRUISE_V * float(np.clip((best_clear - COLLISION_DIST) / span, V_MIN_RATIO, 1.0))
+    v = min(best_v, v_limit)
     w = rate_limit(prev_w, best_w, W_RATE)
-    return v, w, best_clear, False
+
+    # rate limit 때문에 실제로 보낼 w가 후보 w와 달라질 수 있어 최종 명령도 다시 검사한다.
+    final_clear = command_clearance(v, w, points, pose)
+    if final_clear < COLLISION_DIST:
+        for rv in sorted([s for s in _speed_candidates() if s <= v + 1e-6], reverse=True):
+            retry_clear = command_clearance(rv, w, points, pose)
+            if retry_clear >= COLLISION_DIST:
+                return rv, w, retry_clear, False
+        for rv in sorted([s for s in _speed_candidates() if 0.0 < s <= min(v, escape_v_max) + 1e-6], reverse=True):
+            retry_clear = command_clearance(rv, w, points, pose)
+            if retry_clear >= escape_min:
+                return rv, w, retry_clear, False
+        reverse = _escape_reverse_cmd(points, goal_bearing, prev_w, pose)
+        if reverse is not None:
+            return reverse
+        rotate_clear = command_clearance(0.0, w, points, pose)
+        if rotate_clear >= escape_rotate_clearance_min():
+            return 0.0, w, rotate_clear, False
+        escape = _escape_rotate_cmd(points, goal_bearing, prev_w, pose)
+        if escape is not None:
+            return escape
+        return 0.0, 0.0, final_clear, True
+
+    return v, w, final_clear, False
+
+
+def sector_clearance(points, bearing, window_rad):
+    """특정 방위각 주변의 가장 가까운 라이다 점 거리."""
+    if len(points) == 0:
+        return MAX_RANGE_M
+    ang = np.arctan2(points[:, 1], points[:, 0])
+    diff = (ang - bearing + math.pi) % (2.0 * math.pi) - math.pi
+    mask = np.abs(diff) <= max(1e-6, window_rad)
+    if not mask.any():
+        return MAX_RANGE_M
+    return float(np.linalg.norm(points[mask], axis=1).min())
+
+
+def nearest_sector_bearing(points, bearing, window_rad):
+    """특정 방위각 주변에서 가장 가까운 라이다 점의 방위각."""
+    if len(points) == 0:
+        return None
+    ang = np.arctan2(points[:, 1], points[:, 0])
+    diff = (ang - bearing + math.pi) % (2.0 * math.pi) - math.pi
+    mask = np.abs(diff) <= max(1e-6, window_rad)
+    if not mask.any():
+        return None
+    idxs = np.flatnonzero(mask)
+    d = np.linalg.norm(points[idxs], axis=1)
+    return float(ang[idxs[int(np.argmin(d))]])
+
+
+def _gap_bearing_candidates(target_bearing):
+    limit = max(0.05, GAP_BEARING_MAX)
+    step = max(0.03, GAP_BEARING_STEP)
+    n = max(1, int(math.ceil(limit / step)))
+    vals = [0.0, float(np.clip(target_bearing, -limit, limit))]
+    for i in range(1, n + 1):
+        b = min(limit, i * step)
+        vals.extend((b, -b))
+    uniq = []
+    seen = set()
+    for v in vals:
+        k = round(float(v), 4)
+        if k not in seen:
+            seen.add(k)
+            uniq.append(float(v))
+    return uniq
+
+
+def choose_gap_cmd(points, target_bearing, prev_w, pose=None):
+    """직접 목표가 막힐 때 가장 열린 gap을 임시 목표로 고른다."""
+    best = None
+    min_sector = COLLISION_DIST + GAP_MIN_CLEAR_MARGIN
+    max_turn = max(1e-6, GAP_BEARING_MAX)
+    target_sector = sector_clearance(points, target_bearing, GAP_WINDOW_RAD)
+    blocker_bearing = None
+    if target_sector < SLOW_DIST:
+        blocker_bearing = nearest_sector_bearing(points, target_bearing, GAP_WINDOW_RAD)
+
+    for bearing in _gap_bearing_candidates(target_bearing):
+        sector = sector_clearance(points, bearing, GAP_WINDOW_RAD)
+        if sector < min_sector:
+            continue
+
+        v, w, clr, blocked = choose_cmd(points, bearing, prev_w, pose)
+        if blocked:
+            continue
+
+        clear_norm = min(clr, max(1e-6, CLEAR_CAP)) / max(1e-6, CLEAR_CAP)
+        sector_norm = min(sector, max(1e-6, CLEAR_CAP)) / max(1e-6, CLEAR_CAP)
+        target_align = 0.5 * (1.0 + math.cos(wrap_rad(bearing - target_bearing)))
+        turn_norm = abs(bearing) / max_turn
+        away_norm = 0.0
+        if blocker_bearing is not None:
+            away_norm = min(abs(wrap_rad(bearing - blocker_bearing)), max_turn) / max_turn
+        score = (
+            GAP_W_CLEAR * sector_norm
+            + 0.40 * clear_norm
+            + GAP_W_TARGET * target_align
+            + GAP_W_AWAY * away_norm
+            - GAP_W_TURN * turn_norm
+        )
+
+        if best is None or score > best["score"]:
+            best = {
+                "bearing": bearing,
+                "v": v,
+                "w": w,
+                "clearance": clr,
+                "sector_clearance": sector,
+                "score": score,
+            }
+    return best
 
 
 # ===================== 시퀀스 컨트롤러 =====================
@@ -653,6 +983,17 @@ class Controller:
         self.search_mode = "SCAN"
         self.search_edge_hits = 0
         self.search_drive_until = 0.0
+        self.avoid_active = False
+        self.avoid_goal = 0.0
+        self.avoid_direct_clr = 0.0
+        self.avoid_target_sector_clear = 0.0
+        self.avoid_sector_clear = 0.0
+        self.avoid_score = 0.0
+        self.center_goal_x = None      # centered/world 좌표계의 목표 색상 중심 x
+        self.center_goal_y = None
+        self.last_target_x = None      # 로봇 좌표계의 최근 색상 중심 x
+        self.last_target_y = None
+        self.last_center_dist = None
 
     @property
     def done(self):
@@ -683,6 +1024,23 @@ class Controller:
         self.search_mode = "SCAN"
         self.search_edge_hits = 0
         self.search_drive_until = 0.0
+        self._reset_avoidance()
+        self._reset_center()
+
+    def _reset_avoidance(self, direct_clr=0.0, target_sector_clear=0.0):
+        self.avoid_active = False
+        self.avoid_goal = 0.0
+        self.avoid_direct_clr = direct_clr
+        self.avoid_target_sector_clear = target_sector_clear
+        self.avoid_sector_clear = 0.0
+        self.avoid_score = 0.0
+
+    def _reset_center(self):
+        self.center_goal_x = None
+        self.center_goal_y = None
+        self.last_target_x = None
+        self.last_target_y = None
+        self.last_center_dist = None
 
     def _note_seen(self, bearing, cy_norm, now):
         if self.last_seen_t < -1e8:
@@ -724,10 +1082,12 @@ class Controller:
         self.last_w = 0.0
         self.clr = 0.0
         self.close_peak_cy = 0.0
+        self._reset_avoidance()
         self._begin_search_scan()
         return 0.0, 0.0, "ARRIVE"
 
     def _begin_search_scan(self):
+        self._reset_avoidance()
         self.search_mode = "SCAN"
         self.search_anchor_theta = None
         self.search_switch_t = 0.0
@@ -742,6 +1102,7 @@ class Controller:
         self.search_drive_until = now + SEARCH_DRIVE_S
 
     def _search_drive_cmd(self, points, pose=None):
+        self._reset_avoidance()
         self.goal = 0.0
         v, w, clr, blocked = choose_cmd(points, self.goal, self.last_w, pose)
         self.clr = clr
@@ -751,6 +1112,132 @@ class Controller:
         v = min(v, SEARCH_DRIVE_V)
         self.last_w = w
         return v, w, "SEARCH_DRIVE"
+
+    def _goal_cmd(self, points, goal_bearing, pose=None, allow_avoid=True):
+        """목표 bearing으로 DWA를 시도하고, 막힌 경우 열린 gap을 임시 목표로 쓴다."""
+        self.goal = goal_bearing
+        v, w, clr, blocked = choose_cmd(points, goal_bearing, self.last_w, pose)
+        target_sector_clear = sector_clearance(points, goal_bearing, GAP_WINDOW_RAD)
+        self.avoid_direct_clr = clr
+        self.avoid_target_sector_clear = target_sector_clear
+
+        if not allow_avoid:
+            self._reset_avoidance(clr, target_sector_clear)
+            self.last_w = w
+            self.clr = clr
+            return v, w, ("BLOCKED" if blocked else "SEEK")
+
+        release_clear = COLLISION_DIST + AVOID_RELEASE_MARGIN
+        trigger_clear = COLLISION_DIST + AVOID_TRIGGER_MARGIN
+        if self.avoid_active and (not blocked) and clr >= release_clear:
+            self._reset_avoidance(clr, target_sector_clear)
+            self.last_w = w
+            self.clr = clr
+            return v, w, "SEEK"
+
+        need_gap = (
+            blocked
+            or self.avoid_active
+            or clr < trigger_clear
+            or target_sector_clear < SLOW_DIST
+        )
+        if need_gap:
+            gap = choose_gap_cmd(points, goal_bearing, self.last_w, pose)
+            if gap is not None:
+                self.avoid_active = True
+                self.avoid_goal = gap["bearing"]
+                self.avoid_target_sector_clear = target_sector_clear
+                self.avoid_sector_clear = gap["sector_clearance"]
+                self.avoid_score = gap["score"]
+                self.goal = gap["bearing"]
+                self.last_w = gap["w"]
+                self.clr = gap["clearance"]
+                return gap["v"], gap["w"], "AVOID"
+
+        if blocked:
+            self._reset_avoidance(clr, target_sector_clear)
+            self.last_w = 0.0
+            self.clr = clr
+            return 0.0, 0.0, "BLOCKED"
+
+        self._reset_avoidance(clr, target_sector_clear)
+        self.last_w = w
+        self.clr = clr
+        return v, w, "SEEK"
+
+    def _update_center_goal(self, target_xy, pose):
+        if target_xy is None or pose is None:
+            return False
+        pose_t = _pose_tuple(pose)
+        if pose_t is None:
+            return False
+        try:
+            tx, ty = float(target_xy[0]), float(target_xy[1])
+        except (TypeError, ValueError, IndexError):
+            return False
+        if not (math.isfinite(tx) and math.isfinite(ty)):
+            return False
+
+        px, py, th = pose_t
+        cs, sn = math.cos(th), math.sin(th)
+        gx = px + tx * cs - ty * sn
+        gy = py + tx * sn + ty * cs
+        if self.center_goal_x is None or self.center_goal_y is None:
+            self.center_goal_x = gx
+            self.center_goal_y = gy
+        else:
+            a = max(0.0, min(1.0, CENTER_GOAL_ALPHA))
+            self.center_goal_x = (1.0 - a) * self.center_goal_x + a * gx
+            self.center_goal_y = (1.0 - a) * self.center_goal_y + a * gy
+        self.last_target_x = tx
+        self.last_target_y = ty
+        return True
+
+    def _center_error_robot(self, pose):
+        pose_t = _pose_tuple(pose)
+        if pose_t is None or self.center_goal_x is None or self.center_goal_y is None:
+            return None
+        px, py, th = pose_t
+        dx = self.center_goal_x - px
+        dy = self.center_goal_y - py
+        cs, sn = math.cos(th), math.sin(th)
+        return (
+            dx * cs + dy * sn,
+            -dx * sn + dy * cs,
+        )
+
+    def _center_cmd(self, points, target_xy, now, pose=None, visible=True):
+        if visible and self._update_center_goal(target_xy, pose):
+            self.phase = "CENTER"
+        elif self.center_goal_x is None or self.center_goal_y is None:
+            return self._search_cmd(points, now, pose)
+        else:
+            self.phase = "CENTER_BLIND"
+
+        err = self._center_error_robot(pose)
+        if err is None:
+            return self._search_cmd(points, now, pose)
+
+        ex, ey = err
+        dist = math.hypot(ex, ey)
+        self.last_center_dist = dist
+        self.last_target_x = ex
+        self.last_target_y = ey
+
+        if dist <= CENTER_TOL_M:
+            return self._begin_hold(now)
+
+        # 최종 목표가 로봇 중심이므로 가까운 구간에서는 속도를 줄인다.
+        goal_bearing = math.atan2(ey, max(0.03, ex))
+        goal_bearing = max(-CENTER_MAX_BEARING, min(CENTER_MAX_BEARING, goal_bearing))
+        v, w, state = self._goal_cmd(points, goal_bearing, pose, allow_avoid=True)
+        v_scale = float(np.clip(dist / max(1e-6, CENTER_SLOW_RADIUS_M), 0.25, 1.0))
+        v = min(v, CENTER_MAX_V * v_scale)
+        if ex < CENTER_TOL_M * 0.5 and abs(ey) > CENTER_TOL_M:
+            v = min(v, CENTER_MAX_V * 0.35)
+        if state == "BLOCKED":
+            return 0.0, 0.0, "BLOCKED"
+        return v, w, ("CENTER" if visible and state == "SEEK" else "CENTER_BLIND" if state == "SEEK" else state)
 
     def _begin_and_try_search_drive(self, points, now, pose=None):
         self._begin_search_drive(now)
@@ -822,7 +1309,7 @@ class Controller:
             target_w = SEARCH_W * self.search_dir
 
         self.clr = command_clearance(0.0, target_w, points, pose)
-        if self.clr < COLLISION_DIST:
+        if self.clr < escape_rotate_clearance_min():
             self.last_w = 0.0
             return 0.0, 0.0, "BLOCKED"
 
@@ -830,9 +1317,9 @@ class Controller:
         self.last_w = w
         return 0.0, w, "SEARCH"
 
-    def tick(self, points, seen, bearing, cy_norm, now, pose=None):
+    def tick(self, points, seen, bearing, cy_norm, now, pose=None, target_xy=None):
         """한 주기 의사결정. 반환 (v, w, state).
-           state ∈ DONE/HOLD/ARRIVE/CREEP/CLOSE/SEARCH/SEARCH_DRIVE/BLOCKED/SEEK.
+           state ∈ DONE/HOLD/ARRIVE/CENTER/CENTER_BLIND/CREEP/CLOSE/SEARCH/SEARCH_DRIVE/AVOID/BLOCKED/SEEK.
            색 전환·정지 타이머는 내부 갱신."""
         self.goal = 0.0
         self.clr = 0.0
@@ -849,6 +1336,18 @@ class Controller:
                 self.seq_idx += 1                  # 다음 색 (넘치면 done)
                 self._reset_for_next_target()
             return 0.0, 0.0, "HOLD"
+
+        if seen and target_xy is not None:
+            return self._center_cmd(points, target_xy, now, pose, visible=True)
+
+        if (not seen and self.phase in ("CENTER", "CENTER_BLIND") and
+                self.center_goal_x is not None and self.center_goal_y is not None and
+                now - self.last_seen_t <= CENTER_LOST_MEMORY_S):
+            return self._center_cmd(points, None, now, pose, visible=False)
+
+        if self.phase in ("CENTER", "CENTER_BLIND") and now - self.last_seen_t > CENTER_LOST_MEMORY_S:
+            self._reset_center()
+            self.phase = "SEEK"
 
         if self.phase == "CREEP":                  # 카메라가 잃은 뒤 짧게 더 전진
             if now < self.creep_until:
@@ -869,6 +1368,13 @@ class Controller:
                 self.close_peak_cy = max(self.close_peak_cy, cy_norm)
                 self._update_approach_quality(cy_norm, now)
                 self.goal = self.smooth_bearing
+                target_sector = sector_clearance(points, self.goal, GAP_WINDOW_RAD)
+                if self.close_peak_cy < CLOSE_LOST_HOLD_CY and target_sector < SLOW_DIST:
+                    self.phase = "SEEK"
+                    self.approach_align_since = -1.0
+                    self.approach_ready = False
+                    return self._goal_cmd(points, self.goal, pose, allow_avoid=True)
+                self._reset_avoidance()
                 v, w, clr, blocked = choose_cmd(points, self.goal, self.last_w, pose)
                 self.last_w = w
                 self.clr = clr
@@ -884,14 +1390,19 @@ class Controller:
             self.close_peak_cy = 0.0
             self.approach_align_since = -1.0
             self.approach_ready = False
+            self._reset_avoidance()
             return self._search_cmd(points, now, pose)
 
         if seen and cy_norm >= APPROACH_CY:
+            target_sector = sector_clearance(points, self.smooth_bearing, GAP_WINDOW_RAD)
+            if cy_norm < CLOSE_LOST_HOLD_CY and target_sector < SLOW_DIST:
+                return self._goal_cmd(points, self.smooth_bearing, pose, allow_avoid=True)
             self.phase = "CLOSE"
             self.close_until = now + CLOSE_APPROACH_MAX_S
             self.close_peak_cy = max(self.close_peak_cy, cy_norm)
             self._update_approach_quality(cy_norm, now)
             self.goal = self.smooth_bearing
+            self._reset_avoidance()
             v, w, clr, blocked = choose_cmd(points, self.goal, self.last_w, pose)
             self.last_w = w
             self.clr = clr
@@ -900,13 +1411,14 @@ class Controller:
             return min(v, CLOSE_APPROACH_V), w, "CLOSE"
 
         if not seen:
+            if self.avoid_active and now - self.last_seen_t <= AVOID_LOST_MEMORY_S:
+                keep_goal = self.avoid_goal if abs(self.avoid_goal) > 0.03 else self.last_seen_bearing
+                v, w, state = self._goal_cmd(points, keep_goal, pose, allow_avoid=True)
+                return v, w, ("AVOID" if state != "BLOCKED" else "BLOCKED")
+            self._reset_avoidance()
             return self._search_cmd(points, now, pose)
 
-        self.goal = self.smooth_bearing
-        v, w, clr, blocked = choose_cmd(points, self.goal, self.last_w, pose)
-        self.last_w = w
-        self.clr = clr
-        return v, w, ("BLOCKED" if blocked else "SEEK")
+        return self._goal_cmd(points, self.smooth_bearing, pose, allow_avoid=True)
 
 
 # ===================== 메인 =====================
@@ -957,10 +1469,17 @@ def main():
 
             points = lidar_points_to_xy(scan)
             cam.set_target(ctrl.target_color)      # 시퀀스 진행에 맞춰 카메라 타깃 동기화
-            (visible, bearing, area_ratio, cy_norm, ncnt), cam_stamp = cam.get()
+            cam_res, cam_stamp = cam.get()
+            if len(cam_res) >= 7:
+                visible, bearing, area_ratio, cy_norm, ncnt, target_x, target_y = cam_res
+                target_xy = (target_x, target_y) if target_x is not None and target_y is not None else None
+            else:
+                visible, bearing, area_ratio, cy_norm, ncnt = cam_res
+                target_xy = None
             seen = visible and (now - cam_stamp) <= VISION_HOLD_S
 
-            v, w, state = ctrl.tick(points, seen, bearing, cy_norm, now, pose=odom.pose)
+            v, w, state = ctrl.tick(points, seen, bearing, cy_norm, now, pose=odom.pose,
+                                    target_xy=target_xy)
             send_vw(ardu, v, w)
             if ctrl.done:
                 print("[DONE] RED→YELLOW→BLUE 완주")

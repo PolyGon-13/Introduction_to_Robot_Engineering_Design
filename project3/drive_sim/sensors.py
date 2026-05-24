@@ -287,7 +287,7 @@ def simulate_camera(world, p3, target_color, cam_max=2.5, cam_far=1.5,
     """기하 기반 인식. 실제 상수(BEARING_SIGN, CAM_W/H)를 사용.
        로봇 상단 카메라가 바닥을 내려다본다고 보고 직사각형 발자국만 본다.
        패치 중심이 아니라 카메라 footprint와 겹친 영역의 중심을 추적한다.
-       반환: (visible, bearing_rad, area_ratio, cy_norm, n_visible)."""
+       반환: (visible, bearing_rad, area_ratio, cy_norm, n_visible, center_x_robot_m, center_y_robot_m)."""
     rb = world.robot
     half_fov = p3.HALF_HFOV_RAD
     focal_px = (p3.CAM_W * 0.5) / max(1e-6, math.tan(half_fov))
@@ -312,10 +312,14 @@ def simulate_camera(world, p3, target_color, cam_max=2.5, cam_far=1.5,
         if not overlap["visible"]:
             continue
         x_r, y_r = overlap["centroid"]
-        target_x = cam_x + x_r * cs - y_r * sn
-        target_y = cam_y + x_r * sn + y_r * cs
-        if camera_blocker(world, cam_x, cam_y, target_x, target_y, camera_height_m) is not None:
+        overlap_world_x = cam_x + x_r * cs - y_r * sn
+        overlap_world_y = cam_y + x_r * sn + y_r * cs
+        if camera_blocker(world, cam_x, cam_y, overlap_world_x, overlap_world_y, camera_height_m) is not None:
             continue
+        dx = pch.x - rb.x
+        dy = pch.y - rb.y
+        center_x_robot = dx * cs + dy * sn
+        center_y_robot = -dx * sn + dy * cs
         image_err = -max(-1.0, min(1.0, y_r / half_width))
         bearing = p3.BEARING_SIGN * image_err * half_fov
         projection_distance = x_r if x_r > 0.0 else math.hypot(x_r, y_r)
@@ -326,15 +330,23 @@ def simulate_camera(world, p3, target_color, cam_max=2.5, cam_far=1.5,
         n_visible += 1
         if area_px > best_area_px:
             best_area_px = area_px
-            best = (bearing, x_r)
+            best = (bearing, x_r, center_x_robot, center_y_robot)
 
     if best is None:
-        return (False, 0.0, 0.0, 0.0, 0)
+        return (False, 0.0, 0.0, 0.0, 0, None, None)
 
-    bearing, forward_x = best
+    bearing, forward_x, center_x_robot, center_y_robot = best
     if bearing_noise_deg > 0.0:
         bearing += math.radians(np.random.normal(0.0, bearing_noise_deg))
     area_ratio = best_area_px / p3.CAM_AREA
     cy_span = max(1e-6, far_x - near_x)
     cy_norm = max(0.0, min(1.0, 1.0 - (forward_x - near_x) / cy_span))
-    return (True, float(bearing), float(area_ratio), float(cy_norm), n_visible)
+    return (
+        True,
+        float(bearing),
+        float(area_ratio),
+        float(cy_norm),
+        n_visible,
+        float(center_x_robot),
+        float(center_y_robot),
+    )

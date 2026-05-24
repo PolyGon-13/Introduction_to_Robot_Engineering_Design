@@ -80,10 +80,17 @@ def recompute_derived(p3):
     """슬라이더로 기본 파라미터를 바꾼 뒤, 그 값에서 파생되는 상수들을 다시 계산.
        (파일 수정 후 reload 시에는 모듈 최상단이 재실행되므로 호출 불필요.)"""
     p3.W_SET = np.linspace(-p3.MAX_W, p3.MAX_W, 11)
+    if hasattr(p3, "V_SET_RATIOS") and hasattr(p3, "V_SET_MIN"):
+        p3.V_SET = np.maximum(p3.V_SET_MIN, p3.CRUISE_V * p3.V_SET_RATIOS)
     p3.STEPS = int(p3.HORIZON_T / p3.DT)
     p3._TS = (np.arange(p3.STEPS) + 1) * p3.DT
     p3.HALF_HFOV_RAD = math.radians(p3.HFOV_DEG) * 0.5
     p3.CAM_AREA = float(p3.CAM_W * p3.CAM_H)
+    if hasattr(p3, "PRACTICE10_FX_640"):
+        p3.CAMERA_FX_PX = p3.PRACTICE10_FX_640 * (p3.CAM_W / 640.0)
+        p3.CAMERA_FY_PX = p3.PRACTICE10_FY_480 * (p3.CAM_H / 480.0)
+        p3.CAMERA_CX_PX = p3.PRACTICE10_CX_640 * (p3.CAM_W / 640.0)
+        p3.CAMERA_CY_PX = p3.PRACTICE10_CY_480 * (p3.CAM_H / 480.0)
     if hasattr(p3, "BLIND_CREEP_DIST_M"):
         p3.BLIND_CREEP_S = p3.BLIND_CREEP_DIST_M / max(1e-6, p3.BLIND_CREEP_V)
     if hasattr(p3, "SEARCH_SWEEP_ANGLE_DEG"):
