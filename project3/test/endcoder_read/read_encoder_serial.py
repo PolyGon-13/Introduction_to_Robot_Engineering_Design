@@ -34,6 +34,12 @@ def parse_args():
         action="store_true",
         help="Print raw serial lines without parsing.",
     )
+    parser.add_argument(
+        "--retry-s",
+        type=float,
+        default=1.0,
+        help="Seconds to wait before reopening the port after a serial error.",
+    )
     return parser.parse_args()
 
 
@@ -47,26 +53,47 @@ def parse_encoder_line(line):
     return left, right, arduino_ms
 
 
+def open_serial(port, baud):
+    ser = serial.Serial(port, baud, timeout=1.0)
+    ser.reset_input_buffer()
+    return ser
+
+
 def main():
     if serial is None:
         print("pyserial is not installed. Try: python3 -m pip install pyserial", file=sys.stderr)
         return 2
 
     args = parse_args()
-    try:
-        ser = serial.Serial(args.port, args.baud, timeout=1.0)
-    except serial.SerialException as exc:
-        print(f"failed to open {args.port}: {exc}", file=sys.stderr)
-        return 1
-
-    print(f"[open] {args.port} @ {args.baud}")
-    print("[wait] rotate wheels by hand, or move the robot slowly")
-
+    ser = None
     prev_left = None
     prev_right = None
     try:
         while True:
-            raw = ser.readline()
+            if ser is None:
+                try:
+                    ser = open_serial(args.port, args.baud)
+                except serial.SerialException as exc:
+                    print(f"[serial] failed to open {args.port}: {exc}", file=sys.stderr)
+                    return 1
+                print(f"[open] {args.port} @ {args.baud}")
+                print("[wait] rotate wheels by hand, or move the robot slowly")
+
+            try:
+                raw = ser.readline()
+            except serial.SerialException as exc:
+                print(f"[serial] read failed: {exc}", file=sys.stderr)
+                print(f"[serial] reopening {args.port} in {args.retry_s:.1f}s", file=sys.stderr)
+                try:
+                    ser.close()
+                except serial.SerialException:
+                    pass
+                ser = None
+                prev_left = None
+                prev_right = None
+                time.sleep(max(0.1, args.retry_s))
+                continue
+
             if not raw:
                 continue
             line = raw.decode("ascii", errors="replace").strip()
@@ -92,7 +119,8 @@ def main():
     except KeyboardInterrupt:
         print("\n[stop]")
     finally:
-        ser.close()
+        if ser is not None:
+            ser.close()
     return 0
 
 
