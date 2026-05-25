@@ -170,6 +170,10 @@ EXPLORE_TURN_IN_PLACE_RAD = 1.10       # 목표가 크게 옆/뒤면 먼저 제�
 EXPLORE_BLOCKED_S = 0.90               # 이 시간 이상 막히면 해당 waypoint를 포기
 EXPLORE_STUCK_S = 2.00                 # 거의 움직이지 못하면 다른 waypoint로 전환
 EXPLORE_STUCK_DIST_M = 0.04            # stuck 판정에 쓰는 최소 이동량
+BACK_OUT_V = CRUISE_V * 0.40           # 전역 탈출 후진 속도
+BACK_OUT_S = 2.00                      # 전역 탈출 후진 지속 시간(s)
+GLOBAL_STUCK_S = 14.0                  # 이 시간 동안 GLOBAL_STUCK_DIST_M 미만 이동 시 후진 탈출
+GLOBAL_STUCK_DIST_M = 0.35             # 전역 stuck 판정 이동 임계(m)
 
 # 목표가 아닌 색을 보았을 때의 위치 기억. 나중에 그 색이 목표가 되면 먼저 찾아가고,
 # 현재 목표가 아니면 그 주변 waypoint를 후순위로 밀어 탐색 시간을 줄인다.
@@ -1090,6 +1094,8 @@ class Controller:
         self.explore_anchor_x = None
         self.explore_anchor_y = None
         self.explore_priority_count = 0
+        self.explore_backup_until = 0.0
+        self.global_stuck_ref = None   # (x, y, t) — 전역 stuck 기준점
         self.avoid_active = False
         self.avoid_goal = 0.0
         self.avoid_direct_clr = 0.0
@@ -1239,6 +1245,8 @@ class Controller:
         self.explore_anchor_x = None
         self.explore_anchor_y = None
         self.explore_priority_count = 0
+        self.explore_backup_until = 0.0
+        self.global_stuck_ref = None
 
     def _note_seen(self, bearing, cy_norm, now):
         if self.last_seen_t < -1e8:
@@ -1260,6 +1268,7 @@ class Controller:
         self.search_force_explore = False
         self.rescan_dist_m = 0.0
         self.rescan_last_pose = None
+        self.global_stuck_ref = None
 
     def _update_approach_quality(self, cy_norm, now):
         aligned = cy_norm >= ARRIVE_CY and abs(self.smooth_bearing) <= APPROACH_ALIGN_MAX
@@ -1419,8 +1428,13 @@ class Controller:
 
         px, py, _ = pose_t
         if self.explore_anchor_x is None or self.explore_anchor_y is None:
-            self.explore_anchor_x = px
-            self.explore_anchor_y = py
+            half = self._explore_half_span()
+            if self.seq_idx == 2:  # BLUE: 북쪽 앵커
+                self.explore_anchor_x = 0.0
+                self.explore_anchor_y = half
+            else:  # YELLOW 등: x 반대편 앵커
+                self.explore_anchor_x = max(-half, min(half, -px))
+                self.explore_anchor_y = 0.0
         priority_stop = min(self.explore_priority_count, len(self.explore_waypoints))
         priority_candidates = [
             i for i in range(priority_stop)
@@ -1520,6 +1534,20 @@ class Controller:
             self._begin_search_drive(now)
             return self._search_drive_cmd(points, pose)
 
+        # 탈출 후진 중이면 뒤로 빠져나간다.
+        if now < self.explore_backup_until:
+            back_v = -BACK_OUT_V
+            for bw in (0.0, 0.25, -0.25, 0.5, -0.5):
+                if command_clearance(back_v, bw, points, pose) >= COLLISION_DIST:
+                    self.last_w = bw
+                    return back_v, bw, "EXPLORE_BACKUP"
+            # 후진도 막혔으면 회전으로 탈출
+            escape = _escape_rotate_cmd(points, 0.0, self.last_w, pose)
+            if escape is not None:
+                self.last_w = escape[1]
+                return escape[0], escape[1], "EXPLORE_BACKUP"
+            return 0.0, 0.0, "EXPLORE_BACKUP"
+
         if self.explore_target_idx is None:
             if not self._select_next_explore_waypoint(pose_t, now):
                 return self._search_cmd(points, now, pose)
@@ -1543,10 +1571,6 @@ class Controller:
             self._begin_search_scan()
             return self._search_cmd(points, now, pose)
 
-        if self._explore_stuck(pose_t, dist, now):
-            self._select_next_explore_waypoint(pose_t, now, skip_current=True, prefer_far=True)
-            return self._explore_cmd(points, now, pose)
-
         goal_bearing = math.atan2(ey, ex)
         if abs(goal_bearing) > EXPLORE_TURN_IN_PLACE_RAD:
             target_w = max(-SEARCH_W, min(SEARCH_W, 1.6 * goal_bearing))
@@ -1554,10 +1578,17 @@ class Controller:
             self.goal = goal_bearing
             self.clr = clr
             if clr >= escape_rotate_clearance_min():
+                # 회전이 가능하면 stuck 타이머를 리셋한다 (회전 중엔 waypoint 거리 감소 없음)
+                self.explore_last_dist = dist
+                self.explore_last_progress_t = now
                 self._reset_avoidance()
                 w = rate_limit(self.last_w, target_w, W_RATE)
                 self.last_w = w
                 return 0.0, w, "EXPLORE_TURN"
+
+        if self._explore_stuck(pose_t, dist, now):
+            self._select_next_explore_waypoint(pose_t, now, skip_current=True, prefer_far=True)
+            return self._explore_cmd(points, now, pose)
 
         v, w, state = self._goal_cmd(points, goal_bearing, pose, allow_avoid=True)
         if state == "BLOCKED":
@@ -1940,6 +1971,27 @@ class Controller:
                         pose_t[1] - self.rescan_last_pose[1],
                     )
                 self.rescan_last_pose = (pose_t[0], pose_t[1])
+
+            # 전역 stuck 감지: SEEK 중 너무 오래 같은 자리에 있으면 후진 탈출
+            if self.phase == "SEEK" and pose_t is not None:
+                if self.global_stuck_ref is None:
+                    self.global_stuck_ref = (pose_t[0], pose_t[1], now)
+                else:
+                    rx, ry, rt = self.global_stuck_ref
+                    if math.hypot(pose_t[0] - rx, pose_t[1] - ry) >= GLOBAL_STUCK_DIST_M:
+                        self.global_stuck_ref = (pose_t[0], pose_t[1], now)
+                    elif now - rt >= GLOBAL_STUCK_S:
+                        self._reset_explore()
+                        half = self._explore_half_span()
+                        if self.seq_idx == 2:  # BLUE stuck: NE 방향으로 우회
+                            self.explore_anchor_x = half
+                            self.explore_anchor_y = half
+                        else:
+                            self.explore_anchor_x = pose_t[0]
+                            self.explore_anchor_y = max(-half, pose_t[1] - half * 0.8)
+                        self.explore_backup_until = now + BACK_OUT_S
+                        self.global_stuck_ref = (pose_t[0], pose_t[1], now)
+
             # RE_SCAN_DIST_M 이상 이동 후 타깃 미검출 → 제자리 재스캔
             if self.phase == "SEEK" and self.rescan_dist_m >= RE_SCAN_DIST_M:
                 self.phase = "RE_SCAN"
