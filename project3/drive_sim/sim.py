@@ -108,6 +108,9 @@ PARAM_TIPS = {
     "GAP_BEARING_STEP": "회피 gap 후보 방위각의 샘플 간격입니다.",
     "GAP_WINDOW_RAD": "gap 후보 주변 장애물을 확인하는 각도 폭입니다.",
     "GAP_MIN_CLEAR_MARGIN": "gap 후보가 충돌거리보다 더 가져야 하는 최소 여유입니다.",
+    "GAP_PASS_LOOKAHEAD_M": "gap이 로봇 폭으로 실제 통과 가능한지 확인하는 전방 거리입니다.",
+    "GAP_PASS_SIDE_MARGIN_M": "gap 통과성 검사에서 로봇 좌우 폭에 더하는 여유입니다.",
+    "GAP_W_PASS": "gap 통과 폭 여유 점수의 비중입니다.",
     "AVOID_TRIGGER_MARGIN": "직접 경로 여유가 이 값보다 작으면 회피를 검토합니다.",
     "AVOID_RELEASE_MARGIN": "직접 경로가 이만큼 넓어지면 회피 상태를 풉니다.",
     "AVOID_LOST_MEMORY_S": "회피 중 색을 잠깐 잃어도 gap 방향을 유지하는 시간입니다.",
@@ -124,7 +127,6 @@ PARAM_TIPS = {
     "CREEP_STEER_GAIN": "색을 잃은 뒤 마지막 bearing을 따라가는 조향 게인입니다.",
     "CREEP_MAX_W": "CREEP 중 조향 회전속도 상한입니다.",
     "DWELL_S": "도착 판정 후 다음 색으로 넘어가기 전 정지 유지 시간입니다.",
-    "SEARCH_V": "타깃 미검출 탐색 중 전진 속도입니다. 기본값은 0입니다.",
     "SEARCH_W": "색상 미검출 시 좌우 스윕 회전 속도입니다.",
     "SEARCH_SWEEP_ANGLE_DEG": "색상 미검출 시 현재 자세 기준 좌우로 훑는 각도입니다.",
     "SEARCH_SETTLE_RAD": "스윕 목표 각도에 이만큼 가까워지면 반대 방향으로 바꿉니다.",
@@ -367,7 +369,7 @@ class Simulator:
         self.obstacle_w = 0.30
         self.obstacle_h = 0.15
         self.obstacle_z_h = DEFAULT_OBSTACLE_Z_H
-        self.patch_size = 0.25
+        self.patch_size = 0.35
         self._sync_project3_geometry()
 
         # 월드 보기 상태: 마우스 휠로 아레나를 확대/축소한다.
@@ -414,6 +416,8 @@ class Simulator:
         self.obstacle_anchor = None
         self.obstacle_preview = None
         self.param_scroll = 0
+        self.param_scroll_drag = False
+        self.param_scroll_drag_offset = 0
         self.toast = ("", 0.0)
 
         # 시리얼 링크(실제 send_vw 가 호출)
@@ -439,8 +443,8 @@ class Simulator:
 
     def resize(self, window_w, window_h):
         configure_layout(window_w, window_h)
-        self.param_scroll = clamp(self.param_scroll, 0, ui(2200))
         self._build_ui()
+        self._clamp_param_scroll()
 
     # ----- UI 구성 -----
     def _build_ui(self):
@@ -544,7 +548,7 @@ class Simulator:
             )
         return [
             ("— DWA / robot (project3.py) —", None),
-            ("CRUISE_V", S("CRUISE_V", p3get("CRUISE_V"), p3set("CRUISE_V"), 0.05, 0.30)),
+            ("CRUISE_V", S("CRUISE_V", p3get("CRUISE_V"), p3set("CRUISE_V"), 0.05, 2.00)),
             ("MAX_W", S("MAX_W", p3get("MAX_W"), p3set("MAX_W"), 0.3, 2.0)),
             ("W_RATE", S("W_RATE", p3get("W_RATE"), p3set("W_RATE"), 0.05, 1.0)),
             ("W_CLEAR", S("W_CLEAR", p3get("W_CLEAR"), p3set("W_CLEAR"), 0.0, 3.0)),
@@ -566,6 +570,9 @@ class Simulator:
             ("GAP_BEARING_STEP", S("GAP_BEARING_STEP", p3get("GAP_BEARING_STEP"), p3set("GAP_BEARING_STEP"), 0.05, 0.40, fmt="{:.3f}")),
             ("GAP_WINDOW_RAD", S("GAP_WINDOW_RAD", p3get("GAP_WINDOW_RAD"), p3set("GAP_WINDOW_RAD"), 0.05, 0.60, fmt="{:.3f}")),
             ("GAP_MIN_CLEAR_MARGIN", S("GAP_MIN_CLEAR_MARGIN", p3get("GAP_MIN_CLEAR_MARGIN"), p3set("GAP_MIN_CLEAR_MARGIN"), 0.00, 0.12, fmt="{:.3f}")),
+            ("GAP_PASS_LOOKAHEAD_M", S("GAP_PASS_LOOKAHEAD_M", p3get("GAP_PASS_LOOKAHEAD_M"), p3set("GAP_PASS_LOOKAHEAD_M"), 0.20, 1.50)),
+            ("GAP_PASS_SIDE_MARGIN_M", S("GAP_PASS_SIDE_MARGIN_M", p3get("GAP_PASS_SIDE_MARGIN_M"), p3set("GAP_PASS_SIDE_MARGIN_M"), 0.00, 0.15, fmt="{:.3f}")),
+            ("GAP_W_PASS", S("GAP_W_PASS", p3get("GAP_W_PASS"), p3set("GAP_W_PASS"), 0.00, 3.00)),
             ("AVOID_TRIGGER_MARGIN", S("AVOID_TRIGGER_MARGIN", p3get("AVOID_TRIGGER_MARGIN"), p3set("AVOID_TRIGGER_MARGIN"), 0.00, 0.12, fmt="{:.3f}")),
             ("AVOID_RELEASE_MARGIN", S("AVOID_RELEASE_MARGIN", p3get("AVOID_RELEASE_MARGIN"), p3set("AVOID_RELEASE_MARGIN"), 0.00, 0.20, fmt="{:.3f}")),
             ("AVOID_LOST_MEMORY_S", S("AVOID_LOST_MEMORY_S", p3get("AVOID_LOST_MEMORY_S"), p3set("AVOID_LOST_MEMORY_S"), 0.00, 4.00)),
@@ -589,7 +596,6 @@ class Simulator:
             ("CENTER_GOAL_ALPHA", S("CENTER_GOAL_ALPHA", p3get("CENTER_GOAL_ALPHA"), p3set("CENTER_GOAL_ALPHA"), 0.05, 1.00)),
             ("CENTER_LOST_MEMORY_S", S("CENTER_LOST_MEMORY_S", p3get("CENTER_LOST_MEMORY_S"), p3set("CENTER_LOST_MEMORY_S"), 0.00, 5.00)),
             ("CENTER_MAX_BEARING", S("CENTER_MAX_BEARING", p3get("CENTER_MAX_BEARING"), p3set("CENTER_MAX_BEARING"), 0.20, 1.60)),
-            ("SEARCH_V", S("SEARCH_V", p3get("SEARCH_V"), p3set("SEARCH_V"), 0.00, 0.20)),
             ("SEARCH_W", S("SEARCH_W", p3get("SEARCH_W"), p3set("SEARCH_W"), 0.20, 1.50)),
             ("SEARCH_SWEEP_ANGLE_DEG", S("SEARCH_SWEEP_ANGLE_DEG", p3get("SEARCH_SWEEP_ANGLE_DEG"), p3set("SEARCH_SWEEP_ANGLE_DEG"), 10.0, 90.0)),
             ("SEARCH_SETTLE_RAD", S("SEARCH_SETTLE_RAD", p3get("SEARCH_SETTLE_RAD"), p3set("SEARCH_SETTLE_RAD"), 0.02, 0.25, fmt="{:.3f}")),
@@ -838,6 +844,7 @@ class Simulator:
                 "direct_clearance_m": self.tele.get("avoid_direct_clr", None),
                 "target_sector_clearance_m": self.tele.get("avoid_target_sector_clear", None),
                 "gap_sector_clearance_m": self.tele.get("avoid_sector_clear", None),
+                "gap_pass_clearance_m": self.tele.get("avoid_pass_clear", None),
             },
             "controller": {
                 "seq_idx": getattr(ctrl, "seq_idx", None),
@@ -875,6 +882,9 @@ class Simulator:
                 "avoid_direct_clr": getattr(ctrl, "avoid_direct_clr", None),
                 "avoid_target_sector_clear": getattr(ctrl, "avoid_target_sector_clear", None),
                 "avoid_sector_clear": getattr(ctrl, "avoid_sector_clear", None),
+                "avoid_pass_clear": getattr(ctrl, "avoid_pass_clear", None),
+                "avoid_required_half_width": getattr(ctrl, "avoid_required_half_width", None),
+                "avoid_lookahead": getattr(ctrl, "avoid_lookahead", None),
                 "avoid_score": getattr(ctrl, "avoid_score", None),
                 "last_seen_t": getattr(ctrl, "last_seen_t", None),
                 "last_seen_bearing": getattr(ctrl, "last_seen_bearing", None),
@@ -1648,6 +1658,7 @@ class Simulator:
                     "MAX_RANGE_M", "V_MIN_RATIO", "V_SET_RATIOS", "V_SET_MIN", "V_SET",
                     "CLEAR_CAP", "GAP_BEARING_MAX", "GAP_BEARING_STEP",
                     "GAP_WINDOW_RAD", "GAP_MIN_CLEAR_MARGIN",
+                    "GAP_PASS_LOOKAHEAD_M", "GAP_PASS_SIDE_MARGIN_M", "GAP_W_PASS",
                     "GAP_W_CLEAR", "GAP_W_TARGET", "GAP_W_TURN", "GAP_W_AWAY",
                     "AVOID_TRIGGER_MARGIN", "AVOID_RELEASE_MARGIN", "AVOID_LOST_MEMORY_S",
                     "ESCAPE_ROTATE_MARGIN", "ESCAPE_CREEP_MAX_V",
@@ -1657,14 +1668,14 @@ class Simulator:
                     "CLOSE_LOST_HOLD_CY",
                     "BEARING_SMOOTH_ALPHA",
                     "CLOSE_APPROACH_V", "CLOSE_APPROACH_MAX_S",
-                    "BLIND_CREEP_V", "BLIND_CREEP_DIST_M", "BLIND_CREEP_S",
+                    "BLIND_CREEP_V", "BLIND_CREEP_DIST_M",
                     "CREEP_STEER_GAIN", "CREEP_MAX_W", "DWELL_S",
                     "CENTER_TOL_M", "CENTER_MAX_V", "CENTER_SLOW_RADIUS_M",
                     "CENTER_GOAL_ALPHA", "CENTER_LOST_MEMORY_S", "CENTER_MAX_BEARING",
-                    "SEARCH_V", "SEARCH_W", "SEARCH_SWEEP_ANGLE_DEG",
+                    "SEARCH_W", "SEARCH_SWEEP_ANGLE_DEG",
                     "SEARCH_SWEEP_ANGLE_RAD", "SEARCH_SETTLE_RAD",
                     "SEARCH_SCAN_EDGE_HITS", "SEARCH_DRIVE_V", "SEARCH_DRIVE_S",
-                    "SEARCH_BEARING", "SEARCH_SWEEP_S", "TARGET_LOST_MEMORY_S",
+                    "SEARCH_SWEEP_S", "TARGET_LOST_MEMORY_S",
                     "EXPLORE_ENABLED", "EXPLORE_SPACING_M", "EXPLORE_EDGE_MARGIN_M",
                     "EXPLORE_REACH_DIST_M", "EXPLORE_SCAN_EDGE_HITS", "EXPLORE_MAX_V",
                     "EXPLORE_SLOW_DIST_M", "EXPLORE_TURN_IN_PLACE_RAD",
@@ -1779,6 +1790,12 @@ class Simulator:
                 "direct_clearance_m": getattr(ctrl, "avoid_direct_clr", None),
                 "target_sector_clearance_m": getattr(ctrl, "avoid_target_sector_clear", None),
                 "gap_sector_clearance_m": getattr(ctrl, "avoid_sector_clear", None),
+                "gap_pass_clearance_m": getattr(ctrl, "avoid_pass_clear", None),
+                "gap_required_width_m": (
+                    2.0 * getattr(ctrl, "avoid_required_half_width")
+                    if getattr(ctrl, "avoid_required_half_width", None) is not None else None
+                ),
+                "gap_pass_lookahead_m": getattr(ctrl, "avoid_lookahead", None),
                 "gap_score": getattr(ctrl, "avoid_score", None),
                 "trigger_margin_m": getattr(self.p3, "AVOID_TRIGGER_MARGIN", None),
                 "release_margin_m": getattr(self.p3, "AVOID_RELEASE_MARGIN", None),
@@ -1861,6 +1878,77 @@ class Simulator:
         self.view_panning = False
         self.view_pan_last = None
 
+    def _param_panel_top(self):
+        return MARGIN + ui(188)
+
+    def _param_viewport_rect(self):
+        top = self._param_panel_top()
+        return pygame.Rect(
+            PANEL_X - ui(4),
+            top,
+            PANEL_W,
+            max(0, WIN_H - top - ui(4)),
+        )
+
+    def _param_content_height(self):
+        return sum(ui(30) if sl is None else ui(44) for _, sl in self.sliders)
+
+    def _param_max_scroll(self):
+        view = self._param_viewport_rect()
+        return max(0, self._param_content_height() - view.h)
+
+    def _clamp_param_scroll(self):
+        self.param_scroll = clamp(self.param_scroll, 0, self._param_max_scroll())
+
+    def _param_scrollbar_rects(self):
+        view = self._param_viewport_rect()
+        content_h = self._param_content_height()
+        max_scroll = max(0, content_h - view.h)
+        if max_scroll <= 0 or view.h <= ui(32):
+            return None
+        track = pygame.Rect(PANEL_X + PANEL_W - ui(10), view.y, ui(6), view.h)
+        thumb_h = max(ui(24), int(round(track.h * view.h / max(1, content_h))))
+        thumb_h = min(track.h, thumb_h)
+        travel = max(1, track.h - thumb_h)
+        thumb_y = track.y + int(round((self.param_scroll / max_scroll) * travel))
+        thumb = pygame.Rect(track.x, thumb_y, track.w, thumb_h)
+        return track, thumb, max_scroll
+
+    def _set_scroll_from_thumb_y(self, y):
+        info = self._param_scrollbar_rects()
+        if info is None:
+            return
+        track, thumb, max_scroll = info
+        travel = max(1, track.h - thumb.h)
+        thumb_y = clamp(y - self.param_scroll_drag_offset, track.y, track.y + travel)
+        self.param_scroll = clamp((thumb_y - track.y) / travel * max_scroll, 0, max_scroll)
+
+    def start_param_scroll_drag(self, pos):
+        info = self._param_scrollbar_rects()
+        if info is None:
+            return False
+        track, thumb, _ = info
+        hit = track.inflate(ui(8), ui(4)).collidepoint(pos)
+        if not hit:
+            return False
+        self.param_scroll_drag = True
+        if thumb.collidepoint(pos):
+            self.param_scroll_drag_offset = pos[1] - thumb.y
+        else:
+            self.param_scroll_drag_offset = thumb.h // 2
+            self._set_scroll_from_thumb_y(pos[1])
+        return True
+
+    def drag_param_scroll(self, pos):
+        if self.param_scroll_drag:
+            self._set_scroll_from_thumb_y(pos[1])
+            return True
+        return False
+
+    def end_param_scroll_drag(self):
+        self.param_scroll_drag = False
+        self.param_scroll_drag_offset = 0
+
     # ----- 브레인 1틱: 합성 센서 → project3.py Controller.tick() → 모터 -----
     def brain_tick(self, commit):
         """결정/상태는 전부 p3.Controller.tick() 에 위임(단일 진실원).
@@ -1939,6 +2027,7 @@ class Simulator:
                          avoid_direct_clr=getattr(ctrl, "avoid_direct_clr", None),
                          avoid_target_sector_clear=getattr(ctrl, "avoid_target_sector_clear", None),
                          avoid_sector_clear=getattr(ctrl, "avoid_sector_clear", None),
+                         avoid_pass_clear=getattr(ctrl, "avoid_pass_clear", None),
                          avoid_score=getattr(ctrl, "avoid_score", None))
         self.last_brain_snapshot = {
             "t_s": self.sim_time,
@@ -1967,6 +2056,12 @@ class Simulator:
                 "direct_clearance_m": getattr(ctrl, "avoid_direct_clr", None),
                 "target_sector_clearance_m": getattr(ctrl, "avoid_target_sector_clear", None),
                 "gap_sector_clearance_m": getattr(ctrl, "avoid_sector_clear", None),
+                "gap_pass_clearance_m": getattr(ctrl, "avoid_pass_clear", None),
+                "gap_required_width_m": (
+                    2.0 * getattr(ctrl, "avoid_required_half_width")
+                    if getattr(ctrl, "avoid_required_half_width", None) is not None else None
+                ),
+                "gap_pass_lookahead_m": getattr(ctrl, "avoid_lookahead", None),
                 "gap_score": getattr(ctrl, "avoid_score", None),
             },
         }
@@ -2115,7 +2210,7 @@ class Simulator:
 
     def on_wheel(self, y, pos):
         if pos[0] >= PANEL_X:
-            self.param_scroll = clamp(self.param_scroll - y * ui(24), 0, ui(2200))
+            self.param_scroll = clamp(self.param_scroll - y * ui(24), 0, self._param_max_scroll())
         elif self.in_arena(pos):
             self.zoom_at(y, pos)
 
@@ -2271,12 +2366,14 @@ class Simulator:
         surf.blit(tgt, (PANEL_X + ui(210), y + ui(2)))
 
         # 슬라이더(스크롤 영역)
-        top = MARGIN + ui(188)
-        clip = pygame.Rect(PANEL_X - ui(4), top, PANEL_W, WIN_H - top - ui(4))
+        self._clamp_param_scroll()
+        top = self._param_panel_top()
+        clip = self._param_viewport_rect()
         surf.set_clip(clip)
         y = top - self.param_scroll
         mouse_pos = pygame.mouse.get_pos()
         tooltip = None
+        slider_w = PANEL_W - ui(24)
         for label, sl in self.sliders:
             if sl is None:
                 hdr = font.render(label, True, (130, 200, 180))
@@ -2285,12 +2382,23 @@ class Simulator:
                 y += ui(30)
             else:
                 if top - ui(30) < y < WIN_H:
-                    sl.draw(surf, font, PANEL_X, y, PANEL_W - ui(12))
+                    sl.draw(surf, font, PANEL_X, y, slider_w)
                     if tooltip is None:
                         tooltip = sl.hover_tip(mouse_pos)
                 y += ui(44)
         surf.set_clip(None)
+        self._draw_param_scrollbar(surf)
         self._draw_tooltip(surf, font, tooltip, mouse_pos)
+
+    def _draw_param_scrollbar(self, surf):
+        info = self._param_scrollbar_rects()
+        if info is None:
+            return
+        track, thumb, _ = info
+        pygame.draw.rect(surf, (38, 42, 52), track, border_radius=max(2, ui(3)))
+        hover = thumb.inflate(ui(8), ui(4)).collidepoint(pygame.mouse.get_pos())
+        col = (132, 146, 170) if (hover or self.param_scroll_drag) else (86, 96, 118)
+        pygame.draw.rect(surf, col, thumb, border_radius=max(2, ui(3)))
 
     def _draw_tooltip(self, surf, font, text, pos):
         if not text:
@@ -2377,15 +2485,19 @@ def main():
                 font, bigfont = make_fonts()
             elif ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 1:
                 consumed = False
-                for _, sl in sim.sliders:
-                    if sl and sl.handle(ev):
-                        consumed = True
-                        break
+                if sim.start_param_scroll_drag(ev.pos):
+                    consumed = True
+                if not consumed:
+                    for _, sl in sim.sliders:
+                        if sl and sl.handle(ev):
+                            consumed = True
+                            break
                 if not consumed:
                     sim.on_click(ev.pos)
             elif ev.type == pygame.MOUSEBUTTONDOWN and ev.button == 2:
                 sim.start_pan(ev.pos)
             elif ev.type == pygame.MOUSEBUTTONUP and ev.button == 1:
+                sim.end_param_scroll_drag()
                 for _, sl in sim.sliders:
                     if sl:
                         sl.handle(ev)
@@ -2393,7 +2505,9 @@ def main():
             elif ev.type == pygame.MOUSEBUTTONUP and ev.button == 2:
                 sim.end_pan()
             elif ev.type == pygame.MOUSEMOTION:
-                if sim.view_panning:
+                if sim.param_scroll_drag:
+                    sim.drag_param_scroll(ev.pos)
+                elif sim.view_panning:
                     sim.pan_view(ev.pos)
                 else:
                     handled = False

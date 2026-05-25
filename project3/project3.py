@@ -38,8 +38,8 @@ MAX_POINTS = 500           # 계산용 최대 포인트 수
 # 로봇 / 주행
 ROBOT_RADIUS = 0.13
 COLLISION_DIST = ROBOT_RADIUS + 0.06   # 이 안으로 들어오는 궤적은 충돌로 간주
-SLOW_DIST = 0.35                       # 이 거리부터 감속 시작
-CRUISE_V = 0.15                        # 기본 직진 속도 (보수적)
+SLOW_DIST = 0.22                       # 이 거리부터 감속 시작
+CRUISE_V = 2.0                         # 기본 직진 속도
 V_MIN_RATIO = 0.4                      # 감속 시 최소 속도 비율
 MAX_W = 1.0                            # 최대 회전속도
 W_RATE = 0.30                          # 루프당 w 변화 제한
@@ -77,6 +77,9 @@ GAP_BEARING_MAX = 1.20                 # gap 후보 최대 좌우 방위각(rad)
 GAP_BEARING_STEP = 0.15                # gap 후보 샘플 간격(rad)
 GAP_WINDOW_RAD = 0.22                  # 후보 방위 주변 장애물 확인 폭(rad)
 GAP_MIN_CLEAR_MARGIN = 0.02            # gap 후보가 가져야 하는 최소 추가 여유
+GAP_PASS_LOOKAHEAD_M = 0.75            # gap 후보가 실제 통로인지 확인할 고정 전방 거리
+GAP_PASS_SIDE_MARGIN_M = 0.06          # 로봇 좌우 폭에 더할 통과 여유
+GAP_W_PASS = 1.00                      # 통로 폭 여유 점수 비중
 GAP_W_CLEAR = 1.20
 GAP_W_TARGET = 1.00
 GAP_W_TURN = 0.15
@@ -89,7 +92,6 @@ ESCAPE_CREEP_MAX_V = 0.035             # 안전 여유 안에서 허용할 탈�
 ESCAPE_REVERSE_V = 0.04                # 안전 여유 안쪽에서만 쓰는 후진 탈출 속도 크기
 ESCAPE_REVERSE_MIN_GAIN = 0.002        # 후진 후보가 현재 여유보다 최소 이만큼 좋아야 채택
 
-GOAL_BEARING_FALLBACK = 0.0            # 호환용 상수. Controller는 미검출 시 SEARCH sweep 사용
 LOOP_DT = 0.05
 
 # ===================== 카메라 / 색상 인식 =====================
@@ -113,7 +115,6 @@ CAMERA_FX_PX = PRACTICE10_FX_640 * (CAM_W / 640.0)
 CAMERA_FY_PX = PRACTICE10_FY_480 * (CAM_H / 480.0)
 CAMERA_CX_PX = PRACTICE10_CX_640 * (CAM_W / 640.0)
 CAMERA_CY_PX = PRACTICE10_CY_480 * (CAM_H / 480.0)
-CAMERA_DIST_COEFFS = np.zeros(5, dtype=np.float32)
 
 # 실측한 top-down 바닥 시야. 로봇 좌표 x=전방, y=좌측.
 ROBOT_BODY_LENGTH_M = 0.165
@@ -124,29 +125,28 @@ CAMERA_REAR_BLIND_M = 0.25
 CAMERA_RECT_WIDTH_M = 0.39
 CAMERA_RECT_DEPTH_M = 0.54
 
+# ===================== 시퀀스 추적 / 탐색 동작 =====================
 DEFAULT_TARGET = "RED"                 # 시작 타깃 색
 TARGET_SEQUENCE = ["RED", "YELLOW", "BLUE"]   # 통과 순서
 ARRIVE_CY = 0.85                       # 코앞 감지 → 정지 전 close/creep 진입
 APPROACH_CY = 0.65                     # 이 이상 가까우면 저속 정렬 접근으로 전환
 APPROACH_ALIGN_MAX = 0.12              # 이 방위각 안에 안정적으로 들어와야 commit 허용
-APPROACH_STABLE_S = 0.25               # 정렬 상태가 유지되어야 하는 최소 시간
+APPROACH_STABLE_S = 0.10               # 정렬 상태가 유지되어야 하는 최소 시간
 BEARING_SMOOTH_ALPHA = 0.35            # 카메라 bearing 저역통과 필터 비율
 CLOSE_LOST_HOLD_CY = 0.95              # 이만큼 가까이 본 뒤 잃으면 패치 위로 보고 정지
 CLOSE_APPROACH_V = 0.07                # 코앞 감지 후 카메라를 보며 더 들어가는 저속
 CLOSE_APPROACH_MAX_S = 2.20            # 카메라가 계속 보여도 CLOSE를 끝내는 최대 시간
 BLIND_CREEP_V = 0.07                   # 카메라가 패치를 잃은 뒤 짧게 더 들어가는 속도
 BLIND_CREEP_DIST_M = 0.12              # 패치 위로 바퀴를 올리기 위한 추가 전진 거리
-BLIND_CREEP_S = BLIND_CREEP_DIST_M / max(1e-6, BLIND_CREEP_V)  # 호환/리포트용 환산 시간
 CREEP_STEER_GAIN = 0.45                # CREEP 중 마지막 bearing을 유지하는 작은 조향 게인
 CREEP_MAX_W = 0.16                     # CREEP 중 보정 회전속도 상한
 DWELL_S = 1.20                         # 패치 위 정지 유지 시간
-CENTER_TOL_M = 0.030                   # 로봇 중심과 색상 중심의 허용 오차
-CENTER_MAX_V = 0.12                    # 중심 정렬 접근 최대 속도
+CENTER_TOL_M = 0.055                   # 로봇 중심과 색상 중심의 허용 오차
+CENTER_MAX_V = CRUISE_V                # 중심 정렬 접근 속도; v_scale(거리 비례)이 감속 담당
 CENTER_SLOW_RADIUS_M = 0.35            # 중심 목표에 가까워질수록 감속하는 반경
 CENTER_GOAL_ALPHA = 0.35               # 색상 중심 world 좌표 저역통과 비율
 CENTER_LOST_MEMORY_S = 2.00            # 색을 잃어도 마지막 중심 좌표로 마무리하는 시간
 CENTER_MAX_BEARING = 1.20              # 중심 목표 방위각 제한
-SEARCH_V = 0.0                         # 타깃 미검출 시 전진하지 않고 제자리 탐색
 SEARCH_W = 0.80                        # 탐색 스윕 회전 속도 상한
 SEARCH_SWEEP_ANGLE_DEG = 35.0          # 현재 자세 기준 좌우로 훑는 각도
 SEARCH_SWEEP_ANGLE_RAD = math.radians(SEARCH_SWEEP_ANGLE_DEG)
@@ -154,13 +154,13 @@ SEARCH_SETTLE_RAD = 0.08               # 목표 스윕 각도에 이 정도 가�
 SEARCH_SCAN_EDGE_HITS = 2              # 좌/우 끝점을 이 횟수만큼 훑고도 안 보이면 전진 탐색
 SEARCH_DRIVE_V = CRUISE_V              # 스캔 후 미검출 시 전진 탐색 속도
 SEARCH_DRIVE_S = 1.20                  # 한 번 스캔한 뒤 전진 탐색하는 시간
-SEARCH_BEARING = SEARCH_SWEEP_ANGLE_RAD  # 호환/로깅용: 탐색 목표 방위각
+RE_SCAN_DIST_M = 0.80                 # 이 거리 이상 이동 후 타깃 미검출이면 제자리 재스캔
 SEARCH_SWEEP_S = 0.80                  # odometry가 없을 때 방향을 바꾸는 시간 fallback
 TARGET_LOST_MEMORY_S = 0.60            # 마지막으로 본 방향을 기억하는 시간
 
 # Odometry 기반 전역 탐색. 색이 안 보이면 2.3m keep-in 영역 안의 waypoint를 훑는다.
 EXPLORE_ENABLED = True
-EXPLORE_SPACING_M = 0.35               # 카메라 폭 0.39m보다 약간 작게 겹치며 훑는 간격
+EXPLORE_SPACING_M = 0.55               # 카메라 폭 0.39m보다 약간 작게 겹치며 훑는 간격
 EXPLORE_EDGE_MARGIN_M = 0.12           # keep-in 경계에서 waypoint가 추가로 떨어질 거리
 EXPLORE_REACH_DIST_M = 0.12            # waypoint 도착 판정 거리
 EXPLORE_SCAN_EDGE_HITS = 0             # waypoint 도착 후 스캔 횟수. 0이면 멈추지 않고 다음 지점으로 간다
@@ -268,9 +268,6 @@ class OdomPose:
         self.x = float(x)
         self.y = float(y)
         self.theta = float(theta)
-
-    def as_tuple(self):
-        return self.x, self.y, self.theta
 
 
 class WheelOdometry:
@@ -941,6 +938,39 @@ def nearest_sector_bearing(points, bearing, window_rad):
     return float(ang[idxs[int(np.argmin(d))]])
 
 
+def gap_required_half_width():
+    """로봇이 gap을 통과하는 데 필요한 좌우 반폭."""
+    body_half = 0.5 * float(globals().get("ROBOT_BODY_WIDTH_M", ROBOT_RADIUS * 2.0))
+    return max(0.0, body_half + max(0.0, GAP_PASS_SIDE_MARGIN_M))
+
+
+def gap_corridor_clearance(points, bearing, lookahead=None):
+    """후보 bearing으로 고정 길이 통로를 깔았을 때의 좌우 여유.
+
+    반환값이 0보다 작으면 로봇 폭+여유를 가진 직사각형 통로 안에 라이다 점이
+    들어온 것이므로, 저속으로는 잠깐 전진 가능해 보여도 실제 gap으로 쓰지 않는다.
+    """
+    if len(points) == 0:
+        return MAX_RANGE_M
+
+    lookahead = GAP_PASS_LOOKAHEAD_M if lookahead is None else lookahead
+    lookahead = max(0.10, min(float(lookahead), MAX_RANGE_M))
+    half_width = gap_required_half_width()
+    half_len = 0.5 * float(globals().get("ROBOT_BODY_LENGTH_M", ROBOT_RADIUS * 2.0))
+
+    c, s = math.cos(bearing), math.sin(bearing)
+    forward = points[:, 0] * c + points[:, 1] * s
+    lateral = -points[:, 0] * s + points[:, 1] * c
+
+    # 몸체 길이만큼 앞뒤로 살짝 부풀려서 회전 직후 코앞의 좁은 통로도 걸러낸다.
+    mask = (forward >= -half_len) & (forward <= lookahead + half_len)
+    if not mask.any():
+        return MAX_RANGE_M
+
+    side_margin = np.abs(lateral[mask]) - half_width
+    return float(side_margin.min())
+
+
 def _gap_bearing_candidates(target_bearing):
     limit = max(0.05, GAP_BEARING_MAX)
     step = max(0.03, GAP_BEARING_STEP)
@@ -970,6 +1000,10 @@ def choose_gap_cmd(points, target_bearing, prev_w, pose=None):
         blocker_bearing = nearest_sector_bearing(points, target_bearing, GAP_WINDOW_RAD)
 
     for bearing in _gap_bearing_candidates(target_bearing):
+        pass_clear = gap_corridor_clearance(points, bearing)
+        if pass_clear < 0.0:
+            continue
+
         sector = sector_clearance(points, bearing, GAP_WINDOW_RAD)
         if sector < min_sector:
             continue
@@ -980,6 +1014,7 @@ def choose_gap_cmd(points, target_bearing, prev_w, pose=None):
 
         clear_norm = min(clr, max(1e-6, CLEAR_CAP)) / max(1e-6, CLEAR_CAP)
         sector_norm = min(sector, max(1e-6, CLEAR_CAP)) / max(1e-6, CLEAR_CAP)
+        pass_norm = min(pass_clear, max(1e-6, CLEAR_CAP)) / max(1e-6, CLEAR_CAP)
         target_align = 0.5 * (1.0 + math.cos(wrap_rad(bearing - target_bearing)))
         turn_norm = abs(bearing) / max_turn
         away_norm = 0.0
@@ -987,6 +1022,7 @@ def choose_gap_cmd(points, target_bearing, prev_w, pose=None):
             away_norm = min(abs(wrap_rad(bearing - blocker_bearing)), max_turn) / max_turn
         score = (
             GAP_W_CLEAR * sector_norm
+            + GAP_W_PASS * pass_norm
             + 0.40 * clear_norm
             + GAP_W_TARGET * target_align
             + GAP_W_AWAY * away_norm
@@ -1000,6 +1036,9 @@ def choose_gap_cmd(points, target_bearing, prev_w, pose=None):
                 "w": w,
                 "clearance": clr,
                 "sector_clearance": sector,
+                "pass_clearance": pass_clear,
+                "required_half_width": gap_required_half_width(),
+                "lookahead_m": max(0.10, min(GAP_PASS_LOOKAHEAD_M, MAX_RANGE_M)),
                 "score": score,
             }
     return best
@@ -1014,7 +1053,10 @@ class Controller:
 
     def __init__(self):
         self.seq_idx = 0           # 현재 추적 색 = TARGET_SEQUENCE[seq_idx]
-        self.phase = "SEEK"
+        self.phase = "INIT_SCAN"   # 시작 시 360° 회전으로 color_memory 선구성
+        self.init_scan_prev_theta = None
+        self.init_scan_rotated = 0.0
+        self.init_scan_start_t = None
         self.close_until = 0.0
         self.creep_until = 0.0
         self.dwell_until = 0.0     # >0 이면 패치 위 정지 유지가 끝나는 시각
@@ -1053,6 +1095,9 @@ class Controller:
         self.avoid_direct_clr = 0.0
         self.avoid_target_sector_clear = 0.0
         self.avoid_sector_clear = 0.0
+        self.avoid_pass_clear = 0.0
+        self.avoid_required_half_width = 0.0
+        self.avoid_lookahead = 0.0
         self.avoid_score = 0.0
         self.center_goal_x = None      # centered/world 좌표계의 목표 색상 중심 x
         self.center_goal_y = None
@@ -1060,6 +1105,8 @@ class Controller:
         self.last_target_y = None
         self.last_center_dist = None
         self.color_memory = {}         # color -> centered/world 좌표계의 최근 관측 위치
+        self.rescan_dist_m = 0.0       # 마지막 스캔 이후 누적 이동 거리
+        self.rescan_last_pose = None   # 직전 tick pose (거리 적분용)
 
     @property
     def done(self):
@@ -1070,7 +1117,10 @@ class Controller:
         return None if self.done else TARGET_SEQUENCE[self.seq_idx]
 
     def _reset_for_next_target(self):
-        self.phase = "SEEK"
+        self.phase = "POST_SCAN"
+        self.init_scan_prev_theta = None
+        self.init_scan_rotated = 0.0
+        self.init_scan_start_t = None
         self.close_until = 0.0
         self.creep_until = 0.0
         self.dwell_until = 0.0
@@ -1091,6 +1141,8 @@ class Controller:
         self.search_edge_hits = 0
         self.search_drive_until = 0.0
         self.search_force_explore = True
+        self.rescan_dist_m = 0.0
+        self.rescan_last_pose = None
         self._reset_explore()
         self._reset_avoidance()
         self._reset_center()
@@ -1101,6 +1153,9 @@ class Controller:
         self.avoid_direct_clr = direct_clr
         self.avoid_target_sector_clear = target_sector_clear
         self.avoid_sector_clear = 0.0
+        self.avoid_pass_clear = 0.0
+        self.avoid_required_half_width = gap_required_half_width()
+        self.avoid_lookahead = max(0.10, min(GAP_PASS_LOOKAHEAD_M, MAX_RANGE_M))
         self.avoid_score = 0.0
 
     def _reset_center(self):
@@ -1203,6 +1258,8 @@ class Controller:
         self.search_edge_hits = 0
         self.search_drive_until = 0.0
         self.search_force_explore = False
+        self.rescan_dist_m = 0.0
+        self.rescan_last_pose = None
 
     def _update_approach_quality(self, cy_norm, now):
         aligned = cy_norm >= ARRIVE_CY and abs(self.smooth_bearing) <= APPROACH_ALIGN_MAX
@@ -1229,6 +1286,50 @@ class Controller:
         self._reset_avoidance()
         self._begin_search_scan()
         return 0.0, 0.0, "ARRIVE"
+
+    def _init_scan_cmd(self, points, now, pose):
+        """제자리 1회전. INIT_SCAN / POST_SCAN / RE_SCAN 세 페이즈 모두 처리."""
+        pose_t = _pose_tuple(pose)
+        phase_label = self.phase
+        if pose_t is not None:
+            _, _, theta = pose_t
+            if self.init_scan_prev_theta is None:
+                self.init_scan_prev_theta = theta
+                self.init_scan_rotated = 0.0
+            else:
+                self.init_scan_rotated += abs(wrap_rad(theta - self.init_scan_prev_theta))
+                self.init_scan_prev_theta = theta
+            if self.init_scan_rotated >= 2.0 * math.pi - 0.15:
+                return self._finish_spin_scan(points, now, pose)
+        else:
+            if self.init_scan_start_t is None:
+                self.init_scan_start_t = now
+            if now - self.init_scan_start_t >= 2.0 * math.pi / max(1e-6, SEARCH_W) + 1.0:
+                return self._finish_spin_scan(points, now, pose)
+
+        target_w = SEARCH_W
+        if command_clearance(0.0, target_w, points, pose) < escape_rotate_clearance_min():
+            target_w = -SEARCH_W
+        if command_clearance(0.0, target_w, points, pose) < escape_rotate_clearance_min():
+            self.last_w = 0.0
+            return 0.0, 0.0, phase_label
+        w = rate_limit(self.last_w, target_w, W_RATE)
+        self.last_w = w
+        return 0.0, w, phase_label
+
+    def _finish_spin_scan(self, points, now, pose):
+        """360° 스캔 완료. 기억 위치 있으면 SEEK, 없으면 EXPLORE로 아레나 커버리지."""
+        self.last_w = 0.0
+        self.phase = "SEEK"
+        self.rescan_dist_m = 0.0
+        self.rescan_last_pose = None
+
+        if self._target_memory(now) is not None:
+            return 0.0, 0.0, "SEEK"    # 다음 tick에서 MEMORY_GOTO가 안내
+
+        # 타깃 미발견 → EXPLORE_GOTO로 아레나를 체계적으로 커버하며 탐색.
+        # (단순 직진은 장애물에 막히거나 타깃 반대 방향으로 갈 수 있음)
+        return self._begin_and_try_search_drive(points, now, pose)
 
     def _begin_search_scan(self):
         self._reset_avoidance()
@@ -1464,6 +1565,14 @@ class Controller:
                 self.explore_blocked_since = now
             if now - self.explore_blocked_since >= EXPLORE_BLOCKED_S:
                 self._select_next_explore_waypoint(pose_t, now, skip_current=True, prefer_far=True)
+                return 0.0, 0.0, "EXPLORE_BLOCKED"
+            # 타임아웃 전: 서 있지 않고 탈출 회전으로 다른 경로 모색
+            escape = _escape_rotate_cmd(points, goal_bearing, self.last_w, pose)
+            if escape is not None:
+                v_e, w_e, clr_e, _ = escape
+                self.last_w = w_e
+                self.clr = clr_e
+                return v_e, w_e, "EXPLORE_BLOCKED"
             return 0.0, 0.0, "EXPLORE_BLOCKED"
 
         self.explore_blocked_since = 0.0
@@ -1536,6 +1645,9 @@ class Controller:
                 self.avoid_goal = gap["bearing"]
                 self.avoid_target_sector_clear = target_sector_clear
                 self.avoid_sector_clear = gap["sector_clearance"]
+                self.avoid_pass_clear = gap["pass_clearance"]
+                self.avoid_required_half_width = gap["required_half_width"]
+                self.avoid_lookahead = gap["lookahead_m"]
                 self.avoid_score = gap["score"]
                 self.goal = gap["bearing"]
                 self.last_w = gap["w"]
@@ -1717,7 +1829,7 @@ class Controller:
     def tick(self, points, seen, bearing, cy_norm, now, pose=None, target_xy=None,
              color_detections=None):
         """한 주기 의사결정. 반환 (v, w, state).
-           state ∈ DONE/HOLD/ARRIVE/CENTER/CENTER_BLIND/CREEP/CLOSE/SEARCH/
+           state ∈ DONE/INIT_SCAN/HOLD/ARRIVE/CENTER/CENTER_BLIND/CREEP/CLOSE/SEARCH/
                     SEARCH_DRIVE/EXPLORE_GOTO/EXPLORE_TURN/EXPLORE_AVOID/
                     EXPLORE_BLOCKED/MEMORY_GOTO/MEMORY_AVOID/AVOID/BLOCKED/SEEK.
            색 전환·정지 타이머는 내부 갱신."""
@@ -1731,6 +1843,12 @@ class Controller:
 
         if seen:
             self._note_seen(bearing, cy_norm, now)
+
+        if self.phase in ("INIT_SCAN", "POST_SCAN", "RE_SCAN"):   # 제자리 스캔: 타깃이 보이면 즉시 접근
+            if seen and target_xy is not None:
+                self.phase = "SEEK"
+            else:
+                return self._init_scan_cmd(points, now, pose)
 
         if self.phase == "HOLD":                   # 패치 위 정지 유지
             self.last_w = 0.0
@@ -1813,6 +1931,24 @@ class Controller:
             return min(v, CLOSE_APPROACH_V), w, "CLOSE"
 
         if not seen:
+            # odometry 기반 이동 거리 누적
+            pose_t = _pose_tuple(pose)
+            if pose_t is not None:
+                if self.rescan_last_pose is not None:
+                    self.rescan_dist_m += math.hypot(
+                        pose_t[0] - self.rescan_last_pose[0],
+                        pose_t[1] - self.rescan_last_pose[1],
+                    )
+                self.rescan_last_pose = (pose_t[0], pose_t[1])
+            # RE_SCAN_DIST_M 이상 이동 후 타깃 미검출 → 제자리 재스캔
+            if self.phase == "SEEK" and self.rescan_dist_m >= RE_SCAN_DIST_M:
+                self.phase = "RE_SCAN"
+                self.init_scan_prev_theta = None
+                self.init_scan_rotated = 0.0
+                self.init_scan_start_t = None
+                self.rescan_dist_m = 0.0
+                self.rescan_last_pose = None
+                return self._init_scan_cmd(points, now, pose)
             if self.avoid_active and now - self.last_seen_t <= AVOID_LOST_MEMORY_S:
                 keep_goal = self.avoid_goal if abs(self.avoid_goal) > 0.03 else self.last_seen_bearing
                 v, w, state = self._goal_cmd(points, keep_goal, pose, allow_avoid=True)

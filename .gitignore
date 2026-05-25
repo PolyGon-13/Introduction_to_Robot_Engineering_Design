@@ -14,6 +14,9 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 
+# Generated project data
+project3/drive_sim/data/
+
 # Virtual environments
 .venv/
 venv/
