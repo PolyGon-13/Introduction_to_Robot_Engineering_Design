@@ -165,6 +165,8 @@ LIDAR_MIN_QUALITY = 1
 LIDAR_SCAN_HOLD_S = 0.30
 LIDAR_SCAN_QUEUE_SIZE = 3
 LIDAR_MIN_SCAN_POINTS = 20
+LIDAR_CONTROL_WAIT_S = 0.12
+NO_LIDAR_LOOP_SLEEP_S = 0.03
 
 AVOID_MIN_ANGLE_DEG = -90.0
 AVOID_MAX_ANGLE_DEG = 90.0
@@ -379,6 +381,7 @@ class RPLidarC1:
             raise RuntimeError("[LIDAR] Response Header Error")
 
         self.lock = threading.Lock()
+        self.scan_ready = threading.Condition(self.lock)
         self.scan_queue = deque(maxlen=LIDAR_SCAN_QUEUE_SIZE)
         self.scan_seq = 0
         self.running = True
@@ -416,6 +419,7 @@ class RPLidarC1:
                         with self.lock:
                             self.scan_seq += 1
                             self.scan_queue.append((self.scan_seq, time.time(), scan))
+                            self.scan_ready.notify()
                     buf_a, buf_d, buf_q = [], [], []
 
                 angle_front_deg = LIDAR_ANGLE_SIGN * normalize_angle_deg(
@@ -446,6 +450,13 @@ class RPLidarC1:
             scan_seq, scan_time, scan = self.scan_queue.pop()
             self.scan_queue.clear()
             return scan, scan_seq, scan_time
+
+    def wait_for_scan(self, timeout):
+        with self.scan_ready:
+            if self.scan_queue:
+                return True
+            self.scan_ready.wait(timeout=timeout)
+            return bool(self.scan_queue)
 
     def close(self):
         self.running = False
@@ -960,6 +971,9 @@ def main():
         print("[INFO] Go!!")
 
         while True:
+            if lidar is not None:
+                lidar.wait_for_scan(LIDAR_CONTROL_WAIT_S)
+
             ret, frame = get_frame(camera)
 
             if not ret:
@@ -1055,7 +1069,8 @@ def main():
                 if cv2.waitKey(1) & 0xFF == ord("q"):
                     break
 
-            time.sleep(0.03)
+            if lidar is None:
+                time.sleep(NO_LIDAR_LOOP_SLEEP_S)
 
     except KeyboardInterrupt:
         print("\n[INFO] KeyboardInterrupt")
