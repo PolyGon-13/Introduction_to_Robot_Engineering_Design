@@ -7,6 +7,7 @@ import time
 import serial
 import math
 import threading
+from collections import deque
 
 
 # =========================================================
@@ -162,6 +163,7 @@ LIDAR_MIN_DIST_M = 0.01
 LIDAR_MAX_DIST_M = 0.75
 LIDAR_MIN_QUALITY = 1
 LIDAR_SCAN_HOLD_S = 0.30
+LIDAR_SCAN_QUEUE_SIZE = 3
 
 AVOID_MIN_ANGLE_DEG = -90.0
 AVOID_MAX_ANGLE_DEG = 90.0
@@ -376,9 +378,8 @@ class RPLidarC1:
             raise RuntimeError("[LIDAR] Response Header Error")
 
         self.lock = threading.Lock()
-        self.latest_scan = None
+        self.scan_queue = deque(maxlen=LIDAR_SCAN_QUEUE_SIZE)
         self.scan_seq = 0
-        self.scan_time = 0.0
         self.running = True
         self.thread = threading.Thread(target=self._loop, daemon=True)
         self.thread.start()
@@ -405,14 +406,14 @@ class RPLidarC1:
                 dist = (data[3] | (data[4] << 8)) / 4.0
 
                 if s_flag == 1 and len(buf_a) > 50:
+                    scan = (
+                        np.array(buf_a, dtype=np.float32),
+                        np.array(buf_d, dtype=np.float32),
+                        np.array(buf_q, dtype=np.float32),
+                    )
                     with self.lock:
-                        self.latest_scan = (
-                            np.array(buf_a, dtype=np.float32),
-                            np.array(buf_d, dtype=np.float32),
-                            np.array(buf_q, dtype=np.float32),
-                        )
                         self.scan_seq += 1
-                        self.scan_time = time.time()
+                        self.scan_queue.append((self.scan_seq, time.time(), scan))
                     buf_a, buf_d, buf_q = [], [], []
 
                 if dist > 0 and quality > 0:
@@ -430,7 +431,12 @@ class RPLidarC1:
 
     def get_scan(self):
         with self.lock:
-            return self.latest_scan, self.scan_seq, self.scan_time
+            if not self.scan_queue:
+                return None, self.scan_seq, 0.0
+
+            scan_seq, scan_time, scan = self.scan_queue.pop()
+            self.scan_queue.clear()
+            return scan, scan_seq, scan_time
 
     def close(self):
         self.running = False
