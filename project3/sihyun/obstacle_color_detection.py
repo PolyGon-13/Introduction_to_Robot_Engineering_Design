@@ -8,6 +8,7 @@ import serial
 import math
 import threading
 
+
 # =========================================================
 # 카메라 설정
 # =========================================================
@@ -170,7 +171,7 @@ LIDAR_ANGLE_SIGN = -1.0
 LIDAR_MIN_DIST_M = 0.05
 LIDAR_MAX_DIST_M = 0.75
 LIDAR_MIN_QUALITY = 1
-LIDAR_SCAN_HOLD_S = 0.3
+LIDAR_SCAN_HOLD_S = 0.30
 
 AVOID_MIN_ANGLE_DEG = -90.0
 AVOID_MAX_ANGLE_DEG = 90.0
@@ -178,7 +179,7 @@ AVOID_ANGLE_STEP_DEG = 2.0
 
 AVOID_FRONT_DIST = 0.34
 AVOID_DANGER_DIST = 0.22
-AVOID_COLLISION_DIST = 0.25
+AVOID_COLLISION_DIST = 0.20
 AVOID_IGNORE_NEAR_DIST = 0.05
 
 AVOID_FRONT_Y_HALF = 0.20
@@ -187,7 +188,7 @@ SIDE_CHECK_X_MAX = 0.25
 SIDE_CHECK_Y_MIN = 0.05
 SIDE_CHECK_Y_MAX = 0.35
 SIDE_AVOID_WARN_DIST = 0.15
-SIDE_AVOID_BLOCK_DIST = 0.10
+SIDE_AVOID_BLOCK_DIST = 0.08
 SIDE_TIGHT_V = 0.12
 SIDE_PUSH_MIN_W = 0.12
 SIDE_PUSH_MAX_W = 0.45
@@ -397,7 +398,7 @@ class RPLidarC1:
         self.ser = serial.Serial(port, baud, timeout=0.1)
 
         self.ser.write(bytes([0xA5, 0x40]))
-        time.sleep(3.0)
+        time.sleep(2.0)
         self.ser.reset_input_buffer()
 
         self.ser.write(bytes([0xA5, 0x20]))
@@ -413,7 +414,6 @@ class RPLidarC1:
         self.running = True
         self.thread = threading.Thread(target=self._loop, daemon=True)
         self.thread.start()
-        time.sleep(1.0)
 
     def _loop(self):
         buf_a, buf_d, buf_q = [], [], []
@@ -741,36 +741,21 @@ def compute_lidar_avoidance_cmd(lidar, color_v, color_w):
     scan, _, scan_time = lidar.get_scan()
     now = time.time()
     if scan is None or now - scan_time > LIDAR_SCAN_HOLD_S:
-        return 0.0, 0.0, {
+        return color_v, color_w, {
             "mode": "LIDAR_WAIT",
             "front": LIDAR_MAX_DIST_M,
             "left": LIDAR_MAX_DIST_M,
             "right": LIDAR_MAX_DIST_M,
-            "age": float("inf") if scan is None else now - scan_time,
         }
 
     points = lidar_points_to_xy(scan)
     front_dist = front_obstacle_distance(points)
     left_dist, right_dist = side_obstacle_distances(points)
     side_close = min(left_dist, right_dist) < SIDE_AVOID_WARN_DIST
-    side_blocked = min(left_dist, right_dist) <= SIDE_AVOID_BLOCK_DIST
 
     if color_v <= 0.001 and abs(color_w) <= 0.05:
         return 0.0, 0.0, {
             "mode": "IDLE",
-            "front": front_dist,
-            "left": left_dist,
-            "right": right_dist,
-        }
-
-    if side_blocked:
-        if left_dist <= SIDE_AVOID_BLOCK_DIST and right_dist <= SIDE_AVOID_BLOCK_DIST:
-            avoid_w = 0.0
-        else:
-            avoid_w = choose_stop_turn_w(left_dist, right_dist, color_w)
-
-        return 0.0, avoid_w, {
-            "mode": "SIDE_STOP_TURN",
             "front": front_dist,
             "left": left_dist,
             "right": right_dist,
@@ -1011,10 +996,10 @@ def main():
                 target_w,
             )
 
-            if avoid_info["mode"] in ("IDLE", "AVOID_HOLD", "LIDAR_WAIT"):
+            if avoid_info["mode"] in ("IDLE", "AVOID_HOLD"):
                 cmd_v = 0.0
                 cmd_w = 0.0
-            elif avoid_info["mode"] in ("AVOID_STOP_TURN", "SIDE_STOP_TURN"):
+            elif avoid_info["mode"] == "AVOID_STOP_TURN":
                 cmd_v = 0.0
                 cmd_w = rate_limit(last_w, target_w, W_RATE_LIMIT)
             elif avoid_info["mode"] in ("AVOID", "SIDE_GUARD", "AVOID_CREEP"):
@@ -1030,21 +1015,12 @@ def main():
             last_w = cmd_w
 
             if now - last_log > 0.25:
-                age_text = ""
-                if "age" in avoid_info:
-                    age = avoid_info["age"]
-                    if math.isinf(age):
-                        age_text = " age=inf"
-                    else:
-                        age_text = f" age={age:.2f}"
-
                 if target is None:
                     print(
                         f"[{mode}/{avoid_info['mode']}] "
                         f"v={cmd_v:.2f} w={cmd_w:.2f} "
                         f"front={avoid_info['front']:.2f} "
                         f"L={avoid_info['left']:.2f} R={avoid_info['right']:.2f}"
-                        f"{age_text}"
                     )
                 else:
                     print(
@@ -1054,7 +1030,6 @@ def main():
                         f"v={cmd_v:.2f} w={cmd_w:.2f} "
                         f"front={avoid_info['front']:.2f} "
                         f"L={avoid_info['left']:.2f} R={avoid_info['right']:.2f}"
-                        f"{age_text}"
                     )
                 last_log = now
 
