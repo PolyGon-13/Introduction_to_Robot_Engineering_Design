@@ -145,7 +145,7 @@ STOP_AREA = 28000
 # 추종할 색
 # None이면 RED, BLUE, YELLOW 중 가장 크게 보이는 색을 따라감
 # "RED", "BLUE", "YELLOW" 중 하나로 바꾸면 해당 색만 따라감
-TARGET_COLOR = RED
+TARGET_COLOR = "RED"
 
 # 색을 못 찾았을 때 동작
 # False: 정지
