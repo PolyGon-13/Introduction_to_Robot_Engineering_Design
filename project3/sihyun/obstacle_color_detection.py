@@ -135,7 +135,7 @@ V_RATE_LIMIT = 0.04
 W_RATE_LIMIT = 0.15
 
 # 카메라 중심 기준 오차가 이 이하이면 회전하지 않음
-CENTER_DEADBAND = 0.05
+CENTER_DEADBAND = 0.04
 
 # 추종할 색
 # None이면 RED, BLUE, YELLOW 중 가장 크게 보이는 색을 따라감
@@ -165,9 +165,9 @@ LIDAR_ANGLE_SIGN = -1.0
 LIDAR_MIN_DIST_M = 0.01
 LIDAR_MAX_DIST_M = 0.75
 LIDAR_MIN_QUALITY = 1
-LIDAR_SCAN_HOLD_S = 0.30
+LIDAR_SCAN_HOLD_S = 1.00
 LIDAR_SCAN_QUEUE_SIZE = 3
-LIDAR_MIN_SCAN_POINTS = 20
+LIDAR_MIN_SCAN_POINTS = 5
 
 AVOID_MIN_ANGLE_DEG = -90.0
 AVOID_MAX_ANGLE_DEG = 90.0
@@ -448,7 +448,6 @@ class RPLidarC1:
         with self.lock:
             if self.scan_queue:
                 scan_seq, scan_time, scan = self.scan_queue.pop()
-                self.scan_queue.clear()
                 self.latest_scan = (scan_seq, scan_time, scan)
                 return scan, scan_seq, scan_time
 
