@@ -180,15 +180,17 @@ SIDE_CHECK_Y_MAX = 0.35
 SIDE_AVOID_WARN_DIST = 0.15
 SIDE_AVOID_BLOCK_DIST = 0.08
 SIDE_TIGHT_V = 0.14
-SIDE_PUSH_MIN_W = 0.12
-SIDE_PUSH_MAX_W = 0.45
+SIDE_PUSH_MIN_W = 0.06
+SIDE_PUSH_MAX_W = 0.25
+SIDE_DIST_FILTER_ALPHA = 0.30
+SIDE_BALANCE_DEADBAND = 0.04
 
 AVOID_BUBBLE_RADIUS = 0.05
 AVOID_FREE_DIST = 0.18
 AVOID_CREEP_V = 0.09
 AVOID_MIN_GAP_WIDTH_DEG = 8.0
 AVOID_TURN_GAIN = 1.0
-AVOID_BLEND_GAIN = 0.85
+AVOID_BLEND_GAIN = 0.60
 AVOID_MAX_W = 0.80
 
 
@@ -655,7 +657,35 @@ def side_push_w(side_dist):
     return SIDE_PUSH_MIN_W + (SIDE_PUSH_MAX_W - SIDE_PUSH_MIN_W) * ratio
 
 
+_filtered_front_dist = None
+_filtered_left_dist = None
+_filtered_right_dist = None
+
+
+def smooth_lidar_distances(front_dist, left_dist, right_dist):
+    global _filtered_front_dist, _filtered_left_dist, _filtered_right_dist
+
+    if _filtered_front_dist is None:
+        _filtered_front_dist = front_dist
+        _filtered_left_dist = left_dist
+        _filtered_right_dist = right_dist
+    else:
+        alpha = SIDE_DIST_FILTER_ALPHA
+        _filtered_front_dist = alpha * front_dist + (1.0 - alpha) * _filtered_front_dist
+        _filtered_left_dist = alpha * left_dist + (1.0 - alpha) * _filtered_left_dist
+        _filtered_right_dist = alpha * right_dist + (1.0 - alpha) * _filtered_right_dist
+
+    return _filtered_front_dist, _filtered_left_dist, _filtered_right_dist
+
+
 def constrain_turn_away_from_side(blended_w, left_dist, right_dist):
+    both_sides_close = (
+        left_dist < SIDE_AVOID_WARN_DIST
+        and right_dist < SIDE_AVOID_WARN_DIST
+    )
+    if both_sides_close and abs(left_dist - right_dist) < SIDE_BALANCE_DEADBAND:
+        return float(np.clip(blended_w * 0.35, -MAX_W, MAX_W))
+
     if right_dist < SIDE_AVOID_WARN_DIST and blended_w < 0.0:
         blended_w = 0.0
     if left_dist < SIDE_AVOID_WARN_DIST and blended_w > 0.0:
@@ -717,6 +747,11 @@ def compute_lidar_avoidance_cmd(lidar, color_v, color_w):
     points = lidar_points_to_xy(scan)
     front_dist = front_obstacle_distance(points)
     left_dist, right_dist = side_obstacle_distances(points)
+    front_dist, left_dist, right_dist = smooth_lidar_distances(
+        front_dist,
+        left_dist,
+        right_dist,
+    )
     side_close = min(left_dist, right_dist) < SIDE_AVOID_WARN_DIST
 
     if color_v <= 0.001 and abs(color_w) <= 0.05:
