@@ -189,12 +189,13 @@ SIDE_CHECK_Y_MIN = 0.05
 SIDE_CHECK_Y_MAX = 0.35
 SIDE_AVOID_WARN_DIST = 0.15
 SIDE_AVOID_BLOCK_DIST = 0.08
-SIDE_TIGHT_V = 0.12
+SIDE_TIGHT_V = 0.14
 SIDE_PUSH_MIN_W = 0.12
 SIDE_PUSH_MAX_W = 0.45
 
 AVOID_BUBBLE_RADIUS = 0.05
 AVOID_FREE_DIST = 0.18
+AVOID_CREEP_V = 0.09
 AVOID_MIN_GAP_WIDTH_DEG = 8.0
 AVOID_TURN_GAIN = 1.0
 AVOID_BLEND_GAIN = 0.85
@@ -805,7 +806,7 @@ def compute_lidar_avoidance_cmd(lidar, color_v, color_w):
 
         # 장애물이 가까워도 빈 공간이 있으면 완전 정지하지 말고
         # 천천히 전진하면서 회피 방향으로 회전한다.
-        avoid_v = min(color_v, 0.05)
+        avoid_v = min(color_v, AVOID_CREEP_V)
 
         avoid_w = float(np.clip(
             AVOID_TURN_GAIN * gap_angle,
