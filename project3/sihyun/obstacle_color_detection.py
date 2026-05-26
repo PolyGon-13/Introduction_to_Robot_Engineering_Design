@@ -178,8 +178,8 @@ AVOID_ANGLE_STEP_DEG = 2.0
 
 AVOID_FRONT_DIST = 0.34
 AVOID_DANGER_DIST = 0.22
-AVOID_COLLISION_DIST = 0.13
-AVOID_IGNORE_NEAR_DIST = 0.12
+AVOID_COLLISION_DIST = 0.20
+AVOID_IGNORE_NEAR_DIST = 0.05
 
 AVOID_FRONT_Y_HALF = 0.20
 SIDE_CHECK_X_MIN = -0.05
@@ -934,8 +934,15 @@ def main():
                 target_w,
             )
 
-            cmd_v = rate_limit(last_v, target_v, V_RATE_LIMIT)
-            cmd_w = rate_limit(last_w, target_w, W_RATE_LIMIT)
+            if avoid_info["mode"] == "AVOID_STOP_TURN":
+                cmd_v = 0.0
+                cmd_w = rate_limit(last_w, target_w, W_RATE_LIMIT)
+            elif avoid_info["mode"] in ("AVOID", "SIDE_GUARD"):
+                cmd_v = min(rate_limit(last_v, target_v, V_RATE_LIMIT), target_v)
+                cmd_w = rate_limit(last_w, target_w, W_RATE_LIMIT)
+            else:
+                cmd_v = rate_limit(last_v, target_v, V_RATE_LIMIT)
+                cmd_w = rate_limit(last_w, target_w, W_RATE_LIMIT)
 
             send_vw(ardu, cmd_v, cmd_w)
 
