@@ -147,30 +147,21 @@ TARGET_LOST_HOLD_SEC = 0.35
 
 
 # =========================================================
-# LiDAR settings
+# LiDAR obstacle avoidance settings
 # =========================================================
 
 USE_LIDAR_AVOIDANCE = True
 LIDAR_PORT = "/dev/ttyUSB0"
 LIDAR_BAUD = 460800
 
-ANGLE_OFFSET_DEG = 1.54
-DIST_OFFSET_MM = 0.0
+LIDAR_ANGLE_OFFSET_DEG = 1.54
+LIDAR_DIST_OFFSET_MM = 1.0
 LIDAR_ANGLE_SIGN = -1.0
 
-MIN_LIDAR_DIST_M = 0.05
-MAX_LIDAR_DIST_M = 0.75
-MIN_QUALITY = 1
-
-SCAN_HOLD_S = 0.30
-LOOP_DT_S = 0.05
-
-LIDAR_ANGLE_OFFSET_DEG = ANGLE_OFFSET_DEG
-LIDAR_DIST_OFFSET_MM = DIST_OFFSET_MM
-LIDAR_MIN_DIST_M = MIN_LIDAR_DIST_M
-LIDAR_MAX_DIST_M = MAX_LIDAR_DIST_M
-LIDAR_MIN_QUALITY = MIN_QUALITY
-LIDAR_SCAN_HOLD_S = SCAN_HOLD_S
+LIDAR_MIN_DIST_M = 0.01
+LIDAR_MAX_DIST_M = 0.75
+LIDAR_MIN_QUALITY = 1
+LIDAR_SCAN_HOLD_S = 0.30
 
 AVOID_MIN_ANGLE_DEG = -90.0
 AVOID_MAX_ANGLE_DEG = 90.0
@@ -189,17 +180,15 @@ SIDE_CHECK_Y_MAX = 0.35
 SIDE_AVOID_WARN_DIST = 0.15
 SIDE_AVOID_BLOCK_DIST = 0.08
 SIDE_TIGHT_V = 0.14
-SIDE_PUSH_MIN_W = 0.06
-SIDE_PUSH_MAX_W = 0.25
-SIDE_DIST_FILTER_ALPHA = 0.30
-SIDE_BALANCE_DEADBAND = 0.04
+SIDE_PUSH_MIN_W = 0.12
+SIDE_PUSH_MAX_W = 0.45
 
 AVOID_BUBBLE_RADIUS = 0.05
 AVOID_FREE_DIST = 0.18
 AVOID_CREEP_V = 0.09
 AVOID_MIN_GAP_WIDTH_DEG = 8.0
 AVOID_TURN_GAIN = 1.0
-AVOID_BLEND_GAIN = 0.60
+AVOID_BLEND_GAIN = 0.85
 AVOID_MAX_W = 0.80
 
 
@@ -374,15 +363,11 @@ class RPLidarC1:
     def __init__(self, port, baud):
         self.ser = serial.Serial(port, baud, timeout=0.1)
 
-        # 라이다 리셋
         self.ser.write(bytes([0xA5, 0x40]))
         time.sleep(2.0)
         self.ser.reset_input_buffer()
 
-        # 스캔 시작
         self.ser.write(bytes([0xA5, 0x20]))
-
-        # 응답 헤더 확인
         header = self.ser.read(7)
         if len(header) != 7 or header[0] != 0xA5 or header[1] != 0x5A:
             self.ser.close()
@@ -393,7 +378,6 @@ class RPLidarC1:
         self.scan_seq = 0
         self.scan_time = 0.0
         self.running = True
-
         self.thread = threading.Thread(target=self._loop, daemon=True)
         self.thread.start()
 
@@ -418,8 +402,6 @@ class RPLidarC1:
                 angle = ((data[1] >> 1) | (data[2] << 7)) / 64.0
                 dist = (data[3] | (data[4] << 8)) / 4.0
 
-                # s_flag == 1이면 한 바퀴 스캔이 새로 시작된 것
-                # 기존 버퍼가 충분하면 latest_scan으로 저장
                 if s_flag == 1 and len(buf_a) > 50:
                     with self.lock:
                         self.latest_scan = (
@@ -429,7 +411,6 @@ class RPLidarC1:
                         )
                         self.scan_seq += 1
                         self.scan_time = time.time()
-
                     buf_a, buf_d, buf_q = [], [], []
 
                 if dist > 0 and quality > 0:
@@ -440,7 +421,6 @@ class RPLidarC1:
             except (serial.SerialException, OSError) as e:
                 print(f"[LIDAR] Serial Error: {e}, retrying in 1 second...")
                 time.sleep(1.0)
-
                 try:
                     self.ser.reset_input_buffer()
                 except Exception:
@@ -452,41 +432,15 @@ class RPLidarC1:
 
     def close(self):
         self.running = False
-
         try:
-            # 스캔 정지 명령
             self.ser.write(bytes([0xA5, 0x25]))
         except Exception:
             pass
-
         time.sleep(0.1)
-        self.ser.close()
-
-
-def filter_lidar_scan(scan):
-    if scan is None:
-        return None
-
-    angles, dists, qualities = scan
-
-    dist_m = (dists.astype(np.float32) + DIST_OFFSET_MM) / 1000.0
-
-    angle_deg = normalize_angle_deg(
-        angles.astype(np.float32) + ANGLE_OFFSET_DEG
-    )
-
-    angle_deg = LIDAR_ANGLE_SIGN * angle_deg
-
-    valid = (
-        (dist_m >= MIN_LIDAR_DIST_M)
-        & (dist_m <= MAX_LIDAR_DIST_M)
-        & (qualities >= MIN_QUALITY)
-    )
-
-    if not valid.any():
-        return None
-
-    return angle_deg[valid], dist_m[valid], qualities[valid]
+        try:
+            self.ser.close()
+        except Exception:
+            pass
 
 
 def open_lidar():
@@ -701,35 +655,7 @@ def side_push_w(side_dist):
     return SIDE_PUSH_MIN_W + (SIDE_PUSH_MAX_W - SIDE_PUSH_MIN_W) * ratio
 
 
-_filtered_front_dist = None
-_filtered_left_dist = None
-_filtered_right_dist = None
-
-
-def smooth_lidar_distances(front_dist, left_dist, right_dist):
-    global _filtered_front_dist, _filtered_left_dist, _filtered_right_dist
-
-    if _filtered_front_dist is None:
-        _filtered_front_dist = front_dist
-        _filtered_left_dist = left_dist
-        _filtered_right_dist = right_dist
-    else:
-        alpha = SIDE_DIST_FILTER_ALPHA
-        _filtered_front_dist = alpha * front_dist + (1.0 - alpha) * _filtered_front_dist
-        _filtered_left_dist = alpha * left_dist + (1.0 - alpha) * _filtered_left_dist
-        _filtered_right_dist = alpha * right_dist + (1.0 - alpha) * _filtered_right_dist
-
-    return _filtered_front_dist, _filtered_left_dist, _filtered_right_dist
-
-
 def constrain_turn_away_from_side(blended_w, left_dist, right_dist):
-    both_sides_close = (
-        left_dist < SIDE_AVOID_WARN_DIST
-        and right_dist < SIDE_AVOID_WARN_DIST
-    )
-    if both_sides_close and abs(left_dist - right_dist) < SIDE_BALANCE_DEADBAND:
-        return float(np.clip(blended_w * 0.35, -MAX_W, MAX_W))
-
     if right_dist < SIDE_AVOID_WARN_DIST and blended_w < 0.0:
         blended_w = 0.0
     if left_dist < SIDE_AVOID_WARN_DIST and blended_w > 0.0:
@@ -791,11 +717,6 @@ def compute_lidar_avoidance_cmd(lidar, color_v, color_w):
     points = lidar_points_to_xy(scan)
     front_dist = front_obstacle_distance(points)
     left_dist, right_dist = side_obstacle_distances(points)
-    front_dist, left_dist, right_dist = smooth_lidar_distances(
-        front_dist,
-        left_dist,
-        right_dist,
-    )
     side_close = min(left_dist, right_dist) < SIDE_AVOID_WARN_DIST
 
     if color_v <= 0.001 and abs(color_w) <= 0.05:
@@ -1084,7 +1005,7 @@ def main():
                 if cv2.waitKey(1) & 0xFF == ord("q"):
                     break
 
-            time.sleep(0.03)
+            time.sleep(LOOP_DT_S)
 
     except KeyboardInterrupt:
         print("\n[INFO] KeyboardInterrupt")
