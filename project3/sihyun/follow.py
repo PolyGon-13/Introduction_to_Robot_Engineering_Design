@@ -5,6 +5,7 @@ import cv2
 import numpy as np
 import time
 import serial
+import threading
 
 # =========================================================
 # 카메라 설정
@@ -113,6 +114,8 @@ def close_camera(camera):
 
 ARDU_PORT = "/dev/ttyS0"
 ARDU_BAUD = 9600
+LIDAR_PORT = "/dev/ttyUSB0"
+LIDAR_BAUD = 460800
 
 # 전진 속도/회전 속도 제한
 MAX_V = 0.18          # 최대 전진 속도
@@ -178,6 +181,92 @@ def stop(ardu):
 def rate_limit(prev_value, target_value, limit):
     delta = float(np.clip(target_value - prev_value, -limit, limit))
     return prev_value + delta
+
+
+class RPLidarC1:
+    def __init__(self, port, baud):
+        self.ser = serial.Serial(port, baud, timeout=0.1)
+
+        self.ser.write(bytes([0xA5, 0x40]))
+        time.sleep(2.0)
+        self.ser.reset_input_buffer()
+
+        self.ser.write(bytes([0xA5, 0x20]))
+        header = self.ser.read(7)
+        if len(header) != 7 or header[0] != 0xA5 or header[1] != 0x5A:
+            self.ser.close()
+            raise RuntimeError("[LIDAR] Response Header Error")
+
+        self.lock = threading.Lock()
+        self.latest_scan = None
+        self.running = True
+        self.thread = threading.Thread(target=self._loop, daemon=True)
+        self.thread.start()
+
+    def _loop(self):
+        buf_a, buf_d, buf_q = [], [], []
+        while self.running:
+            try:
+                data = self.ser.read(5)
+                if len(data) != 5:
+                    continue
+
+                s_flag = data[0] & 0x01
+                s_inv = (data[0] & 0x02) >> 1
+                if s_inv != (1 - s_flag):
+                    continue
+
+                if (data[1] & 0x01) != 1:
+                    continue
+
+                quality = data[0] >> 2
+                angle = ((data[1] >> 1) | (data[2] << 7)) / 64.0
+                dist = (data[3] | (data[4] << 8)) / 4.0
+
+                if s_flag == 1 and len(buf_a) > 50:
+                    with self.lock:
+                        self.latest_scan = (
+                            np.array(buf_a, dtype=np.float32),
+                            np.array(buf_d, dtype=np.float32),
+                            np.array(buf_q, dtype=np.float32),
+                        )
+                    buf_a, buf_d, buf_q = [], [], []
+
+                if dist > 0 and quality > 0:
+                    buf_a.append(angle)
+                    buf_d.append(dist)
+                    buf_q.append(quality)
+
+            except (serial.SerialException, OSError) as e:
+                print(f"[LIDAR] Serial Error: {e}, retrying in 1 second...")
+                time.sleep(1.0)
+                try:
+                    self.ser.reset_input_buffer()
+                except Exception:
+                    pass
+
+    def get_scan(self):
+        with self.lock:
+            return self.latest_scan
+
+    def close(self):
+        self.running = False
+        try:
+            self.ser.write(bytes([0xA5, 0x25]))
+        except Exception:
+            pass
+        time.sleep(0.1)
+        self.ser.close()
+
+
+def open_lidar():
+    try:
+        lidar = RPLidarC1(LIDAR_PORT, LIDAR_BAUD)
+        print(f"[INFO] LiDAR connected: {LIDAR_PORT}, {LIDAR_BAUD}")
+        return lidar
+    except Exception as e:
+        print(f"[WARN] LiDAR disabled: {e}")
+        return None
 
 
 # =========================================================
@@ -405,6 +494,7 @@ def draw_results(frame, results, target=None, cmd_v=0.0, cmd_w=0.0):
 def main():
     camera = None
     ardu = None
+    lidar = None
 
     last_v = 0.0
     last_w = 0.0
@@ -416,6 +506,8 @@ def main():
         camera = open_camera()
         if camera is None:
             return
+
+        lidar = open_lidar()
 
         ardu = open_arduino()
         stop(ardu)
@@ -513,6 +605,12 @@ def main():
                 stop(ardu)
                 time.sleep(0.2)
                 ardu.close()
+            except Exception:
+                pass
+
+        if lidar is not None:
+            try:
+                lidar.close()
             except Exception:
                 pass
 
