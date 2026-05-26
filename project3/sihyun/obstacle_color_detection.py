@@ -133,16 +133,6 @@ W_RATE_LIMIT = 0.15
 # 카메라 중심 기준 오차가 이 이하이면 회전하지 않음
 CENTER_DEADBAND = 0.08
 
-# 면적이 이 값보다 작으면 잡음으로 무시
-MIN_AREA = 1200
-MIN_EXTENT = 0.45
-
-# 면적 기반 거리 제어
-# 물체 면적이 TARGET_AREA보다 작으면 전진
-# STOP_AREA보다 커지면 너무 가까운 것으로 보고 정지
-TARGET_AREA = 15000
-STOP_AREA = 28000
-
 # 추종할 색
 # None이면 RED, BLUE, YELLOW 중 가장 크게 보이는 색을 따라감
 # "RED", "BLUE", "YELLOW" 중 하나로 바꾸면 해당 색만 따라감
@@ -295,31 +285,23 @@ def detect_colors(frame):
             cv2.CHAIN_APPROX_SIMPLE,
         )
 
+        frame_center_x = frame.shape[1] / 2.0
+
         for cnt in contours:
-            area = cv2.contourArea(cnt)
-
-            if area < MIN_AREA:
-                continue
-
             x, y, w, h = cv2.boundingRect(cnt)
-            extent = area / max(1.0, float(w * h))
-
-            if extent < MIN_EXTENT:
-                continue
-
             cx = x + w // 2
             cy = y + h // 2
 
             detected_results.append(
                 {
                     "color": color_name,
-                    "area": float(area),
                     "x": x,
                     "y": y,
                     "w": w,
                     "h": h,
                     "cx": cx,
                     "cy": cy,
+                    "center_error_abs": abs(cx - frame_center_x),
                 }
             )
 
@@ -328,7 +310,7 @@ def detect_colors(frame):
 
 def choose_target(results):
     """
-    여러 색이 동시에 보이면 가장 면적이 큰 물체를 추종 대상으로 선택
+    여러 색이 동시에 보이면 화면 중심에 가장 가까운 물체를 추종 대상으로 선택
     """
     if TARGET_COLOR is None:
         candidates = results
@@ -338,12 +320,12 @@ def choose_target(results):
     if not candidates:
         return None
 
-    return max(candidates, key=lambda r: r["area"])
+    return min(candidates, key=lambda r: r["center_error_abs"])
 
 
 def compute_follow_cmd(target, frame_width):
     """
-    인식한 색상 물체의 위치/면적으로 v, w 계산
+    인식한 색상 물체의 위치로 v, w 계산
 
     cx가 화면 오른쪽이면 error_x > 0
     파일 2의 FGM 코드 기준으로 w > 0은 좌회전 방향으로 쓰였으므로,
@@ -365,25 +347,8 @@ def compute_follow_cmd(target, frame_width):
 
     w = float(np.clip(w, -MAX_W, MAX_W))
 
-    area = target["area"]
-
-    # 너무 가까우면 정지
-    if area >= STOP_AREA:
-        v = 0.0
-
-    # 적당히 가까우면 천천히 접근 또는 정지
-    elif area >= TARGET_AREA:
-        v = 0.0
-
-    # 멀리 있으면 전진
-    else:
-        ratio = (TARGET_AREA - area) / max(1.0, TARGET_AREA - MIN_AREA)
-        ratio = float(np.clip(ratio, 0.0, 1.0))
-        v = MIN_V + (MAX_V - MIN_V) * ratio
-
-        # 많이 틀어야 하는 상황에서는 전진 속도 줄이기
-        turn_slow = 1.0 - 0.45 * min(1.0, abs(error_x))
-        v *= turn_slow
+    turn_slow = 1.0 - 0.45 * min(1.0, abs(error_x))
+    v = MAX_V * turn_slow
 
     v = float(np.clip(v, 0.0, MAX_V))
 
@@ -876,15 +841,13 @@ def draw_results(frame, results, target=None, cmd_v=0.0, cmd_w=0.0):
         h = result["h"]
         cx = result["cx"]
         cy = result["cy"]
-        area = result["area"]
-
         box_color = BOX_COLOR[color]
         thickness = 3 if result is target else 2
 
         cv2.rectangle(frame, (x, y), (x + w, y + h), box_color, thickness)
         cv2.circle(frame, (cx, cy), 5, box_color, -1)
 
-        label = f"{color} area:{int(area)} cx:{cx}"
+        label = f"{color} cx:{cx}"
         if result is target:
             label = "[TARGET] " + label
 
@@ -1026,7 +989,7 @@ def main():
                 else:
                     print(
                         f"[{mode}/{avoid_info['mode']}] "
-                        f"cx={target['cx']} area={int(target['area'])} "
+                        f"cx={target['cx']} "
                         f"err={error_x:.2f} "
                         f"v={cmd_v:.2f} w={cmd_w:.2f} "
                         f"front={avoid_info['front']:.2f} "
