@@ -33,6 +33,9 @@ FLIP_VERTICAL = False   #상하반전
 # SSH로 실행해서 cv2 창이 안 뜨면 False로 바꾸기
 SHOW_WINDOW = False
 
+MAIN_LOOP_HZ = 10.0
+MAIN_LOOP_PERIOD = 1.0 / MAIN_LOOP_HZ
+
 
 def open_camera():
     """
@@ -131,7 +134,7 @@ V_RATE_LIMIT = 0.04
 W_RATE_LIMIT = 0.15
 
 # 카메라 중심 기준 오차가 이 이하이면 회전하지 않음
-CENTER_DEADBAND = 0.05
+CENTER_DEADBAND = 0.08
 
 # 추종할 색
 # None이면 RED, BLUE, YELLOW 중 가장 크게 보이는 색을 따라감
@@ -162,7 +165,7 @@ LIDAR_MIN_DIST_M = 0.01
 LIDAR_MAX_DIST_M = 0.75
 LIDAR_MIN_QUALITY = 1
 LIDAR_SCAN_HOLD_S = 0.30
-LOOP_DT_S = 0.05
+LIDAR_MIN_SCAN_POINTS = 50
 
 AVOID_MIN_ANGLE_DEG = -90.0
 AVOID_MAX_ANGLE_DEG = 90.0
@@ -179,17 +182,19 @@ SIDE_CHECK_X_MAX = 0.25
 SIDE_CHECK_Y_MIN = 0.05
 SIDE_CHECK_Y_MAX = 0.35
 SIDE_AVOID_WARN_DIST = 0.15
-SIDE_AVOID_BLOCK_DIST = 0.08
+SIDE_AVOID_BLOCK_DIST = 0.12
 SIDE_TIGHT_V = 0.14
-SIDE_PUSH_MIN_W = 0.08
-SIDE_PUSH_MAX_W = 0.45
+SIDE_PUSH_MIN_W = 0.06
+SIDE_PUSH_MAX_W = 0.25
+SIDE_DIST_FILTER_ALPHA = 0.30
+SIDE_BALANCE_DEADBAND = 0.04
 
 AVOID_BUBBLE_RADIUS = 0.05
 AVOID_FREE_DIST = 0.18
 AVOID_CREEP_V = 0.09
 AVOID_MIN_GAP_WIDTH_DEG = 8.0
 AVOID_TURN_GAIN = 1.0
-AVOID_BLEND_GAIN = 0.85
+AVOID_BLEND_GAIN = 0.60
 AVOID_MAX_W = 0.80
 
 
@@ -403,15 +408,17 @@ class RPLidarC1:
                 angle = ((data[1] >> 1) | (data[2] << 7)) / 64.0
                 dist = (data[3] | (data[4] << 8)) / 4.0
 
-                if s_flag == 1 and len(buf_a) > 50:
-                    with self.lock:
-                        self.latest_scan = (
+                if s_flag == 1:
+                    if len(buf_a) >= LIDAR_MIN_SCAN_POINTS:
+                        scan = (
                             np.array(buf_a, dtype=np.float32),
                             np.array(buf_d, dtype=np.float32),
                             np.array(buf_q, dtype=np.float32),
                         )
-                        self.scan_seq += 1
-                        self.scan_time = time.time()
+                        with self.lock:
+                            self.latest_scan = scan
+                            self.scan_seq += 1
+                            self.scan_time = time.time()
                     buf_a, buf_d, buf_q = [], [], []
 
                 if dist > 0 and quality > 0:
@@ -656,7 +663,35 @@ def side_push_w(side_dist):
     return SIDE_PUSH_MIN_W + (SIDE_PUSH_MAX_W - SIDE_PUSH_MIN_W) * ratio
 
 
+_filtered_front_dist = None
+_filtered_left_dist = None
+_filtered_right_dist = None
+
+
+def smooth_lidar_distances(front_dist, left_dist, right_dist):
+    global _filtered_front_dist, _filtered_left_dist, _filtered_right_dist
+
+    if _filtered_front_dist is None:
+        _filtered_front_dist = front_dist
+        _filtered_left_dist = left_dist
+        _filtered_right_dist = right_dist
+    else:
+        alpha = SIDE_DIST_FILTER_ALPHA
+        _filtered_front_dist = alpha * front_dist + (1.0 - alpha) * _filtered_front_dist
+        _filtered_left_dist = alpha * left_dist + (1.0 - alpha) * _filtered_left_dist
+        _filtered_right_dist = alpha * right_dist + (1.0 - alpha) * _filtered_right_dist
+
+    return _filtered_front_dist, _filtered_left_dist, _filtered_right_dist
+
+
 def constrain_turn_away_from_side(blended_w, left_dist, right_dist):
+    both_sides_close = (
+        left_dist < SIDE_AVOID_WARN_DIST
+        and right_dist < SIDE_AVOID_WARN_DIST
+    )
+    if both_sides_close and abs(left_dist - right_dist) < SIDE_BALANCE_DEADBAND:
+        return float(np.clip(blended_w * 0.35, -MAX_W, MAX_W))
+
     if right_dist < SIDE_AVOID_WARN_DIST and blended_w < 0.0:
         blended_w = 0.0
     if left_dist < SIDE_AVOID_WARN_DIST and blended_w > 0.0:
@@ -718,6 +753,11 @@ def compute_lidar_avoidance_cmd(lidar, color_v, color_w):
     points = lidar_points_to_xy(scan)
     front_dist = front_obstacle_distance(points)
     left_dist, right_dist = side_obstacle_distances(points)
+    front_dist, left_dist, right_dist = smooth_lidar_distances(
+        front_dist,
+        left_dist,
+        right_dist,
+    )
     side_close = min(left_dist, right_dist) < SIDE_AVOID_WARN_DIST
 
     if color_v <= 0.001 and abs(color_w) <= 0.05:
@@ -911,12 +951,13 @@ def main():
         print("[INFO] Go!!")
 
         while True:
+            loop_start = time.time()
             ret, frame = get_frame(camera)
 
             if not ret:
                 print("[ERROR] Failed to read frame")
                 send_vw(ardu, 0.0, 0.0)
-                time.sleep(0.05)
+                time.sleep(MAIN_LOOP_PERIOD)
                 continue
 
             results = detect_colors(frame)
@@ -1006,7 +1047,8 @@ def main():
                 if cv2.waitKey(1) & 0xFF == ord("q"):
                     break
 
-            time.sleep(LOOP_DT_S)
+            elapsed = time.time() - loop_start
+            time.sleep(max(0.0, MAIN_LOOP_PERIOD - elapsed))
 
     except KeyboardInterrupt:
         print("\n[INFO] KeyboardInterrupt")
