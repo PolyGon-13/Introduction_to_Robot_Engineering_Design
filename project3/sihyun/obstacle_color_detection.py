@@ -25,8 +25,8 @@ FRAME_HEIGHT = 480
 CAMERA_EXPOSURE_VALUE = -1.0
 
 #반전
-FLIP_HORIZONTAL = True #좌우반전
-FLIP_VERTICAL = True   #상하반전
+FLIP_HORIZONTAL = False #좌우반전
+FLIP_VERTICAL = False   #상하반전
 
 # 모니터/원격화면에서 영상 확인할 때 True
 # SSH로 실행해서 cv2 창이 안 뜨면 False로 바꾸기
@@ -145,7 +145,7 @@ STOP_AREA = 28000
 # 추종할 색
 # None이면 RED, BLUE, YELLOW 중 가장 크게 보이는 색을 따라감
 # "RED", "BLUE", "YELLOW" 중 하나로 바꾸면 해당 색만 따라감
-TARGET_COLOR = None
+TARGET_COLOR = "RED"
 
 # 색을 못 찾았을 때 동작
 # False: 정지
@@ -153,6 +153,7 @@ TARGET_COLOR = None
 SEARCH_WHEN_LOST = False
 SEARCH_W = 0.25
 TARGET_LOST_HOLD_SEC = 0.35
+
 
 # =========================================================
 # LiDAR obstacle avoidance settings
@@ -175,11 +176,10 @@ AVOID_MIN_ANGLE_DEG = -90.0
 AVOID_MAX_ANGLE_DEG = 90.0
 AVOID_ANGLE_STEP_DEG = 2.0
 
-
 AVOID_FRONT_DIST = 0.34
 AVOID_DANGER_DIST = 0.22
-AVOID_COLLISION_DIST = 0.15
-AVOID_IGNORE_NEAR_DIST = 0.04
+AVOID_COLLISION_DIST = 0.13
+AVOID_IGNORE_NEAR_DIST = 0.12
 
 AVOID_FRONT_Y_HALF = 0.20
 SIDE_CHECK_X_MIN = -0.05
@@ -191,6 +191,7 @@ SIDE_AVOID_BLOCK_DIST = 0.12
 SIDE_TIGHT_V = 0.12
 SIDE_PUSH_MIN_W = 0.12
 SIDE_PUSH_MAX_W = 0.45
+
 AVOID_BUBBLE_RADIUS = 0.05
 AVOID_FREE_DIST = 0.18
 AVOID_MIN_GAP_WIDTH_DEG = 8.0
@@ -507,7 +508,7 @@ def scan_to_angle_ranges(scan):
     angle_deg = LIDAR_ANGLE_SIGN * angle_deg
 
     valid = (
-        (dist_m >= LIDAR_MIN_DIST_M)
+        (dist_m >= max(LIDAR_MIN_DIST_M, AVOID_IGNORE_NEAR_DIST))
         & (dist_m <= LIDAR_MAX_DIST_M)
         & (qualities >= LIDAR_MIN_QUALITY)
     )
@@ -537,7 +538,7 @@ def lidar_points_to_xy(scan):
     angle_deg = LIDAR_ANGLE_SIGN * angle_deg
 
     valid = (
-        (dist_m >= LIDAR_MIN_DIST_M)
+        (dist_m >= max(LIDAR_MIN_DIST_M, AVOID_IGNORE_NEAR_DIST))
         & (dist_m <= LIDAR_MAX_DIST_M)
         & (qualities >= LIDAR_MIN_QUALITY)
     )
@@ -694,11 +695,9 @@ def constrain_turn_away_from_side(blended_w, left_dist, right_dist):
         blended_w = 0.0
 
     if right_dist <= SIDE_AVOID_BLOCK_DIST:
-        push_w = side_push_w(right_dist)
-        blended_w = max(blended_w, push_w)
+        blended_w = max(blended_w, side_push_w(right_dist))
     if left_dist <= SIDE_AVOID_BLOCK_DIST:
-        push_w = side_push_w(left_dist)
-        blended_w = min(blended_w, -push_w)
+        blended_w = min(blended_w, -side_push_w(left_dist))
 
     if left_dist <= SIDE_AVOID_BLOCK_DIST and right_dist <= SIDE_AVOID_BLOCK_DIST:
         blended_w = 0.0
@@ -753,7 +752,6 @@ def compute_lidar_avoidance_cmd(lidar, color_v, color_w):
     gaps = find_free_gaps(bubble_ranges >= AVOID_FREE_DIST)
     desired_angle = float(np.clip(color_w / max(0.001, KP_TURN), -math.pi / 2.0, math.pi / 2.0))
     gap_angle, has_gap = choose_gap_angle(angles_deg, bubble_ranges, gaps, desired_angle)
-
     danger, front_danger, side_danger = obstacle_danger(front_dist, left_dist, right_dist)
 
     if not has_gap or front_dist <= AVOID_COLLISION_DIST:
@@ -771,8 +769,10 @@ def compute_lidar_avoidance_cmd(lidar, color_v, color_w):
         }
 
     avoid_w = float(np.clip(AVOID_TURN_GAIN * gap_angle, -AVOID_MAX_W, AVOID_MAX_W))
-    blended_w = (1.0 - AVOID_BLEND_GAIN * danger) * color_w + (AVOID_BLEND_GAIN * danger) * avoid_w
+    blended_w = (1.0 - AVOID_BLEND_GAIN * danger) * color_w
+    blended_w += (AVOID_BLEND_GAIN * danger) * avoid_w
     blended_w = constrain_turn_away_from_side(blended_w, left_dist, right_dist)
+
     safe_v_limit = MAX_V * (1.0 - 0.75 * danger)
     if side_close:
         safe_v_limit = min(safe_v_limit, SIDE_TIGHT_V)
