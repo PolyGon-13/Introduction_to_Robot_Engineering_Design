@@ -164,6 +164,7 @@ LIDAR_MAX_DIST_M = 0.75
 LIDAR_MIN_QUALITY = 1
 LIDAR_SCAN_HOLD_S = 0.30
 LIDAR_SCAN_QUEUE_SIZE = 3
+LIDAR_MIN_SCAN_POINTS = 20
 
 AVOID_MIN_ANGLE_DEG = -90.0
 AVOID_MAX_ANGLE_DEG = 90.0
@@ -405,18 +406,26 @@ class RPLidarC1:
                 angle = ((data[1] >> 1) | (data[2] << 7)) / 64.0
                 dist = (data[3] | (data[4] << 8)) / 4.0
 
-                if s_flag == 1 and len(buf_a) > 50:
-                    scan = (
-                        np.array(buf_a, dtype=np.float32),
-                        np.array(buf_d, dtype=np.float32),
-                        np.array(buf_q, dtype=np.float32),
-                    )
-                    with self.lock:
-                        self.scan_seq += 1
-                        self.scan_queue.append((self.scan_seq, time.time(), scan))
+                if s_flag == 1:
+                    if len(buf_a) >= LIDAR_MIN_SCAN_POINTS:
+                        scan = (
+                            np.array(buf_a, dtype=np.float32),
+                            np.array(buf_d, dtype=np.float32),
+                            np.array(buf_q, dtype=np.float32),
+                        )
+                        with self.lock:
+                            self.scan_seq += 1
+                            self.scan_queue.append((self.scan_seq, time.time(), scan))
                     buf_a, buf_d, buf_q = [], [], []
 
-                if dist > 0 and quality > 0:
+                angle_front_deg = LIDAR_ANGLE_SIGN * normalize_angle_deg(
+                    angle + LIDAR_ANGLE_OFFSET_DEG
+                )
+                in_front_sector = (
+                    AVOID_MIN_ANGLE_DEG <= angle_front_deg <= AVOID_MAX_ANGLE_DEG
+                )
+
+                if dist > 0 and quality > 0 and in_front_sector:
                     buf_a.append(angle)
                     buf_d.append(dist)
                     buf_q.append(quality)
