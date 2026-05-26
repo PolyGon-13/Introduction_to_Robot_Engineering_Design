@@ -752,6 +752,14 @@ def compute_lidar_avoidance_cmd(lidar, color_v, color_w):
     left_dist, right_dist = side_obstacle_distances(points)
     side_close = min(left_dist, right_dist) < SIDE_AVOID_WARN_DIST
 
+    if color_v <= 0.001 and abs(color_w) <= 0.05:
+        return 0.0, 0.0, {
+            "mode": "IDLE",
+            "front": front_dist,
+            "left": left_dist,
+            "right": right_dist,
+        }
+
     if front_dist >= AVOID_FRONT_DIST and not side_close:
         return color_v, color_w, {
             "mode": "COLOR",
@@ -782,6 +790,18 @@ def compute_lidar_avoidance_cmd(lidar, color_v, color_w):
         }
 
     if front_dist <= AVOID_COLLISION_DIST:
+        if color_v <= 0.001:
+            return 0.0, 0.0, {
+                "mode": "AVOID_HOLD",
+                "front": front_dist,
+                "left": left_dist,
+                "right": right_dist,
+                "gap_deg": math.degrees(gap_angle),
+                "gaps": len(gaps),
+                "front_danger": front_danger,
+                "side_danger": side_danger,
+            }
+
         # 장애물이 가까워도 빈 공간이 있으면 완전 정지하지 말고
         # 천천히 전진하면서 회피 방향으로 회전한다.
         avoid_v = min(color_v, 0.05)
@@ -975,7 +995,10 @@ def main():
                 target_w,
             )
 
-            if avoid_info["mode"] == "AVOID_STOP_TURN":
+            if avoid_info["mode"] in ("IDLE", "AVOID_HOLD"):
+                cmd_v = 0.0
+                cmd_w = 0.0
+            elif avoid_info["mode"] == "AVOID_STOP_TURN":
                 cmd_v = 0.0
                 cmd_w = rate_limit(last_w, target_w, W_RATE_LIMIT)
             elif avoid_info["mode"] in ("AVOID", "SIDE_GUARD", "AVOID_CREEP"):
