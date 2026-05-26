@@ -740,11 +740,12 @@ def compute_lidar_avoidance_cmd(lidar, color_v, color_w):
     scan, _, scan_time = lidar.get_scan()
     now = time.time()
     if scan is None or now - scan_time > LIDAR_SCAN_HOLD_S:
-        return color_v, color_w, {
+        return 0.0, 0.0, {
             "mode": "LIDAR_WAIT",
             "front": LIDAR_MAX_DIST_M,
             "left": LIDAR_MAX_DIST_M,
             "right": LIDAR_MAX_DIST_M,
+            "age": float("inf") if scan is None else now - scan_time,
         }
 
     points = lidar_points_to_xy(scan)
@@ -995,7 +996,7 @@ def main():
                 target_w,
             )
 
-            if avoid_info["mode"] in ("IDLE", "AVOID_HOLD"):
+            if avoid_info["mode"] in ("IDLE", "AVOID_HOLD", "LIDAR_WAIT"):
                 cmd_v = 0.0
                 cmd_w = 0.0
             elif avoid_info["mode"] == "AVOID_STOP_TURN":
