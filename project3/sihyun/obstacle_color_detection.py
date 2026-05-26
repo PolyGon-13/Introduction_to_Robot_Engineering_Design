@@ -134,7 +134,7 @@ V_RATE_LIMIT = 0.04
 W_RATE_LIMIT = 0.15
 
 # 카메라 중심 기준 오차가 이 이하이면 회전하지 않음
-CENTER_DEADBAND = 0.08
+CENTER_DEADBAND = 0.04
 
 # 추종할 색
 # None이면 RED, BLUE, YELLOW 중 가장 크게 보이는 색을 따라감
