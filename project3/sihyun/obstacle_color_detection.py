@@ -178,7 +178,7 @@ AVOID_ANGLE_STEP_DEG = 2.0
 
 AVOID_FRONT_DIST = 0.34
 AVOID_DANGER_DIST = 0.22
-AVOID_COLLISION_DIST = 0.20
+AVOID_COLLISION_DIST = 0.25
 AVOID_IGNORE_NEAR_DIST = 0.05
 
 AVOID_FRONT_Y_HALF = 0.20
@@ -752,10 +752,24 @@ def compute_lidar_avoidance_cmd(lidar, color_v, color_w):
     front_dist = front_obstacle_distance(points)
     left_dist, right_dist = side_obstacle_distances(points)
     side_close = min(left_dist, right_dist) < SIDE_AVOID_WARN_DIST
+    side_blocked = min(left_dist, right_dist) <= SIDE_AVOID_BLOCK_DIST
 
     if color_v <= 0.001 and abs(color_w) <= 0.05:
         return 0.0, 0.0, {
             "mode": "IDLE",
+            "front": front_dist,
+            "left": left_dist,
+            "right": right_dist,
+        }
+
+    if side_blocked:
+        if left_dist <= SIDE_AVOID_BLOCK_DIST and right_dist <= SIDE_AVOID_BLOCK_DIST:
+            avoid_w = 0.0
+        else:
+            avoid_w = choose_stop_turn_w(left_dist, right_dist, color_w)
+
+        return 0.0, avoid_w, {
+            "mode": "SIDE_STOP_TURN",
             "front": front_dist,
             "left": left_dist,
             "right": right_dist,
@@ -999,7 +1013,7 @@ def main():
             if avoid_info["mode"] in ("IDLE", "AVOID_HOLD", "LIDAR_WAIT"):
                 cmd_v = 0.0
                 cmd_w = 0.0
-            elif avoid_info["mode"] == "AVOID_STOP_TURN":
+            elif avoid_info["mode"] in ("AVOID_STOP_TURN", "SIDE_STOP_TURN"):
                 cmd_v = 0.0
                 cmd_w = rate_limit(last_w, target_w, W_RATE_LIMIT)
             elif avoid_info["mode"] in ("AVOID", "SIDE_GUARD", "AVOID_CREEP"):
