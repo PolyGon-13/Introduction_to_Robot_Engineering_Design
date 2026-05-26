@@ -35,6 +35,11 @@ def parse_args():
         help="Print raw serial lines without parsing.",
     )
     parser.add_argument(
+        "--no-reset",
+        action="store_true",
+        help="Do not send the reset command when opening the serial port.",
+    )
+    parser.add_argument(
         "--retry-s",
         type=float,
         default=1.0,
@@ -59,6 +64,11 @@ def open_serial(port, baud):
     return ser
 
 
+def reset_arduino_counts(ser):
+    ser.write(b"R\n")
+    ser.flush()
+
+
 def main():
     if serial is None:
         print("pyserial is not installed. Try: python3 -m pip install pyserial", file=sys.stderr)
@@ -77,6 +87,11 @@ def main():
                     print(f"[serial] failed to open {args.port}: {exc}", file=sys.stderr)
                     return 1
                 print(f"[open] {args.port} @ {args.baud}")
+                if not args.no_reset:
+                    reset_arduino_counts(ser)
+                    prev_left = None
+                    prev_right = None
+                    print("[reset] requested Arduino encoder count reset")
                 print("[wait] rotate wheels by hand, or move the robot slowly")
 
             try:
@@ -100,6 +115,9 @@ def main():
             if args.raw:
                 print(line)
                 continue
+            if line == "RESET":
+                print("[reset] Arduino acknowledged encoder count reset")
+                continue
             try:
                 left, right, arduino_ms = parse_encoder_line(line)
             except ValueError:
@@ -113,8 +131,8 @@ def main():
             host_t = time.strftime("%H:%M:%S")
             print(
                 f"{host_t}  arduino_ms={arduino_ms:>10d}  "
-                f"L={left:>10d} ({d_left:+5d})  "
-                f"R={right:>10d} ({d_right:+5d})"
+                f"L_total={left:>10d}  dL={d_left:+5d}  "
+                f"R_total={right:>10d}  dR={d_right:+5d}"
             )
     except KeyboardInterrupt:
         print("\n[stop]")

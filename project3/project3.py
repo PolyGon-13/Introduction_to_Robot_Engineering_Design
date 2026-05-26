@@ -297,6 +297,16 @@ class WheelOdometry:
     def fresh(self, now):
         return self.last_msg_t is not None and (now - self.last_msg_t) <= ODOM_HOLD_S
 
+    def request_reset(self, ardu):
+        """Arduino 누적 엔코더 카운트를 0으로 리셋 요청하고 로컬 적분도 초기화.
+           endcoder_read 테스트에서 검증한 핸드셰이크('R' → 'RESET' 응답)와 동일."""
+        try:
+            ardu.write(b"R\n")
+            ardu.flush()
+        except Exception:
+            pass
+        self.reset()
+
     def update_counts(self, enc_l, enc_r, now=None, arduino_ms=None):
         if self.prev_l is None or self.prev_r is None:
             self.prev_l, self.prev_r = enc_l, enc_r
@@ -324,6 +334,11 @@ class WheelOdometry:
 
     def parse_line(self, line, now=None):
         line = line.strip()
+        if line == "RESET":
+            # Arduino가 리셋을 확인 → 다음 O 라인을 새 0 기준으로 잡도록 baseline만 비운다.
+            self.prev_l = None
+            self.prev_r = None
+            return False
         if not line.startswith("O,"):
             return False
         parts = line.split(",")
@@ -2036,6 +2051,7 @@ def main():
 
     ctrl = Controller()
     odom = WheelOdometry()
+    odom.request_reset(ardu)   # 엔코더 누적 카운트를 0부터 시작 (검증된 리셋 핸드셰이크)
     last_log = 0.0
 
     try:

@@ -74,6 +74,17 @@ void ISR_Encoder_A_l() {
   EncoderCount_l += delta;
 }
 
+// 누적 엔코더 카운트를 0으로 리셋. PID 속도 측정용 prev도 함께 0으로
+// 맞춰야 다음 주기에 가짜 delta 스파이크가 생기지 않는다.
+void resetEncoderCounts() {
+  noInterrupts();
+  EncoderCount_r = 0;
+  EncoderCount_l = 0;
+  interrupts();
+  encR_prev = 0;
+  encL_prev = 0;
+}
+
 // ── 모터 드라이버 출력 ────────────────────────────────────
 static inline void writeDriver_r(float V) {
   if (fabs(V) < DRIVER_DEADBAND_V) V = 0.0f;
@@ -147,6 +158,10 @@ void processCommand(String s) {
   if (c0 == 'S' || c0 == 's') {
     stopMotion();
     lastCmdMs = millis();
+  } else if (c0 == 'R' || c0 == 'r') {
+    resetEncoderCounts();
+    Serial1.println(F("RESET"));
+    Serial.println(F("RESET"));
   } else if (c0 == 'V' || c0 == 'v') {
     int comma = s.indexOf(',');
     if (comma <= 1 || comma >= s.length() - 1) return;

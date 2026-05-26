@@ -2,6 +2,7 @@
 
 // Encoder-only serial test for Raspberry Pi.
 // Output format: O,<left_count>,<right_count>,<millis>
+// Input command: R or r resets both cumulative encoder counts to zero.
 
 const byte PWMPin_r = 9;
 const byte DirPin1_r = 10;
@@ -25,6 +26,13 @@ const unsigned long SEND_INTERVAL_MS = 50;
 volatile long encoder_count_r = 0;
 volatile long encoder_count_l = 0;
 unsigned long last_send_ms = 0;
+
+void reset_encoder_counts() {
+  noInterrupts();
+  encoder_count_r = 0;
+  encoder_count_l = 0;
+  interrupts();
+}
 
 void isr_encoder_a_r() {
   bool a = digitalRead(ENC_A_r);
@@ -67,6 +75,17 @@ void send_encoder_line(Stream &port, unsigned long now, long enc_l, long enc_r) 
   port.println(now);
 }
 
+void read_reset_commands(Stream &port) {
+  while (port.available()) {
+    char c = (char)port.read();
+    if (c == 'R' || c == 'r') {
+      reset_encoder_counts();
+      port.println(F("RESET"));
+      Serial.println(F("RESET"));
+    }
+  }
+}
+
 void setup() {
   stop_motor_outputs();
 
@@ -86,6 +105,9 @@ void setup() {
 }
 
 void loop() {
+  read_reset_commands(Serial1);
+  read_reset_commands(Serial);
+
   unsigned long now = millis();
   if (now - last_send_ms < SEND_INTERVAL_MS) {
     return;
