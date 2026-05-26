@@ -23,8 +23,8 @@ FRAME_HEIGHT = 480
 CAMERA_EXPOSURE_VALUE = -1.0
 
 #반전
-FLIP_HORIZONTAL = True #좌우반전
-FLIP_VERTICAL = True   #상하반전
+FLIP_HORIZONTAL = False #좌우반전
+FLIP_VERTICAL = False   #상하반전
 
 # 모니터/원격화면에서 영상 확인할 때 True
 # SSH로 실행해서 cv2 창이 안 뜨면 False로 바꾸기
