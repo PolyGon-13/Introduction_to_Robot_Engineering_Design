@@ -50,10 +50,10 @@ ODOM_WHEEL_BASE = 0.179                # project3.ino WHEEL_BASE와 맞춘 값
 ODOM_PPR = 1012.0                      # project3.ino PPR와 맞춘 값
 ODOM_COUNT_PER_RAD = ODOM_PPR / (2.0 * math.pi)
 ODOM_START_X = 0.0                     # centered 좌표계 기준 시작 x
-ODOM_START_Y = -1.0                    # centered 좌표계 기준 시작 y
+ODOM_START_Y = -0.5                    # centered 좌표계 기준 시작 y (남쪽 끝→중앙 사이)
 ODOM_START_TH = math.pi / 2.0          # +y 방향으로 출발
 ODOM_HOLD_S = 0.50                     # 이 시간 이상 엔코더 피드백이 없으면 안전 정지
-KEEPIN_ENABLED = True
+KEEPIN_ENABLED = False  # 기본 off; python3 project3.py --keepin 으로 활성화
 KEEPIN_SIZE_M = 2.30                   # 2m 시험영역보다 약간 큰 가상 주행 제한
 KEEPIN_MARGIN_M = ROBOT_RADIUS         # 로봇 중심이 이만큼 안쪽에 남도록 제한
 
@@ -2031,6 +2031,14 @@ class Controller:
 
 # ===================== 메인 =====================
 def main():
+    import argparse
+    global KEEPIN_ENABLED
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--keepin", action="store_true", help="경계 제한(keepin) 활성화")
+    args = ap.parse_args()
+    if args.keepin:
+        KEEPIN_ENABLED = True
+
     ardu = open_arduino()
     lidar = RPLidarC1(LIDAR_PORT, LIDAR_BAUD)
     cam = ColorPerception(TARGET_SEQUENCE[0])
