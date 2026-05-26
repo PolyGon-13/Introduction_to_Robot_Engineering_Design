@@ -135,7 +135,7 @@ V_RATE_LIMIT = 0.04
 W_RATE_LIMIT = 0.15
 
 # 카메라 중심 기준 오차가 이 이하이면 회전하지 않음
-CENTER_DEADBAND = 0.04
+CENTER_DEADBAND = 0.05
 
 # 추종할 색
 # None이면 RED, BLUE, YELLOW 중 가장 크게 보이는 색을 따라감
@@ -383,6 +383,7 @@ class RPLidarC1:
 
         self.lock = threading.Lock()
         self.scan_queue = deque(maxlen=LIDAR_SCAN_QUEUE_SIZE)
+        self.latest_scan = None
         self.scan_seq = 0
         self.running = True
         self.thread = threading.Thread(target=self._loop, daemon=True)
@@ -418,7 +419,9 @@ class RPLidarC1:
                         )
                         with self.lock:
                             self.scan_seq += 1
-                            self.scan_queue.append((self.scan_seq, time.time(), scan))
+                            scan_item = (self.scan_seq, time.time(), scan)
+                            self.latest_scan = scan_item
+                            self.scan_queue.append(scan_item)
                     buf_a, buf_d, buf_q = [], [], []
 
                 angle_front_deg = LIDAR_ANGLE_SIGN * normalize_angle_deg(
@@ -443,11 +446,16 @@ class RPLidarC1:
 
     def get_scan(self):
         with self.lock:
-            if not self.scan_queue:
+            if self.scan_queue:
+                scan_seq, scan_time, scan = self.scan_queue.pop()
+                self.scan_queue.clear()
+                self.latest_scan = (scan_seq, scan_time, scan)
+                return scan, scan_seq, scan_time
+
+            if self.latest_scan is None:
                 return None, self.scan_seq, 0.0
 
-            scan_seq, scan_time, scan = self.scan_queue.pop()
-            self.scan_queue.clear()
+            scan_seq, scan_time, scan = self.latest_scan
             return scan, scan_seq, scan_time
 
     def close(self):
