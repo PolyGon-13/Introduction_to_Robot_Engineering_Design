@@ -706,13 +706,26 @@ def constrain_turn_away_from_side(blended_w, left_dist, right_dist):
 
 
 def choose_stop_turn_w(left_dist, right_dist, color_w):
-    if abs(left_dist - right_dist) < 0.03:
-        return 0.0
-    if left_dist < right_dist:
+    """
+    전방이 너무 가까워 멈춰야 할 때도
+    W가 0이 되지 않도록 강제로 회전 방향을 만든다.
+    """
+    MIN_STOP_TURN_W = 0.35
+
+    # 왼쪽이 더 가까우면 오른쪽으로 회전
+    if left_dist + 0.03 < right_dist:
         return -AVOID_MAX_W
-    if right_dist < left_dist:
+
+    # 오른쪽이 더 가까우면 왼쪽으로 회전
+    if right_dist + 0.03 < left_dist:
         return AVOID_MAX_W
-    return AVOID_MAX_W if color_w >= 0.0 else -AVOID_MAX_W
+
+    # 좌우 거리가 비슷하면 기존 타겟 방향을 따라 회전
+    if abs(color_w) >= 0.05:
+        return MIN_STOP_TURN_W if color_w > 0.0 else -MIN_STOP_TURN_W
+
+    # 타겟 방향도 애매하면 기본으로 왼쪽 회전
+    return MIN_STOP_TURN_W
 
 
 def compute_lidar_avoidance_cmd(lidar, color_v, color_w):
@@ -754,11 +767,39 @@ def compute_lidar_avoidance_cmd(lidar, color_v, color_w):
     gap_angle, has_gap = choose_gap_angle(angles_deg, bubble_ranges, gaps, desired_angle)
     danger, front_danger, side_danger = obstacle_danger(front_dist, left_dist, right_dist)
 
-    if not has_gap or front_dist <= AVOID_COLLISION_DIST:
+    if not has_gap:
         avoid_v = 0.0
         avoid_w = choose_stop_turn_w(left_dist, right_dist, color_w)
         return avoid_v, avoid_w, {
             "mode": "AVOID_STOP_TURN",
+            "front": front_dist,
+            "left": left_dist,
+            "right": right_dist,
+            "gap_deg": math.degrees(gap_angle),
+            "gaps": len(gaps),
+            "front_danger": front_danger,
+            "side_danger": side_danger,
+        }
+
+    if front_dist <= AVOID_COLLISION_DIST:
+        # 장애물이 가까워도 빈 공간이 있으면 완전 정지하지 말고
+        # 천천히 전진하면서 회피 방향으로 회전한다.
+        avoid_v = min(color_v, 0.05)
+
+        avoid_w = float(np.clip(
+            AVOID_TURN_GAIN * gap_angle,
+            -AVOID_MAX_W,
+            AVOID_MAX_W,
+        ))
+
+        # gap_angle이 너무 작아서 회전값이 거의 0이면 강제 회전
+        if abs(avoid_w) < 0.35:
+            avoid_w = choose_stop_turn_w(left_dist, right_dist, color_w)
+
+        avoid_w = constrain_turn_away_from_side(avoid_w, left_dist, right_dist)
+
+        return avoid_v, avoid_w, {
+            "mode": "AVOID_CREEP",
             "front": front_dist,
             "left": left_dist,
             "right": right_dist,
@@ -937,7 +978,7 @@ def main():
             if avoid_info["mode"] == "AVOID_STOP_TURN":
                 cmd_v = 0.0
                 cmd_w = rate_limit(last_w, target_w, W_RATE_LIMIT)
-            elif avoid_info["mode"] in ("AVOID", "SIDE_GUARD"):
+            elif avoid_info["mode"] in ("AVOID", "SIDE_GUARD", "AVOID_CREEP"):
                 cmd_v = min(rate_limit(last_v, target_v, V_RATE_LIMIT), target_v)
                 cmd_w = rate_limit(last_w, target_w, W_RATE_LIMIT)
             else:
