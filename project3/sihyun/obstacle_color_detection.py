@@ -145,7 +145,7 @@ STOP_AREA = 28000
 # 추종할 색
 # None이면 RED, BLUE, YELLOW 중 가장 크게 보이는 색을 따라감
 # "RED", "BLUE", "YELLOW" 중 하나로 바꾸면 해당 색만 따라감
-TARGET_COLOR = None
+TARGET_COLOR = RED
 
 # 색을 못 찾았을 때 동작
 # False: 정지
@@ -178,8 +178,8 @@ AVOID_ANGLE_STEP_DEG = 2.0
 
 AVOID_FRONT_DIST = 0.34
 AVOID_DANGER_DIST = 0.22
-AVOID_COLLISION_DIST = 0.15
-AVOID_IGNORE_NEAR_DIST = 0.04
+AVOID_COLLISION_DIST = 0.13
+AVOID_IGNORE_NEAR_DIST = 0.12
 
 AVOID_FRONT_Y_HALF = 0.20
 SIDE_CHECK_X_MIN = -0.05
@@ -508,7 +508,7 @@ def scan_to_angle_ranges(scan):
     angle_deg = LIDAR_ANGLE_SIGN * angle_deg
 
     valid = (
-        (dist_m >= LIDAR_MIN_DIST_M)
+        (dist_m >= max(LIDAR_MIN_DIST_M, AVOID_IGNORE_NEAR_DIST))
         & (dist_m <= LIDAR_MAX_DIST_M)
         & (qualities >= LIDAR_MIN_QUALITY)
     )
@@ -538,7 +538,7 @@ def lidar_points_to_xy(scan):
     angle_deg = LIDAR_ANGLE_SIGN * angle_deg
 
     valid = (
-        (dist_m >= LIDAR_MIN_DIST_M)
+        (dist_m >= max(LIDAR_MIN_DIST_M, AVOID_IGNORE_NEAR_DIST))
         & (dist_m <= LIDAR_MAX_DIST_M)
         & (qualities >= LIDAR_MIN_QUALITY)
     )
