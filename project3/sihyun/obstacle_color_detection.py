@@ -7,7 +7,6 @@ import time
 import serial
 import math
 import threading
-from collections import deque
 
 
 # =========================================================
@@ -33,9 +32,6 @@ FLIP_VERTICAL = False   #상하반전
 # 모니터/원격화면에서 영상 확인할 때 True
 # SSH로 실행해서 cv2 창이 안 뜨면 False로 바꾸기
 SHOW_WINDOW = False
-
-MAIN_LOOP_HZ = 10.0
-MAIN_LOOP_PERIOD = 1.0 / MAIN_LOOP_HZ
 
 
 def open_camera():
@@ -135,7 +131,7 @@ V_RATE_LIMIT = 0.04
 W_RATE_LIMIT = 0.15
 
 # 카메라 중심 기준 오차가 이 이하이면 회전하지 않음
-CENTER_DEADBAND = 0.04
+CENTER_DEADBAND = 0.08
 
 # 추종할 색
 # None이면 RED, BLUE, YELLOW 중 가장 크게 보이는 색을 따라감
@@ -151,23 +147,30 @@ TARGET_LOST_HOLD_SEC = 0.35
 
 
 # =========================================================
-# LiDAR obstacle avoidance settings
+# LiDAR settings
 # =========================================================
 
 USE_LIDAR_AVOIDANCE = True
 LIDAR_PORT = "/dev/ttyUSB0"
 LIDAR_BAUD = 460800
 
-LIDAR_ANGLE_OFFSET_DEG = 1.54
-LIDAR_DIST_OFFSET_MM = 1.0
+ANGLE_OFFSET_DEG = 1.54
+DIST_OFFSET_MM = 0.0
 LIDAR_ANGLE_SIGN = -1.0
 
-LIDAR_MIN_DIST_M = 0.01
-LIDAR_MAX_DIST_M = 0.75
-LIDAR_MIN_QUALITY = 1
-LIDAR_SCAN_HOLD_S = 1.00
-LIDAR_SCAN_QUEUE_SIZE = 3
-LIDAR_MIN_SCAN_POINTS = 5
+MIN_LIDAR_DIST_M = 0.05
+MAX_LIDAR_DIST_M = 0.75
+MIN_QUALITY = 1
+
+SCAN_HOLD_S = 0.30
+LOOP_DT_S = 0.05
+
+LIDAR_ANGLE_OFFSET_DEG = ANGLE_OFFSET_DEG
+LIDAR_DIST_OFFSET_MM = DIST_OFFSET_MM
+LIDAR_MIN_DIST_M = MIN_LIDAR_DIST_M
+LIDAR_MAX_DIST_M = MAX_LIDAR_DIST_M
+LIDAR_MIN_QUALITY = MIN_QUALITY
+LIDAR_SCAN_HOLD_S = SCAN_HOLD_S
 
 AVOID_MIN_ANGLE_DEG = -90.0
 AVOID_MAX_ANGLE_DEG = 90.0
@@ -184,7 +187,7 @@ SIDE_CHECK_X_MAX = 0.25
 SIDE_CHECK_Y_MIN = 0.05
 SIDE_CHECK_Y_MAX = 0.35
 SIDE_AVOID_WARN_DIST = 0.15
-SIDE_AVOID_BLOCK_DIST = 0.12
+SIDE_AVOID_BLOCK_DIST = 0.08
 SIDE_TIGHT_V = 0.14
 SIDE_PUSH_MIN_W = 0.06
 SIDE_PUSH_MAX_W = 0.25
@@ -371,21 +374,26 @@ class RPLidarC1:
     def __init__(self, port, baud):
         self.ser = serial.Serial(port, baud, timeout=0.1)
 
+        # 라이다 리셋
         self.ser.write(bytes([0xA5, 0x40]))
         time.sleep(2.0)
         self.ser.reset_input_buffer()
 
+        # 스캔 시작
         self.ser.write(bytes([0xA5, 0x20]))
+
+        # 응답 헤더 확인
         header = self.ser.read(7)
         if len(header) != 7 or header[0] != 0xA5 or header[1] != 0x5A:
             self.ser.close()
             raise RuntimeError("[LIDAR] Response Header Error")
 
         self.lock = threading.Lock()
-        self.scan_queue = deque(maxlen=LIDAR_SCAN_QUEUE_SIZE)
         self.latest_scan = None
         self.scan_seq = 0
+        self.scan_time = 0.0
         self.running = True
+
         self.thread = threading.Thread(target=self._loop, daemon=True)
         self.thread.start()
 
@@ -410,28 +418,21 @@ class RPLidarC1:
                 angle = ((data[1] >> 1) | (data[2] << 7)) / 64.0
                 dist = (data[3] | (data[4] << 8)) / 4.0
 
-                if s_flag == 1:
-                    if len(buf_a) >= LIDAR_MIN_SCAN_POINTS:
-                        scan = (
+                # s_flag == 1이면 한 바퀴 스캔이 새로 시작된 것
+                # 기존 버퍼가 충분하면 latest_scan으로 저장
+                if s_flag == 1 and len(buf_a) > 50:
+                    with self.lock:
+                        self.latest_scan = (
                             np.array(buf_a, dtype=np.float32),
                             np.array(buf_d, dtype=np.float32),
                             np.array(buf_q, dtype=np.float32),
                         )
-                        with self.lock:
-                            self.scan_seq += 1
-                            scan_item = (self.scan_seq, time.time(), scan)
-                            self.latest_scan = scan_item
-                            self.scan_queue.append(scan_item)
+                        self.scan_seq += 1
+                        self.scan_time = time.time()
+
                     buf_a, buf_d, buf_q = [], [], []
 
-                angle_front_deg = LIDAR_ANGLE_SIGN * normalize_angle_deg(
-                    angle + LIDAR_ANGLE_OFFSET_DEG
-                )
-                in_front_sector = (
-                    AVOID_MIN_ANGLE_DEG <= angle_front_deg <= AVOID_MAX_ANGLE_DEG
-                )
-
-                if dist > 0 and quality > 0 and in_front_sector:
+                if dist > 0 and quality > 0:
                     buf_a.append(angle)
                     buf_d.append(dist)
                     buf_q.append(quality)
@@ -439,6 +440,7 @@ class RPLidarC1:
             except (serial.SerialException, OSError) as e:
                 print(f"[LIDAR] Serial Error: {e}, retrying in 1 second...")
                 time.sleep(1.0)
+
                 try:
                     self.ser.reset_input_buffer()
                 except Exception:
@@ -446,28 +448,45 @@ class RPLidarC1:
 
     def get_scan(self):
         with self.lock:
-            if self.scan_queue:
-                scan_seq, scan_time, scan = self.scan_queue.pop()
-                self.latest_scan = (scan_seq, scan_time, scan)
-                return scan, scan_seq, scan_time
-
-            if self.latest_scan is None:
-                return None, self.scan_seq, 0.0
-
-            scan_seq, scan_time, scan = self.latest_scan
-            return scan, scan_seq, scan_time
+            return self.latest_scan, self.scan_seq, self.scan_time
 
     def close(self):
         self.running = False
+
         try:
+            # 스캔 정지 명령
             self.ser.write(bytes([0xA5, 0x25]))
         except Exception:
             pass
+
         time.sleep(0.1)
-        try:
-            self.ser.close()
-        except Exception:
-            pass
+        self.ser.close()
+
+
+def filter_lidar_scan(scan):
+    if scan is None:
+        return None
+
+    angles, dists, qualities = scan
+
+    dist_m = (dists.astype(np.float32) + DIST_OFFSET_MM) / 1000.0
+
+    angle_deg = normalize_angle_deg(
+        angles.astype(np.float32) + ANGLE_OFFSET_DEG
+    )
+
+    angle_deg = LIDAR_ANGLE_SIGN * angle_deg
+
+    valid = (
+        (dist_m >= MIN_LIDAR_DIST_M)
+        & (dist_m <= MAX_LIDAR_DIST_M)
+        & (qualities >= MIN_QUALITY)
+    )
+
+    if not valid.any():
+        return None
+
+    return angle_deg[valid], dist_m[valid], qualities[valid]
 
 
 def open_lidar():
@@ -970,13 +989,12 @@ def main():
         print("[INFO] Go!!")
 
         while True:
-            loop_start = time.time()
             ret, frame = get_frame(camera)
 
             if not ret:
                 print("[ERROR] Failed to read frame")
                 send_vw(ardu, 0.0, 0.0)
-                time.sleep(MAIN_LOOP_PERIOD)
+                time.sleep(0.05)
                 continue
 
             results = detect_colors(frame)
@@ -1066,8 +1084,7 @@ def main():
                 if cv2.waitKey(1) & 0xFF == ord("q"):
                     break
 
-            elapsed = time.time() - loop_start
-            time.sleep(max(0.0, MAIN_LOOP_PERIOD - elapsed))
+            time.sleep(0.03)
 
     except KeyboardInterrupt:
         print("\n[INFO] KeyboardInterrupt")
