@@ -32,17 +32,12 @@ HSV_RANGES = {
 BOX_COLORS = {"RED": (0, 0, 255), "BLUE": (255, 0, 0), "YELLOW": (0, 255, 255)}
 
 
-# ==============================
-# LIDAR 장애물 회피 코드
-# ==============================
-
 LIDAR_PORT = "/dev/ttyUSB0"
 LIDAR_BAUD = 460800
 
 RESET = b"\xA5\x40"
 SCAN = b"\xA5\x20"
 LIDAR_STOP = b"\xA5\x25"
-
 ANGLE_OFFSET = 1.54
 DIST_OFFSET = 0.0
 ANGLE_SIGN = -1.0
@@ -53,27 +48,99 @@ MAX_D = 2.5
 ANG_MIN = -90.0
 ANG_MAX = 90.0
 ANG_STEP = 1.0
+FREE_D = 0.35
+MIN_GAP_DEG = 8.0
 
-FREE_D = 0.30
-EMERGENCY_D = 0.22
-MIN_GAP_DEG = 15.0
-
-BASE_V = 0.10
-AVOID_MAX_W = 0.90
+BASE_V = 0.18
+LIDAR_MAX_W = 0.90
 TURN_GAIN = 1.05
-
+LIDAR_V_STEP = 0.04
+LIDAR_W_STEP = 0.20
 LOOP_DT = 0.05
+
 GRID = np.arange(ANG_MIN, ANG_MAX + 0.5 * ANG_STEP, ANG_STEP, dtype=np.float32)
 
-# 카메라에서 색이 화면 좌우 끝에 있을 때 라이다 기준으로 몇 도까지 보정할지
-COLOR_TO_LIDAR_DEG = 45.0
 
-# 전방 이 각도 안에 FREE_D보다 가까운 장애물이 있으면 회피 모드
-OBSTACLE_FRONT_DEG = 65.0
+def open_camera():
+    if USE_PICAM:
+        cam = Picamera2()
+        cam.configure(cam.create_preview_configuration(main={"format": "RGB888", "size": (640, 480)}))
+        cam.start()
+        return cam
+    cam = cv2.VideoCapture(0)
+    cam.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+    cam.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+    return cam
+
+
+def read_frame(cam):
+    if USE_PICAM:
+        return True, cv2.cvtColor(cam.capture_array(), cv2.COLOR_RGB2BGR)
+    return cam.read()
+
+
+def detect(frame):
+    hsv = cv2.cvtColor(cv2.GaussianBlur(frame, (5, 5), 0), cv2.COLOR_BGR2HSV)
+    found = []
+    for name, ranges in HSV_RANGES.items():
+        mask = None
+        for lower, upper in ranges:
+            part = cv2.inRange(hsv, np.array(lower), np.array(upper))
+            mask = part if mask is None else cv2.bitwise_or(mask, part)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        for cnt in contours:
+            area = cv2.contourArea(cnt)
+            if area >= MIN_AREA:
+                x, y, w, h = cv2.boundingRect(cnt)
+                found.append((name, x, y, w, h, int(area)))
+    return found
+
+
+def pick(found):
+    targets = found if TARGET is None else [item for item in found if item[0] == TARGET]
+    return max(targets, key=lambda item: item[5], default=None)
+
+
+def follow_cmd(target, width):
+    if target is None:
+        return 0.0, 0.0
+    _, x, _, w, _, _ = target
+    err = (x + w / 2 - width / 2) / (width / 2)
+    err = 0.0 if abs(err) < DEADBAND else err
+    v = MAX_V * (1.0 - 0.45 * min(1.0, abs(err)))
+    w = max(-MAX_W, min(-KP * err, MAX_W))
+    return v, w
+
+
+def rate_limit(prev, target, step):
+    return prev + max(-step, min(target - prev, step))
+
+
+def send_vw(motor, v, w):
+    motor.write(f"V{v:.3f},{w:.3f}\n".encode("ascii"))
+
+
+def stop(motor):
+    motor.write(b"S\n")
+
+
+def draw(frame, found):
+    for name, x, y, w, h, area in found:
+        color = BOX_COLORS[name]
+        cx, cy = x + w // 2, y + h // 2
+        cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
+        cv2.circle(frame, (cx, cy), 5, color, -1)
+        cv2.putText(frame, f"{name} {cx},{cy} {area}", (x, max(20, y - 8)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.55, color, 2)
 
 
 def clamp(value, low, high):
     return float(max(low, min(value, high)))
+
+
+def rate(prev, target, step):
+    return prev + clamp(target - prev, -step, step)
 
 
 def norm_deg(angle):
@@ -104,7 +171,6 @@ class RPLidarC1:
 
     def _read(self):
         angles, dists, qualities = [], [], []
-
         while self.running:
             try:
                 packet = self.ser.read(5)
@@ -125,12 +191,10 @@ class RPLidarC1:
                         np.array(dists, dtype=np.float32),
                         np.array(qualities, dtype=np.float32),
                     )
-
                     with self.lock:
                         self.scan = scan
                         self.scan_time = time.time()
                         self.scan_seq += 1
-
                     angles, dists, qualities = [], [], []
 
                 if dist > 0 and quality >= MIN_Q:
@@ -147,38 +211,30 @@ class RPLidarC1:
 
     def close(self):
         self.running = False
-
         try:
             self.ser.write(LIDAR_STOP)
         except Exception:
             pass
-
         self.thread.join(timeout=0.5)
-
         if self.ser.is_open:
             self.ser.close()
 
 
 def front_ranges(scan):
     ranges = np.full(len(GRID), MAX_D, dtype=np.float32)
-
     if scan is None:
         return ranges
 
     angles, dists, qualities = scan
-
     dist_m = (dists + DIST_OFFSET) / 1000.0
     angle_deg = norm_deg(angles + ANGLE_OFFSET) * ANGLE_SIGN
 
     valid = (dist_m >= MIN_D) & (dist_m <= MAX_D) & (qualities >= MIN_Q)
-
     bins = np.rint((angle_deg[valid] - ANG_MIN) / ANG_STEP).astype(np.int32)
     dists_valid = dist_m[valid]
-
     in_grid = (bins >= 0) & (bins < len(ranges))
 
     np.minimum.at(ranges, bins[in_grid], dists_valid[in_grid])
-
     return ranges
 
 
@@ -198,250 +254,105 @@ def find_gaps(free):
         gaps.append((start, len(free)))
 
     min_bins = max(1, int(np.ceil(MIN_GAP_DEG / ANG_STEP)))
-
     return [(start, end) for start, end in gaps if end - start >= min_bins]
 
 
-def obstacle_detected(scan):
+def obstacle_exists(scan):
     ranges = front_ranges(scan)
-
-    front_zone = (GRID >= -OBSTACLE_FRONT_DEG) & (GRID <= OBSTACLE_FRONT_DEG)
-    front_min = float(np.min(ranges[front_zone]))
-
-    return front_min < FREE_D
+    return bool(np.any(ranges < FREE_D))
 
 
-def color_angle_from_target(target, width):
-    if target is None:
-        return 0.0
-
-    _, x, _, w, _, _ = target
-
-    err = (x + w / 2 - width / 2) / (width / 2)
-    err = clamp(err, -1.0, 1.0)
-
-    return clamp(-err * COLOR_TO_LIDAR_DEG, ANG_MIN, ANG_MAX)
-
-
-def avoid_cmd(scan, color_deg=0.0):
+def avoid_cmd(scan):
     ranges = front_ranges(scan)
     gaps = find_gaps(ranges >= FREE_D)
-
-    front_zone = (GRID >= -OBSTACLE_FRONT_DEG) & (GRID <= OBSTACLE_FRONT_DEG)
-    front_min = float(np.min(ranges[front_zone]))
-
-    if front_min < EMERGENCY_D:
-        left_clear = float(np.mean(ranges[(GRID >= 10.0) & (GRID <= 80.0)]))
-        right_clear = float(np.mean(ranges[(GRID >= -80.0) & (GRID <= -10.0)]))
-        target_deg = 45.0 if left_clear >= right_clear else -45.0
-        w = clamp(TURN_GAIN * np.deg2rad(target_deg), -AVOID_MAX_W, AVOID_MAX_W)
-        return 0.0, w, target_deg, len(gaps)
-
     if not gaps:
-        left_clear = float(np.mean(ranges[(GRID >= 10.0) & (GRID <= 80.0)]))
-        right_clear = float(np.mean(ranges[(GRID >= -80.0) & (GRID <= -10.0)]))
-        target_deg = 45.0 if left_clear >= right_clear else -45.0
-        w = clamp(TURN_GAIN * np.deg2rad(target_deg), -AVOID_MAX_W, AVOID_MAX_W)
-        return 0.0, w, target_deg, 0
+        return 0.0, 0.0, 0.0, 0
 
     def gap_key(gap):
         start, end = gap
         center = 0.5 * (GRID[start] + GRID[end - 1])
-        color_dist = abs(norm_deg(center - color_deg))
-        gap_ranges = ranges[start:end]
-        clear_dist = float(np.mean(gap_ranges))
-        width = end - start
-
-        return clear_dist, width, -color_dist
+        return float(np.mean(ranges[start:end])), end - start, -abs(center)
 
     start, end = max(gaps, key=gap_key)
-
-    target_deg = clamp(color_deg, GRID[start], GRID[end - 1])
-    w = clamp(TURN_GAIN * np.deg2rad(target_deg), -AVOID_MAX_W, AVOID_MAX_W)
-    v = BASE_V * clamp((front_min - EMERGENCY_D) / (FREE_D - EMERGENCY_D), 0.0, 1.0)
-
-    return v, w, target_deg, len(gaps)
-
-
-# ==============================
-# 색 추적 코드
-# ==============================
-
-def open_camera():
-    if USE_PICAM:
-        cam = Picamera2()
-        cam.configure(cam.create_preview_configuration(main={"format": "RGB888", "size": (640, 480)}))
-        cam.start()
-        return cam
-
-    cam = cv2.VideoCapture(0)
-    cam.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-    cam.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-
-    return cam
-
-
-def read_frame(cam):
-    if USE_PICAM:
-        return True, cv2.cvtColor(cam.capture_array(), cv2.COLOR_RGB2BGR)
-
-    return cam.read()
-
-
-def detect(frame):
-    hsv = cv2.cvtColor(cv2.GaussianBlur(frame, (5, 5), 0), cv2.COLOR_BGR2HSV)
-    found = []
-
-    for name, ranges in HSV_RANGES.items():
-        mask = None
-
-        for lower, upper in ranges:
-            part = cv2.inRange(hsv, np.array(lower), np.array(upper))
-            mask = part if mask is None else cv2.bitwise_or(mask, part)
-
-        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
-
-        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-        for cnt in contours:
-            area = cv2.contourArea(cnt)
-
-            if area >= MIN_AREA:
-                x, y, w, h = cv2.boundingRect(cnt)
-                found.append((name, x, y, w, h, int(area)))
-
-    return found
-
-
-def pick(found):
-    targets = found if TARGET is None else [item for item in found if item[0] == TARGET]
-
-    return max(targets, key=lambda item: item[5], default=None)
-
-
-def follow_cmd(target, width):
-    if target is None:
-        return 0.0, 0.0
-
-    _, x, _, w, _, _ = target
-
-    err = (x + w / 2 - width / 2) / (width / 2)
-    err = 0.0 if abs(err) < DEADBAND else err
-
-    v = MAX_V * (1.0 - 0.45 * min(1.0, abs(err)))
-    w = max(-MAX_W, min(-KP * err, MAX_W))
-
-    return v, w
-
-
-def rate_limit(prev, target, step):
-    return prev + max(-step, min(target - prev, step))
-
-
-def send_vw(motor, v, w):
-    motor.write(f"V{v:.3f},{w:.3f}\n".encode("ascii"))
-
-
-def stop(motor):
-    motor.write(b"S\n")
-
-
-def draw(frame, found):
-    for name, x, y, w, h, area in found:
-        color = BOX_COLORS[name]
-
-        cx, cy = x + w // 2, y + h // 2
-
-        cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
-        cv2.circle(frame, (cx, cy), 5, color, -1)
-
-        cv2.putText(
-            frame,
-            f"{name} {cx},{cy} {area}",
-            (x, max(20, y - 8)),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.55,
-            color,
-            2,
-        )
+    target_deg = float(0.5 * (GRID[start] + GRID[end - 1]))
+    w = clamp(TURN_GAIN * np.deg2rad(target_deg), -LIDAR_MAX_W, LIDAR_MAX_W)
+    return BASE_V, w, target_deg, len(gaps)
 
 
 def main():
-    cam = None
-    lidar = None
-    motor = None
-
     cam = open_camera()
     lidar = RPLidarC1()
     motor = serial.Serial(ARDU_PORT, ARDU_BAUD, timeout=0.1)
-
     time.sleep(2.0)
 
-    last_v = 0.0
-    last_w = 0.0
+    last_v = last_w = 0.0
 
     try:
         stop(motor)
 
         while True:
             ok, frame = read_frame(cam)
-
             if not ok:
                 break
 
             found = detect(frame)
             target = pick(found)
 
-            color_v, color_w = follow_cmd(target, frame.shape[1])
-
             scan, scan_time, scan_seq = lidar.get()
-            obstacle = scan is not None and obstacle_detected(scan)
 
             if target is None:
-                v = 0.0
-                w = 0.0
-
-            elif obstacle:
-                color_deg = color_angle_from_target(target, frame.shape[1])
-                v, w, target_deg, gap_count = avoid_cmd(scan, color_deg)
-
-                print(
-                    f"[AVOID] gap={gap_count} "
-                    f"color_deg={color_deg:.0f} "
-                    f"target={target_deg:.0f} "
-                    f"v={v:.2f} "
-                    f"w={w:.2f}"
-                )
+                last_v = 0.0
+                last_w = 0.0
+                stop(motor)
+                print("mode=STOP color=none")
 
             else:
-                v = color_v
-                w = color_w
+                if scan is not None and obstacle_exists(scan):
+                    target_v, target_w, target_deg, gap_count = avoid_cmd(scan)
 
-            last_v = rate_limit(last_v, v, V_STEP)
-            last_w = rate_limit(last_w, w, W_STEP)
+                    last_v = rate(last_v, target_v, LIDAR_V_STEP)
+                    last_w = rate(last_w, target_w, LIDAR_W_STEP)
 
-            send_vw(motor, last_v, last_w)
+                    send_vw(motor, last_v, last_w)
+
+                    print(
+                        f"mode=AVOID "
+                        f"gap={gap_count} "
+                        f"target={target_deg:.0f} "
+                        f"v={target_v:.2f} "
+                        f"w={target_w:.2f}"
+                    )
+
+                else:
+                    target_v, target_w = follow_cmd(target, frame.shape[1])
+
+                    last_v = rate_limit(last_v, target_v, V_STEP)
+                    last_w = rate_limit(last_w, target_w, W_STEP)
+
+                    send_vw(motor, last_v, last_w)
+
+                    print(
+                        f"mode=FOLLOW "
+                        f"v={target_v:.2f} "
+                        f"w={target_w:.2f}"
+                    )
 
             if SHOW_WINDOW:
                 draw(frame, found)
                 cv2.imshow("follow", frame)
-
                 if cv2.waitKey(1) & 0xFF == ord("q"):
                     break
 
             time.sleep(LOOP_DT)
 
+    except KeyboardInterrupt:
+        print("\n[INFO] stop")
+
     finally:
-        if motor is not None:
-            stop(motor)
-            motor.close()
-
-        if lidar is not None:
-            lidar.close()
-
-        if cam is not None:
-            cam.stop() if USE_PICAM else cam.release()
-
+        stop(motor)
+        motor.close()
+        lidar.close()
+        cam.stop() if USE_PICAM else cam.release()
         cv2.destroyAllWindows()
 
 
