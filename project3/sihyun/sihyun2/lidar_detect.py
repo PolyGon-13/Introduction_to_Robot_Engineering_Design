@@ -7,6 +7,7 @@ import time
 import numpy as np
 import serial
 
+
 LIDAR_PORT = "/dev/ttyUSB0"
 LIDAR_BAUD = 460800
 ARDU_PORT = "/dev/ttyS0"
@@ -177,9 +178,8 @@ def avoid_cmd(scan):
     if not gaps:
         return 0.0, 0.0, 0.0, 0
 
-    centers = np.array([0.5 * (GRID[start] + GRID[end - 1]) for start, end in gaps])
-    best = int(np.argmin(np.abs(centers)))
-    target_deg = float(centers[best])
+    start, end = max(gaps, key=lambda gap: np.max(ranges[gap[0]:gap[1]]))
+    target_deg = float(0.5 * (GRID[start] + GRID[end - 1]))
     w = clamp(TURN_GAIN * np.deg2rad(target_deg), -MAX_W, MAX_W)
     return BASE_V, w, target_deg, len(gaps)
 
