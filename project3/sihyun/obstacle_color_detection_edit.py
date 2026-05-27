@@ -759,9 +759,11 @@ def choose_stop_turn_w(left_dist, right_dist, color_w):
     return MIN_STOP_TURN_W
 
 
-# [FIX 7] LIDAR_WAIT now returns (0.0, 0.0) instead of (color_v, color_w).
+# [FIX 7] LIDAR_WAIT now returns (0.0, color_w) instead of (color_v, color_w).
 # Original passed through full color velocity when scan data was stale/missing,
 # causing the robot to drive at full speed without any obstacle awareness.
+# Forward motion is stopped but rotation is kept so the robot can keep tracking
+# the target visually while waiting for LiDAR to recover.
 # Filter state is also reset so the next valid scan starts fresh.
 def compute_lidar_avoidance_cmd(lidar, color_v, color_w):
     if lidar is None:
@@ -776,7 +778,7 @@ def compute_lidar_avoidance_cmd(lidar, color_v, color_w):
     now = time.time()
     if scan is None or now - scan_time > LIDAR_SCAN_HOLD_S:
         _reset_lidar_filter()
-        return 0.0, 0.0, {
+        return 0.0, color_w, {
             "mode": "LIDAR_WAIT",
             "front": LIDAR_MAX_DIST_M,
             "left": LIDAR_MAX_DIST_M,
