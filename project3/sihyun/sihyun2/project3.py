@@ -307,6 +307,21 @@ def obstacle_detected(scan):
     return float(np.min(ranges[front_zone])) < FREE_D
 
 
+def lidar_zone_distances(scan):
+    if scan is None:
+        return None
+
+    ranges = front_ranges(scan)
+    left_zone = (GRID >= 10.0) & (GRID <= 80.0)
+    front_zone = (GRID >= -10.0) & (GRID <= 10.0)
+    right_zone = (GRID >= -80.0) & (GRID <= -10.0)
+    return (
+        float(np.min(ranges[left_zone])),
+        float(np.min(ranges[front_zone])),
+        float(np.min(ranges[right_zone])),
+    )
+
+
 def avoid_cmd(scan, color_deg=None):
     ranges = front_ranges(scan)
     safe_gaps = find_gaps(ranges >= FREE_D)
@@ -373,6 +388,13 @@ def main():
             found = detect(frame)
             target = pick(found)
             scan, scan_time, scan_seq = lidar.get()
+            lidar_dist = lidar_zone_distances(scan)
+
+            if lidar_dist is None:
+                print("[LIDAR] waiting...")
+            else:
+                left_d, front_d, right_d = lidar_dist
+                print(f"[LIDAR] left={left_d:.2f}m front={front_d:.2f}m right={right_d:.2f}m")
 
             if target is None:
                 mode = "STOP: no color"
