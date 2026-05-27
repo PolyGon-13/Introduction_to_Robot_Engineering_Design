@@ -25,7 +25,7 @@ MAX_D = 2.5
 ANG_MIN = -90.0
 ANG_MAX = 90.0
 ANG_STEP = 1.0
-FREE_D = 0.30
+FREE_D = 0.35
 MIN_GAP_DEG = 8.0
 
 BASE_V = 0.18
@@ -150,11 +150,10 @@ def front_ranges(scan):
 
     valid = (dist_m >= MIN_D) & (dist_m <= MAX_D) & (qualities >= MIN_Q)
     bins = np.rint((angle_deg[valid] - ANG_MIN) / ANG_STEP).astype(np.int32)
+    dists_valid = dist_m[valid]
+    in_grid = (bins >= 0) & (bins < len(ranges))
 
-    for idx, dist in zip(bins, dist_m[valid]):
-        if 0 <= idx < len(ranges) and dist < ranges[idx]:
-            ranges[idx] = dist
-
+    np.minimum.at(ranges, bins[in_grid], dists_valid[in_grid])
     return ranges
 
 
@@ -179,64 +178,18 @@ def find_gaps(free):
 
 def avoid_cmd(scan):
     ranges = front_ranges(scan)
-
-    # FREE_D 이상인 구간을 통과 가능한 공간으로 판단
-    free = ranges >= FREE_D
-    gaps = find_gaps(free)
-
+    gaps = find_gaps(ranges >= FREE_D)
     if not gaps:
         return 0.0, 0.0, 0.0, 0
 
-    # 각 갭의 중앙 각도 계산
-    centers = np.array(
-        [0.5 * (GRID[start] + GRID[end - 1]) for start, end in gaps],
-        dtype=np.float32
-    )
+    def gap_key(gap):
+        start, end = gap
+        center = 0.5 * (GRID[start] + GRID[end - 1])
+        return float(np.mean(ranges[start:end])), end - start, -abs(center)
 
-    # ==============================
-    # 갭 선택 방식 수정
-    # 기존: 정면에 가장 가까운 갭 선택
-    # 수정: 갭이 2개 이상이면 각 갭 내부 라이다 거리 평균을 구해서
-    #       평균 거리가 가장 큰 갭 선택
-    # ==============================
-    if len(gaps) >= 2:
-        gap_avgs = []
-        gap_widths = []
-
-        for start, end in gaps:
-            gap_range_values = ranges[start:end]
-
-            # 해당 갭 내부의 라이다 거리 평균
-            avg_dist = float(np.mean(gap_range_values))
-
-            # 해당 갭의 폭
-            width = end - start
-
-            gap_avgs.append(avg_dist)
-            gap_widths.append(width)
-
-        # 선택 우선순위
-        # 1순위: 평균 거리값이 큰 갭
-        # 2순위: 갭 폭이 넓은 갭
-        # 3순위: 정면에 가까운 갭
-        best = max(
-            range(len(gaps)),
-            key=lambda i: (
-                gap_avgs[i],
-                gap_widths[i],
-                -abs(centers[i])
-            )
-        )
-
-    else:
-        # 갭이 1개면 그 갭 선택
-        best = 0
-
-    target_deg = float(centers[best])
-
-    # 목표 각도에 따라 회전 속도 계산
+    start, end = max(gaps, key=gap_key)
+    target_deg = float(0.5 * (GRID[start] + GRID[end - 1]))
     w = clamp(TURN_GAIN * np.deg2rad(target_deg), -MAX_W, MAX_W)
-
     return BASE_V, w, target_deg, len(gaps)
 
 
