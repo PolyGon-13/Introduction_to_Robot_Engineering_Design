@@ -29,6 +29,7 @@ FOLLOW_MAX_W = 0.70
 FOLLOW_KP = 0.85
 DEADBAND = 0.08
 SEARCH_TIMEOUT = 2.0
+SEARCH_V = 0.08
 SEARCH_W = 0.35
 
 HSV_RANGES = {
@@ -84,7 +85,6 @@ OBSTACLE_FRONT_DEG = 90.0
 AVOID_BASE_V = 0.18
 AVOID_MAX_W = 0.90
 AVOID_TURN_GAIN = 1.05
-COLOR_TO_LIDAR_DEG = 45.0
 
 GRID = np.arange(ANG_MIN, ANG_MAX + 0.5 * ANG_STEP, ANG_STEP, dtype=np.float32)
 LEFT_ZONE = (GRID >= 10.0) & (GRID <= 80.0)
@@ -269,20 +269,8 @@ def target_error(target, width):
 
 def search_cmd(last_seen_err):
     if last_seen_err == 0.0:
-        return 0.0, 0.0
-    return 0.0, -SEARCH_W if last_seen_err > 0.0 else SEARCH_W
-
-
-def color_angle_from_target(target, width):
-    if target is None:
-        return 0.0
-
-    err = target_error(target, width)
-    return clamp(-err * COLOR_TO_LIDAR_DEG, ANG_MIN, ANG_MAX)
-
-
-def color_angle_from_error(err):
-    return clamp(-err * COLOR_TO_LIDAR_DEG, ANG_MIN, ANG_MAX)
+        return SEARCH_V, 0.0
+    return SEARCH_V, -SEARCH_W if last_seen_err > 0.0 else SEARCH_W
 
 
 def front_ranges(scan):
@@ -346,7 +334,7 @@ def lidar_zone_distances(ranges):
     )
 
 
-def avoid_cmd(ranges, color_deg=None):
+def avoid_cmd(ranges):
     safe_gaps = find_gaps(ranges >= FREE_D)
 
     if not safe_gaps:
@@ -360,10 +348,7 @@ def avoid_cmd(ranges, color_deg=None):
         start, end = gap
         return 0.5 * (GRID[start] + GRID[end - 1])
 
-    if color_deg is not None and len(safe_gaps) >= 2:
-        start, end = min(safe_gaps, key=lambda gap: abs(norm_deg(gap_center(gap) - color_deg)))
-    else:
-        start, end = max(safe_gaps, key=lambda gap: (gap_width(gap), -abs(gap_center(gap))))
+    start, end = max(safe_gaps, key=lambda gap: (gap_width(gap), -abs(gap_center(gap))))
 
     target_deg = float(0.5 * (GRID[start] + GRID[end - 1]))
     w = clamp(AVOID_TURN_GAIN * np.deg2rad(target_deg), -AVOID_MAX_W, AVOID_MAX_W)
@@ -435,14 +420,7 @@ def main():
 
             if obstacle_detected(ranges):
                 mode = "AVOID: obstacle"
-                if target is not None:
-                    color_deg = color_angle_from_target(target, frame.shape[1])
-                elif last_seen_time is not None and time.time() - last_seen_time <= SEARCH_TIMEOUT:
-                    color_deg = color_angle_from_error(last_seen_err)
-                else:
-                    color_deg = None
-
-                target_v, target_w, target_deg, gap_count = avoid_cmd(ranges, color_deg)
+                target_v, target_w, target_deg, gap_count = avoid_cmd(ranges)
 
                 print(
                     f"[{elapsed:.2f}s] [AVOID] gap={gap_count} "
