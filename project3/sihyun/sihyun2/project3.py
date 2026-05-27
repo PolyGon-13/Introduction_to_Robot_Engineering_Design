@@ -21,7 +21,7 @@ except ImportError:
 # ==============================
 
 TARGET = "RED"
-SHOW_WINDOW = 
+SHOW_WINDOW = False
 MIN_AREA = 200
 
 FOLLOW_MAX_V = 0.18
