@@ -7,6 +7,7 @@ import time
 import numpy as np
 import serial
 
+
 LIDAR_PORT = "/dev/ttyUSB0"
 LIDAR_BAUD = 460800
 ARDU_PORT = "/dev/ttyS0"
