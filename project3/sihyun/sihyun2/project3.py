@@ -315,10 +315,18 @@ def lidar_zone_distances(scan):
     left_zone = (GRID >= 10.0) & (GRID <= 80.0)
     front_zone = (GRID >= -10.0) & (GRID <= 10.0)
     right_zone = (GRID >= -80.0) & (GRID <= -10.0)
+
+    def zone_distance(zone):
+        values = ranges[zone]
+        measured = values[values < MAX_D]
+        if len(measured) == 0:
+            return MAX_D, 0
+        return float(np.min(measured)), len(measured)
+
     return (
-        float(np.min(ranges[left_zone])),
-        float(np.min(ranges[front_zone])),
-        float(np.min(ranges[right_zone])),
+        zone_distance(left_zone),
+        zone_distance(front_zone),
+        zone_distance(right_zone),
     )
 
 
@@ -395,8 +403,13 @@ def main():
             if lidar_dist is None:
                 print(f"[{elapsed:.2f}s] [LIDAR] waiting...")
             else:
-                left_d, front_d, right_d = lidar_dist
-                print(f"[{elapsed:.2f}s] [LIDAR] left={left_d:.2f}m front={front_d:.2f}m right={right_d:.2f}m")
+                (left_d, left_n), (front_d, front_n), (right_d, right_n) = lidar_dist
+                print(
+                    f"[{elapsed:.2f}s] [LIDAR] "
+                    f"left={left_d:.2f}m({left_n}) "
+                    f"front={front_d:.2f}m({front_n}) "
+                    f"right={right_d:.2f}m({right_n})"
+                )
 
             if target is None:
                 mode = "STOP: no color"
