@@ -379,8 +379,10 @@ def main():
         lidar = RPLidarC1()
         motor = Motor()
         motor.stop()
+        start_time = time.time()
 
         while True:
+            elapsed = time.time() - start_time
             ok, frame = read_frame(cam)
             if not ok:
                 break
@@ -391,10 +393,10 @@ def main():
             lidar_dist = lidar_zone_distances(scan)
 
             if lidar_dist is None:
-                print("[LIDAR] waiting...")
+                print(f"[{elapsed:.2f}s] [LIDAR] waiting...")
             else:
                 left_d, front_d, right_d = lidar_dist
-                print(f"[LIDAR] left={left_d:.2f}m front={front_d:.2f}m right={right_d:.2f}m")
+                print(f"[{elapsed:.2f}s] [LIDAR] left={left_d:.2f}m front={front_d:.2f}m right={right_d:.2f}m")
 
             if target is None:
                 mode = "STOP: no color"
@@ -410,7 +412,7 @@ def main():
                 target_v, target_w, target_deg, gap_count = avoid_cmd(scan, color_deg)
 
                 print(
-                    f"[AVOID] gap={gap_count} "
+                    f"[{elapsed:.2f}s] [AVOID] gap={gap_count} "
                     f"target={target_deg:.0f} "
                     f"v={target_v:.2f} "
                     f"w={target_w:.2f}"
