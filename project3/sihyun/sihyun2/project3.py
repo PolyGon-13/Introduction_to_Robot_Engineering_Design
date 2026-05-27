@@ -281,6 +281,10 @@ def color_angle_from_target(target, width):
     return clamp(-err * COLOR_TO_LIDAR_DEG, ANG_MIN, ANG_MAX)
 
 
+def color_angle_from_error(err):
+    return clamp(-err * COLOR_TO_LIDAR_DEG, ANG_MIN, ANG_MAX)
+
+
 def front_ranges(scan):
     ranges = np.full(len(GRID), MAX_D, dtype=np.float32)
 
@@ -429,7 +433,25 @@ def main():
                     f"right={right_d:.2f}m({right_n})"
                 )
 
-            if target is None:
+            if obstacle_detected(ranges):
+                mode = "AVOID: obstacle"
+                if target is not None:
+                    color_deg = color_angle_from_target(target, frame.shape[1])
+                elif last_seen_time is not None and time.time() - last_seen_time <= SEARCH_TIMEOUT:
+                    color_deg = color_angle_from_error(last_seen_err)
+                else:
+                    color_deg = None
+
+                target_v, target_w, target_deg, gap_count = avoid_cmd(ranges, color_deg)
+
+                print(
+                    f"[{elapsed:.2f}s] [AVOID] gap={gap_count} "
+                    f"target={target_deg:.0f} "
+                    f"v={target_v:.2f} "
+                    f"w={target_w:.2f}"
+                )
+
+            elif target is None:
                 can_search = last_seen_time is not None and time.time() - last_seen_time <= SEARCH_TIMEOUT
 
                 if can_search:
@@ -443,23 +465,11 @@ def main():
                     last_w = 0.0
                     motor.stop()
 
-            elif obstacle_detected(ranges):
-                mode = "AVOID: color + obstacle"
-                color_deg = color_angle_from_target(target, frame.shape[1])
-                target_v, target_w, target_deg, gap_count = avoid_cmd(ranges, color_deg)
-
-                print(
-                    f"[{elapsed:.2f}s] [AVOID] gap={gap_count} "
-                    f"target={target_deg:.0f} "
-                    f"v={target_v:.2f} "
-                    f"w={target_w:.2f}"
-                )
-
             else:
                 mode = "FOLLOW: color only"
                 target_v, target_w = follow_cmd(target, frame.shape[1])
 
-            if target is not None or mode.startswith("SEARCH"):
+            if target is not None or mode.startswith("SEARCH") or mode.startswith("AVOID"):
                 last_v = rate_limit(last_v, target_v, V_STEP)
                 w_step = AVOID_W_STEP if mode.startswith("AVOID") else FOLLOW_W_STEP
                 last_w = rate_limit(last_w, target_w, w_step)
