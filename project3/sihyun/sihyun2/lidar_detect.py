@@ -7,7 +7,6 @@ import time
 import numpy as np
 import serial
 
-
 LIDAR_PORT = "/dev/ttyUSB0"
 LIDAR_BAUD = 460800
 ARDU_PORT = "/dev/ttyS0"
@@ -121,6 +120,7 @@ class RPLidarC1:
                     angles.append(angle)
                     dists.append(dist)
                     qualities.append(quality)
+
             except (serial.SerialException, OSError):
                 time.sleep(1.0)
 
@@ -147,24 +147,29 @@ def front_ranges(scan):
     angles, dists, qualities = scan
     dist_m = (dists + DIST_OFFSET) / 1000.0
     angle_deg = norm_deg(angles + ANGLE_OFFSET) * ANGLE_SIGN
+
     valid = (dist_m >= MIN_D) & (dist_m <= MAX_D) & (qualities >= MIN_Q)
     bins = np.rint((angle_deg[valid] - ANG_MIN) / ANG_STEP).astype(np.int32)
 
     for idx, dist in zip(bins, dist_m[valid]):
         if 0 <= idx < len(ranges) and dist < ranges[idx]:
             ranges[idx] = dist
+
     return ranges
 
 
 def find_gaps(free):
     gaps = []
     start = None
+
     for idx, ok in enumerate(free):
         if ok and start is None:
             start = idx
+
         elif not ok and start is not None:
             gaps.append((start, idx))
             start = None
+
     if start is not None:
         gaps.append((start, len(free)))
 
@@ -174,45 +179,112 @@ def find_gaps(free):
 
 def avoid_cmd(scan):
     ranges = front_ranges(scan)
-    gaps = find_gaps(ranges >= FREE_D)
+
+    # FREE_D 이상인 구간을 통과 가능한 공간으로 판단
+    free = ranges >= FREE_D
+    gaps = find_gaps(free)
+
     if not gaps:
         return 0.0, 0.0, 0.0, 0
 
-    start, end = max(gaps, key=lambda gap: np.max(ranges[gap[0]:gap[1]]))
-    target_idx = start + int(np.argmax(ranges[start:end]))
-    target_deg = float(GRID[target_idx])
+    # 각 갭의 중앙 각도 계산
+    centers = np.array(
+        [0.5 * (GRID[start] + GRID[end - 1]) for start, end in gaps],
+        dtype=np.float32
+    )
+
+    # ==============================
+    # 갭 선택 방식 수정
+    # 기존: 정면에 가장 가까운 갭 선택
+    # 수정: 갭이 2개 이상이면 각 갭 내부 라이다 거리 평균을 구해서
+    #       평균 거리가 가장 큰 갭 선택
+    # ==============================
+    if len(gaps) >= 2:
+        gap_avgs = []
+        gap_widths = []
+
+        for start, end in gaps:
+            gap_range_values = ranges[start:end]
+
+            # 해당 갭 내부의 라이다 거리 평균
+            avg_dist = float(np.mean(gap_range_values))
+
+            # 해당 갭의 폭
+            width = end - start
+
+            gap_avgs.append(avg_dist)
+            gap_widths.append(width)
+
+        # 선택 우선순위
+        # 1순위: 평균 거리값이 큰 갭
+        # 2순위: 갭 폭이 넓은 갭
+        # 3순위: 정면에 가까운 갭
+        best = max(
+            range(len(gaps)),
+            key=lambda i: (
+                gap_avgs[i],
+                gap_widths[i],
+                -abs(centers[i])
+            )
+        )
+
+    else:
+        # 갭이 1개면 그 갭 선택
+        best = 0
+
+    target_deg = float(centers[best])
+
+    # 목표 각도에 따라 회전 속도 계산
     w = clamp(TURN_GAIN * np.deg2rad(target_deg), -MAX_W, MAX_W)
+
     return BASE_V, w, target_deg, len(gaps)
 
 
 def main():
     lidar = RPLidarC1()
     motor = Motor()
+
     v = 0.0
     w = 0.0
     last_seq = -1
+
     try:
         motor.stop()
+
         while True:
             scan, scan_time, scan_seq = lidar.get()
+
             if scan is None:
                 target_v = 0.0
                 target_w = 0.0
+                target_deg = 0.0
+                gap_count = 0
                 print("[LIDAR] waiting...")
+
             elif scan_seq == last_seq:
                 time.sleep(LOOP_DT)
                 continue
+
             else:
                 target_v, target_w, target_deg, gap_count = avoid_cmd(scan)
                 last_seq = scan_seq
-                print(f"gap={gap_count} target={target_deg:.0f} v={target_v:.2f} w={target_w:.2f}")
+
+                print(
+                    f"gap={gap_count} "
+                    f"target={target_deg:.0f} "
+                    f"v={target_v:.2f} "
+                    f"w={target_w:.2f}"
+                )
 
             v = rate(v, target_v, V_STEP)
             w = rate(w, target_w, W_STEP)
+
             motor.vw(v, w)
             time.sleep(LOOP_DT)
+
     except KeyboardInterrupt:
         print("\n[INFO] stop")
+
     finally:
         motor.stop()
         motor.close()
