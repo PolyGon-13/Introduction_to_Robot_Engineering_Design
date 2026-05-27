@@ -54,10 +54,11 @@ ANG_MIN = -90.0
 ANG_MAX = 90.0
 ANG_STEP = 1.0
 
-FREE_D = 0.35
-MIN_GAP_DEG = 8.0
+FREE_D = 0.50
+EMERGENCY_D = 0.22
+MIN_GAP_DEG = 15.0
 
-BASE_V = 0.18
+BASE_V = 0.10
 AVOID_MAX_W = 0.90
 TURN_GAIN = 1.05
 
@@ -68,7 +69,7 @@ GRID = np.arange(ANG_MIN, ANG_MAX + 0.5 * ANG_STEP, ANG_STEP, dtype=np.float32)
 COLOR_TO_LIDAR_DEG = 45.0
 
 # 전방 이 각도 안에 FREE_D보다 가까운 장애물이 있으면 회피 모드
-OBSTACLE_FRONT_DEG = 45.0
+OBSTACLE_FRONT_DEG = 65.0
 
 
 def clamp(value, low, high):
@@ -226,22 +227,40 @@ def avoid_cmd(scan, color_deg=0.0):
     ranges = front_ranges(scan)
     gaps = find_gaps(ranges >= FREE_D)
 
+    front_zone = (GRID >= -OBSTACLE_FRONT_DEG) & (GRID <= OBSTACLE_FRONT_DEG)
+    front_min = float(np.min(ranges[front_zone]))
+
+    if front_min < EMERGENCY_D:
+        left_clear = float(np.mean(ranges[(GRID >= 10.0) & (GRID <= 80.0)]))
+        right_clear = float(np.mean(ranges[(GRID >= -80.0) & (GRID <= -10.0)]))
+        target_deg = 45.0 if left_clear >= right_clear else -45.0
+        w = clamp(TURN_GAIN * np.deg2rad(target_deg), -AVOID_MAX_W, AVOID_MAX_W)
+        return 0.0, w, target_deg, len(gaps)
+
     if not gaps:
-        return 0.0, 0.0, 0.0, 0
+        left_clear = float(np.mean(ranges[(GRID >= 10.0) & (GRID <= 80.0)]))
+        right_clear = float(np.mean(ranges[(GRID >= -80.0) & (GRID <= -10.0)]))
+        target_deg = 45.0 if left_clear >= right_clear else -45.0
+        w = clamp(TURN_GAIN * np.deg2rad(target_deg), -AVOID_MAX_W, AVOID_MAX_W)
+        return 0.0, w, target_deg, 0
 
     def gap_key(gap):
         start, end = gap
         center = 0.5 * (GRID[start] + GRID[end - 1])
         color_dist = abs(norm_deg(center - color_deg))
+        gap_ranges = ranges[start:end]
+        clear_dist = float(np.mean(gap_ranges))
+        width = end - start
 
-        return -color_dist, float(np.mean(ranges[start:end])), end - start
+        return clear_dist, width, -color_dist
 
     start, end = max(gaps, key=gap_key)
 
     target_deg = clamp(color_deg, GRID[start], GRID[end - 1])
     w = clamp(TURN_GAIN * np.deg2rad(target_deg), -AVOID_MAX_W, AVOID_MAX_W)
+    v = BASE_V * clamp((front_min - EMERGENCY_D) / (FREE_D - EMERGENCY_D), 0.0, 1.0)
 
-    return BASE_V, w, target_deg, len(gaps)
+    return v, w, target_deg, len(gaps)
 
 
 # ==============================
