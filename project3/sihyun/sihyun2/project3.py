@@ -323,7 +323,7 @@ def avoid_cmd(scan, color_deg=0.0):
         return -color_dist, end - start
 
     start, end = max(gaps, key=gap_key)
-    target_deg = clamp(color_deg, GRID[start], GRID[end - 1])
+    target_deg = float(0.5 * (GRID[start] + GRID[end - 1]))
     w = clamp(AVOID_TURN_GAIN * np.deg2rad(target_deg), -AVOID_MAX_W, AVOID_MAX_W)
     return AVOID_BASE_V, w, target_deg, len(gaps)
 
