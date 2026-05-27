@@ -186,7 +186,7 @@ def avoid_cmd(scan):
     def gap_key(gap):
         start, end = gap
         center = 0.5 * (GRID[start] + GRID[end - 1])
-        return float(np.mean(ranges[start:end])), end - start, -abs(center)
+        return end - start, -abs(center)
 
     start, end = max(gaps, key=gap_key)
     target_deg = float(0.5 * (GRID[start] + GRID[end - 1]))
