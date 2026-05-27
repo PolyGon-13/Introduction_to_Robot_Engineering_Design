@@ -28,6 +28,8 @@ FOLLOW_MAX_V = 0.18
 FOLLOW_MAX_W = 0.70
 FOLLOW_KP = 0.85
 DEADBAND = 0.08
+SEARCH_TIMEOUT = 2.0
+SEARCH_W = 0.35
 
 HSV_RANGES = {
     "RED": [([0, 90, 120], [10, 255, 255]), ([170, 90, 120], [179, 255, 255])],
@@ -252,8 +254,7 @@ def follow_cmd(target, width):
     if target is None:
         return 0.0, 0.0
 
-    _, x, _, w, _, _ = target
-    err = (x + w / 2 - width / 2) / (width / 2)
+    err = target_error(target, width)
     err = 0.0 if abs(err) < DEADBAND else err
 
     v = FOLLOW_MAX_V * (1.0 - 0.45 * min(1.0, abs(err)))
@@ -261,13 +262,22 @@ def follow_cmd(target, width):
     return v, w
 
 
+def target_error(target, width):
+    _, x, _, w, _, _ = target
+    return clamp((x + w / 2 - width / 2) / (width / 2), -1.0, 1.0)
+
+
+def search_cmd(last_seen_err):
+    if last_seen_err == 0.0:
+        return 0.0, 0.0
+    return 0.0, -SEARCH_W if last_seen_err > 0.0 else SEARCH_W
+
+
 def color_angle_from_target(target, width):
     if target is None:
         return 0.0
 
-    _, x, _, w, _, _ = target
-    err = (x + w / 2 - width / 2) / (width / 2)
-    err = clamp(err, -1.0, 1.0)
+    err = target_error(target, width)
     return clamp(-err * COLOR_TO_LIDAR_DEG, ANG_MIN, ANG_MAX)
 
 
@@ -382,6 +392,8 @@ def main():
     motor = None
     last_v = 0.0
     last_w = 0.0
+    last_seen_err = 0.0
+    last_seen_time = None
 
     try:
         cam = open_camera()
@@ -398,6 +410,10 @@ def main():
 
             found = detect(frame)
             target = pick(found)
+            if target is not None:
+                last_seen_err = target_error(target, frame.shape[1])
+                last_seen_time = time.time()
+
             scan, scan_time, scan_seq = lidar.get()
             ranges = front_ranges(scan) if scan is not None else None
             lidar_dist = lidar_zone_distances(ranges)
@@ -414,12 +430,18 @@ def main():
                 )
 
             if target is None:
-                mode = "STOP: no color"
-                target_v = 0.0
-                target_w = 0.0
-                last_v = 0.0
-                last_w = 0.0
-                motor.stop()
+                can_search = last_seen_time is not None and time.time() - last_seen_time <= SEARCH_TIMEOUT
+
+                if can_search:
+                    mode = "SEARCH: lost color"
+                    target_v, target_w = search_cmd(last_seen_err)
+                else:
+                    mode = "STOP: no color"
+                    target_v = 0.0
+                    target_w = 0.0
+                    last_v = 0.0
+                    last_w = 0.0
+                    motor.stop()
 
             elif obstacle_detected(ranges):
                 mode = "AVOID: color + obstacle"
@@ -437,7 +459,7 @@ def main():
                 mode = "FOLLOW: color only"
                 target_v, target_w = follow_cmd(target, frame.shape[1])
 
-            if target is not None:
+            if target is not None or mode.startswith("SEARCH"):
                 last_v = rate_limit(last_v, target_v, V_STEP)
                 w_step = AVOID_W_STEP if mode.startswith("AVOID") else FOLLOW_W_STEP
                 last_w = rate_limit(last_w, target_w, w_step)
