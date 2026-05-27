@@ -4,7 +4,6 @@
 import threading
 import time
 
-
 import cv2
 import numpy as np
 import serial
@@ -21,7 +20,6 @@ except ImportError:
 # HSV color following settings
 # ==============================
 
-# TARGET can be "RED", "BLUE", "YELLOW", or None to follow the largest color target.
 TARGET = "RED"
 SHOW_WINDOW = True
 MIN_AREA = 200
@@ -46,7 +44,8 @@ BOX_COLORS = {"RED": (0, 0, 255), "BLUE": (255, 0, 0), "YELLOW": (0, 255, 255)}
 ARDU_PORT = "/dev/ttyS0"
 ARDU_BAUD = 9600
 V_STEP = 0.04
-W_STEP = 0.15
+FOLLOW_W_STEP = 0.15
+AVOID_W_STEP = 0.20
 LOOP_DT = 0.05
 
 
@@ -71,8 +70,6 @@ MAX_D = 2.5
 ANG_MIN = -90.0
 ANG_MAX = 90.0
 ANG_STEP = 1.0
-GRID = np.arange(ANG_MIN, ANG_MAX + 0.5 * ANG_STEP, ANG_STEP, dtype=np.float32)
-
 FREE_D = 0.35
 MIN_GAP_DEG = 8.0
 OBSTACLE_FRONT_DEG = 65.0
@@ -80,7 +77,8 @@ OBSTACLE_FRONT_DEG = 65.0
 AVOID_BASE_V = 0.18
 AVOID_MAX_W = 0.90
 AVOID_TURN_GAIN = 1.05
-AVOID_W_STEP = 0.20
+
+GRID = np.arange(ANG_MIN, ANG_MAX + 0.5 * ANG_STEP, ANG_STEP, dtype=np.float32)
 
 
 def clamp(value, low, high):
@@ -368,8 +366,6 @@ def main():
 
             elif obstacle_detected(scan):
                 mode = "AVOID: color + obstacle"
-                # Ignore color tracking here. When both color and obstacle exist,
-                # drive only with the same gap-based RPLidar avoidance logic as ridar _detect.py.
                 target_v, target_w, target_deg, gap_count = avoid_cmd(scan)
 
                 print(
@@ -385,7 +381,7 @@ def main():
 
             if target is not None:
                 last_v = rate_limit(last_v, target_v, V_STEP)
-                w_step = AVOID_W_STEP if mode.startswith("AVOID") else W_STEP
+                w_step = AVOID_W_STEP if mode.startswith("AVOID") else FOLLOW_W_STEP
                 last_w = rate_limit(last_w, target_w, w_step)
                 motor.vw(last_v, last_w)
 
