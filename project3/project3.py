@@ -39,7 +39,7 @@ MAX_POINTS = 500           # 계산용 최대 포인트 수
 ROBOT_RADIUS = 0.13
 COLLISION_DIST = ROBOT_RADIUS + 0.06   # 이 안으로 들어오는 궤적은 충돌로 간주
 SLOW_DIST = 0.22                       # 이 거리부터 감속 시작
-CRUISE_V = 2.0                         # 기본 직진 속도
+CRUISE_V = 0.18                        # 기본 직진 속도 (WHEEL_SPEED_MAX×WHEEL_R=0.272 m/s 포화 방지)
 V_MIN_RATIO = 0.4                      # 감속 시 최소 속도 비율
 MAX_W = 1.0                            # 최대 회전속도
 W_RATE = 0.30                          # 루프당 w 변화 제한
@@ -53,9 +53,7 @@ ODOM_START_X = 0.0                     # centered 좌표계 기준 시작 x
 ODOM_START_Y = -0.5                    # centered 좌표계 기준 시작 y (남쪽 끝→중앙 사이)
 ODOM_START_TH = math.pi / 2.0          # +y 방향으로 출발
 ODOM_HOLD_S = 0.50                     # 이 시간 이상 엔코더 피드백이 없으면 안전 정지
-KEEPIN_ENABLED = False  # 기본 off; python3 project3.py --keepin 으로 활성화
-KEEPIN_SIZE_M = 2.30                   # 2m 시험영역보다 약간 큰 가상 주행 제한
-KEEPIN_MARGIN_M = ROBOT_RADIUS         # 로봇 중심이 이만큼 안쪽에 남도록 제한
+KEEPIN_SIZE_M = 2.30                   # 탐색 waypoint 계산용 아레나 크기 참조값
 
 # DWA
 HORIZON_T = 1.2
@@ -121,9 +119,9 @@ ROBOT_BODY_LENGTH_M = 0.165
 ROBOT_BODY_WIDTH_M = 0.21
 CAMERA_FORWARD_OFFSET_M = -0.05
 CAMERA_LEFT_OFFSET_M = 0.0
-CAMERA_REAR_BLIND_M = 0.25
-CAMERA_RECT_WIDTH_M = 0.39
-CAMERA_RECT_DEPTH_M = 0.54
+CAMERA_REAR_BLIND_M = 0.40             # 로봇 후방→근거리 맹점 끝; 카메라 기준 37cm 사각지대에 대응
+CAMERA_RECT_WIDTH_M = 0.50             # 카메라 시야 폭 (실측 50cm)
+CAMERA_RECT_DEPTH_M = 0.89             # 카메라 시야 깊이 (실측 37→126cm, 89cm)
 
 # ===================== 시퀀스 추적 / 탐색 동작 =====================
 DEFAULT_TARGET = "RED"                 # 시작 타깃 색
@@ -145,7 +143,7 @@ CENTER_TOL_M = 0.055                   # 로봇 중심과 색상 중심의 허�
 CENTER_MAX_V = CRUISE_V                # 중심 정렬 접근 속도; v_scale(거리 비례)이 감속 담당
 CENTER_SLOW_RADIUS_M = 0.35            # 중심 목표에 가까워질수록 감속하는 반경
 CENTER_GOAL_ALPHA = 0.35               # 색상 중심 world 좌표 저역통과 비율
-CENTER_LOST_MEMORY_S = 2.00            # 색을 잃어도 마지막 중심 좌표로 마무리하는 시간
+CENTER_LOST_MEMORY_S = 8.00            # 색을 잃어도 마지막 중심 좌표로 마무리하는 시간 (맹점37cm→중심~4s 소요)
 CENTER_MAX_BEARING = 1.20              # 중심 목표 방위각 제한
 SEARCH_W = 0.80                        # 탐색 스윕 회전 속도 상한
 SEARCH_SWEEP_ANGLE_DEG = 35.0          # 현재 자세 기준 좌우로 훑는 각도
@@ -180,7 +178,7 @@ GLOBAL_STUCK_DIST_M = 0.35             # 전역 stuck 판정 이동 임계(m)
 COLOR_MEMORY_TTL_S = 240.0
 WRONG_COLOR_AVOID_RADIUS_M = 0.55
 WRONG_COLOR_SCORE_PENALTY = 1.60
-TARGET_MEMORY_REACHED_DIST_M = 0.35
+TARGET_MEMORY_REACHED_DIST_M = 0.40  # RE_SCAN 기동 시 타깃이 보이도록 맹점 경계(0.32m)보다 크게
 TARGET_MEMORY_MAX_V = CRUISE_V
 
 
@@ -718,38 +716,9 @@ def _pose_tuple(pose):
     return None
 
 
-def keepin_boundary_margin(v, w, pose):
-    """예측 궤적의 2.3m keep-in 경계 여유. 0 미만이면 영역 밖으로 나가는 후보."""
-    if not KEEPIN_ENABLED:
-        return MAX_RANGE_M
-    pose_t = _pose_tuple(pose)
-    if pose_t is None:
-        return MAX_RANGE_M
-
-    px, py, th = pose_t
-    allowed_half = KEEPIN_SIZE_M * 0.5 - KEEPIN_MARGIN_M
-    if allowed_half <= 0.0:
-        return -MAX_RANGE_M
-
-    xs, ys = predict_xy(v, w)
-    cs, sn = math.cos(th), math.sin(th)
-    gx = px + xs * cs - ys * sn
-    gy = py + xs * sn + ys * cs
-
-    left = gx + allowed_half
-    right = allowed_half - gx
-    bottom = gy + allowed_half
-    top = allowed_half - gy
-    return float(np.minimum.reduce((left, right, bottom, top)).min())
-
-
 def command_clearance(v, w, points, pose=None):
-    """장애물 여유와 keep-in 경계 여유를 함께 반영한 DWA용 clearance."""
-    obs_clr = path_clearance(v, w, points)
-    bnd_margin = keepin_boundary_margin(v, w, pose)
-    # 경계는 margin 0이 '딱 제한선'이므로 COLLISION_DIST 기준 clearance로 변환한다.
-    bnd_clr = COLLISION_DIST + bnd_margin
-    return min(obs_clr, bnd_clr)
+    """DWA용 장애물 clearance."""
+    return path_clearance(v, w, points)  # noqa: ARG001 pose unused after keepin removal
 
 
 def _speed_candidates():
@@ -1383,10 +1352,7 @@ class Controller:
         return v, w, "SEARCH_DRIVE"
 
     def _explore_half_span(self):
-        if KEEPIN_ENABLED:
-            half = KEEPIN_SIZE_M * 0.5 - KEEPIN_MARGIN_M - EXPLORE_EDGE_MARGIN_M
-        else:
-            half = 1.0
+        half = KEEPIN_SIZE_M * 0.5 - EXPLORE_EDGE_MARGIN_M
         return max(EXPLORE_REACH_DIST_M * 2.0, half)
 
     def _build_explore_waypoints(self):
@@ -1639,10 +1605,13 @@ class Controller:
         dy = mem["y_m"] - py
         dist = math.hypot(dx, dy)
         if dist <= TARGET_MEMORY_REACHED_DIST_M:
-            # 기억 위치까지 왔는데도 안 보이면 잘못된/가려진 기억으로 보고 일반 탐색으로 복귀.
-            self.color_memory.pop(self.target_color, None)
-            self._begin_search_scan()
-            return self._search_cmd(points, now, pose)
+            # 기억 위치까지 왔는데도 안 보이면 현장 RE_SCAN으로 탐색한다.
+            # (메모리는 유지 — 스캔 후 재발견 시 다시 접근)
+            self.phase = "RE_SCAN"
+            self.init_scan_prev_theta = None
+            self.init_scan_rotated = 0.0
+            self.init_scan_start_t = None
+            return self._init_scan_cmd(points, now, pose)
 
         cs, sn = math.cos(th), math.sin(th)
         ex = dx * cs + dy * sn
@@ -2031,14 +2000,6 @@ class Controller:
 
 # ===================== 메인 =====================
 def main():
-    import argparse
-    global KEEPIN_ENABLED
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--keepin", action="store_true", help="경계 제한(keepin) 활성화")
-    args = ap.parse_args()
-    if args.keepin:
-        KEEPIN_ENABLED = True
-
     ardu = open_arduino()
     lidar = RPLidarC1(LIDAR_PORT, LIDAR_BAUD)
     cam = ColorPerception(TARGET_SEQUENCE[0])
@@ -2066,7 +2027,7 @@ def main():
         while True:
             now = time.time()
             odom.poll_serial(ardu, now)
-            if KEEPIN_ENABLED and not odom.fresh(now):
+            if not odom.fresh(now):
                 send_vw(ardu, 0.0, 0.0)
                 ctrl.last_w = 0.0
                 if now - last_log > 0.3:
@@ -2107,13 +2068,12 @@ def main():
                 break
 
             if now - last_log > 0.3:
-                bnd = keepin_boundary_margin(max(v, 0.05), w, odom.pose)
                 print(
                     f"[{state}] tgt={ctrl.target_color} see={'Y' if seen else 'n'} "
                     f"gb={ctrl.goal:+.2f} v={v:.2f} w={w:+.2f} "
                     f"cy={cy_norm:.2f} clr={ctrl.clr:.2f} pts={len(points)} "
                     f"pose=({odom.pose.x:+.2f},{odom.pose.y:+.2f},{math.degrees(odom.pose.theta):+.0f}) "
-                    f"bnd={bnd:+.2f} bk={lidar.backlog} vms={cam.proc_ms:.0f}"
+                    f"bk={lidar.backlog} vms={cam.proc_ms:.0f}"
                 )
                 last_log = now
 

@@ -436,9 +436,9 @@ class Simulator:
         self.robot_body_width = getattr(self.p3, "ROBOT_BODY_WIDTH_M", DEFAULT_ROBOT_BODY_WIDTH_M)
         self.camera_forward_offset = getattr(self.p3, "CAMERA_FORWARD_OFFSET_M", -0.05)
         self.camera_left_offset = getattr(self.p3, "CAMERA_LEFT_OFFSET_M", 0.0)
-        self.camera_rear_blind = getattr(self.p3, "CAMERA_REAR_BLIND_M", 0.25)
-        self.camera_width = getattr(self.p3, "CAMERA_RECT_WIDTH_M", 0.39)
-        self.camera_depth = getattr(self.p3, "CAMERA_RECT_DEPTH_M", 0.54)
+        self.camera_rear_blind = getattr(self.p3, "CAMERA_REAR_BLIND_M", 0.40)
+        self.camera_width = getattr(self.p3, "CAMERA_RECT_WIDTH_M", 0.50)
+        self.camera_depth = getattr(self.p3, "CAMERA_RECT_DEPTH_M", 0.89)
         self.world.set_robot_body_size(self.robot_body_length, self.robot_body_width)
 
     def resize(self, window_w, window_h):
@@ -561,7 +561,6 @@ class Simulator:
             ("SLOW_DIST", S("SLOW_DIST", p3get("SLOW_DIST"), p3set("SLOW_DIST"), 0.15, 0.80)),
             ("ROBOT_RADIUS", S("ROBOT_RADIUS", p3get("ROBOT_RADIUS"), p3set("ROBOT_RADIUS"), 0.08, 0.20)),
             ("KEEPIN_SIZE_M", S("KEEPIN_SIZE_M", p3get("KEEPIN_SIZE_M"), p3set("KEEPIN_SIZE_M"), 2.00, 3.00)),
-            ("KEEPIN_MARGIN_M", S("KEEPIN_MARGIN_M", p3get("KEEPIN_MARGIN_M"), p3set("KEEPIN_MARGIN_M"), 0.00, 0.25)),
             ("MAX_RANGE_M", S("MAX_RANGE_M", p3get("MAX_RANGE_M"), p3set("MAX_RANGE_M"), 0.5, 4.0)),
             ("V_MIN_RATIO", S("V_MIN_RATIO", p3get("V_MIN_RATIO"), p3set("V_MIN_RATIO"), 0.1, 1.0)),
             ("V_SET_MIN", S("V_SET_MIN", p3get("V_SET_MIN"), p3set("V_SET_MIN"), 0.00, 0.10, fmt="{:.3f}")),
@@ -2432,7 +2431,7 @@ class Simulator:
             f"brain={self.target_color}[{t['bstate']}]  judge[{cleared}]  jdwell={self.world.dwell:.2f}",
             f"see={'Y' if t['see'] else 'n'}  gb={t['gb']:+.2f}rad  ar={t['ar']:.3f}",
             f"cmd v={t['v']:+.3f} w={t['w']:+.2f}  clr={t['clr']:.2f}  {'BLOCKED' if t['blocked'] else ''}",
-            f"odom=({self._p3_pose_tuple()[0]:+.2f},{self._p3_pose_tuple()[1]:+.2f})  keepin={self._keepin_report()['current_center_margin_m']:+.2f}",
+            f"odom=({self._p3_pose_tuple()[0]:+.2f},{self._p3_pose_tuple()[1]:+.2f})",
             f"collisions={self.world.collisions}   {'*** FINISHED ***' if self.world.finished else ''}",
             f"tool={self.tool}",
         ]
