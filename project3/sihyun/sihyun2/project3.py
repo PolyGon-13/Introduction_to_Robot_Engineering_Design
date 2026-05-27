@@ -376,12 +376,9 @@ def main():
             color_v, color_w = follow_cmd(target, frame.shape[1])
 
             scan, scan_time, scan_seq = lidar.get()
+            obstacle = scan is not None and obstacle_detected(scan)
 
-            if target is None:
-                v = 0.0
-                w = 0.0
-
-            elif scan is not None and obstacle_detected(scan):
+            if obstacle:
                 color_deg = color_angle_from_target(target, frame.shape[1])
                 v, w, target_deg, gap_count = avoid_cmd(scan, color_deg)
 
@@ -392,6 +389,10 @@ def main():
                     f"v={v:.2f} "
                     f"w={w:.2f}"
                 )
+
+            elif target is None:
+                v = 0.0
+                w = 0.0
 
             else:
                 v = color_v
