@@ -4,7 +4,6 @@
 import threading
 import time
 
-
 import cv2
 import numpy as np
 import serial
@@ -66,8 +65,7 @@ DIST_OFFSET = 0.0
 ANGLE_SIGN = -1.0
 MIN_Q = 1
 MIN_D = 0.05
-MAX_D = 2.5
-
+MAX_D = 0.35
 ANG_MIN = -90.0
 ANG_MAX = 90.0
 ANG_STEP = 1.0
