@@ -9,7 +9,6 @@ import numpy as np
 import serial
 
 
-
 try:
     from picamera2 import Picamera2
     USE_PICAM = True
@@ -35,7 +34,12 @@ HSV_RANGES = {
     "BLUE": [([102, 85, 110], [126, 255, 255])],
     "YELLOW": [([22, 85, 140], [36, 255, 255])],
 }
+HSV_RANGES = {
+    name: [(np.array(lower, dtype=np.uint8), np.array(upper, dtype=np.uint8)) for lower, upper in ranges]
+    for name, ranges in HSV_RANGES.items()
+}
 BOX_COLORS = {"RED": (0, 0, 255), "BLUE": (255, 0, 0), "YELLOW": (0, 255, 255)}
+MORPH_KERNEL = np.ones((5, 5), np.uint8)
 
 
 # ==============================
@@ -81,6 +85,11 @@ AVOID_TURN_GAIN = 1.05
 COLOR_TO_LIDAR_DEG = 45.0
 
 GRID = np.arange(ANG_MIN, ANG_MAX + 0.5 * ANG_STEP, ANG_STEP, dtype=np.float32)
+LEFT_ZONE = (GRID >= 10.0) & (GRID <= 80.0)
+FRONT_LOG_ZONE = (GRID >= -10.0) & (GRID <= 10.0)
+RIGHT_ZONE = (GRID >= -80.0) & (GRID <= -10.0)
+OBSTACLE_ZONE = (GRID >= -OBSTACLE_FRONT_DEG) & (GRID <= OBSTACLE_FRONT_DEG)
+MIN_GAP_BINS = max(1, int(np.ceil(MIN_GAP_DEG / ANG_STEP)))
 
 
 def clamp(value, low, high):
@@ -218,10 +227,10 @@ def detect(frame):
         mask = None
 
         for lower, upper in ranges:
-            part = cv2.inRange(hsv, np.array(lower), np.array(upper))
+            part = cv2.inRange(hsv, lower, upper)
             mask = part if mask is None else cv2.bitwise_or(mask, part)
 
-        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, MORPH_KERNEL)
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
         for cnt in contours:
@@ -295,27 +304,19 @@ def find_gaps(free):
     if start is not None:
         gaps.append((start, len(free)))
 
-    min_bins = max(1, int(np.ceil(MIN_GAP_DEG / ANG_STEP)))
-    return [(start, end) for start, end in gaps if end - start >= min_bins]
+    return [(start, end) for start, end in gaps if end - start >= MIN_GAP_BINS]
 
 
-def obstacle_detected(scan):
-    if scan is None:
+def obstacle_detected(ranges):
+    if ranges is None:
         return False
 
-    ranges = front_ranges(scan)
-    front_zone = (GRID >= -OBSTACLE_FRONT_DEG) & (GRID <= OBSTACLE_FRONT_DEG)
-    return float(np.min(ranges[front_zone])) < FREE_D
+    return float(np.min(ranges[OBSTACLE_ZONE])) < FREE_D
 
 
-def lidar_zone_distances(scan):
-    if scan is None:
+def lidar_zone_distances(ranges):
+    if ranges is None:
         return None
-
-    ranges = front_ranges(scan)
-    left_zone = (GRID >= 10.0) & (GRID <= 80.0)
-    front_zone = (GRID >= -10.0) & (GRID <= 10.0)
-    right_zone = (GRID >= -80.0) & (GRID <= -10.0)
 
     def zone_distance(zone):
         values = ranges[zone]
@@ -325,14 +326,13 @@ def lidar_zone_distances(scan):
         return float(np.min(measured)), len(measured)
 
     return (
-        zone_distance(left_zone),
-        zone_distance(front_zone),
-        zone_distance(right_zone),
+        zone_distance(LEFT_ZONE),
+        zone_distance(FRONT_LOG_ZONE),
+        zone_distance(RIGHT_ZONE),
     )
 
 
-def avoid_cmd(scan, color_deg=None):
-    ranges = front_ranges(scan)
+def avoid_cmd(ranges, color_deg=None):
     safe_gaps = find_gaps(ranges >= FREE_D)
 
     if not safe_gaps:
@@ -399,7 +399,8 @@ def main():
             found = detect(frame)
             target = pick(found)
             scan, scan_time, scan_seq = lidar.get()
-            lidar_dist = lidar_zone_distances(scan)
+            ranges = front_ranges(scan) if scan is not None else None
+            lidar_dist = lidar_zone_distances(ranges)
 
             if lidar_dist is None:
                 print(f"[{elapsed:.2f}s] [LIDAR] waiting...")
@@ -420,10 +421,10 @@ def main():
                 last_w = 0.0
                 motor.stop()
 
-            elif obstacle_detected(scan):
+            elif obstacle_detected(ranges):
                 mode = "AVOID: color + obstacle"
                 color_deg = color_angle_from_target(target, frame.shape[1])
-                target_v, target_w, target_deg, gap_count = avoid_cmd(scan, color_deg)
+                target_v, target_w, target_deg, gap_count = avoid_cmd(ranges, color_deg)
 
                 print(
                     f"[{elapsed:.2f}s] [AVOID] gap={gap_count} "
