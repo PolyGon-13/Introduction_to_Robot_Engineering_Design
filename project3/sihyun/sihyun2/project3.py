@@ -408,7 +408,9 @@ def main():
             if elapsed >= next_lidar_sample:
                 cached_scan, cached_scan_time, cached_scan_seq = lidar.get()
                 cached_lidar_dist = lidar_zone_distances(cached_scan)
-                next_lidar_sample = elapsed + LIDAR_SAMPLE_DT
+                next_lidar_sample += LIDAR_SAMPLE_DT
+                if elapsed >= next_lidar_sample:
+                    next_lidar_sample = elapsed + LIDAR_SAMPLE_DT
 
                 if cached_lidar_dist is None:
                     print(f"[{elapsed:.2f}s] [LIDAR] waiting...")
