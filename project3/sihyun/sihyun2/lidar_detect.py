@@ -179,7 +179,8 @@ def avoid_cmd(scan):
         return 0.0, 0.0, 0.0, 0
 
     start, end = max(gaps, key=lambda gap: np.max(ranges[gap[0]:gap[1]]))
-    target_deg = float(0.5 * (GRID[start] + GRID[end - 1]))
+    target_idx = start + int(np.argmax(ranges[start:end]))
+    target_deg = float(GRID[target_idx])
     w = clamp(TURN_GAIN * np.deg2rad(target_deg), -MAX_W, MAX_W)
     return BASE_V, w, target_deg, len(gaps)
 
