@@ -21,7 +21,7 @@ except ImportError:
 # ==============================
 
 TARGET = "RED"
-SHOW_WINDOW = False
+SHOW_WINDOW = True
 MIN_AREA = 200
 
 FOLLOW_MAX_V = 0.18
@@ -73,8 +73,6 @@ ANG_STEP = 1.0
 FREE_D = 0.35
 MIN_GAP_DEG = 8.0
 OBSTACLE_FRONT_DEG = 90.0
-LIDAR_LOG_PERCENTILE = 20.0
-LIDAR_SAMPLE_DT = 0.10
 
 AVOID_BASE_V = 0.18
 AVOID_MAX_W = 0.90
@@ -317,18 +315,10 @@ def lidar_zone_distances(scan):
     left_zone = (GRID >= 10.0) & (GRID <= 80.0)
     front_zone = (GRID >= -10.0) & (GRID <= 10.0)
     right_zone = (GRID >= -80.0) & (GRID <= -10.0)
-
-    def zone_distance(zone):
-        values = ranges[zone]
-        measured = values[values < MAX_D]
-        if len(measured) == 0:
-            return MAX_D, 0
-        return float(np.percentile(measured, LIDAR_LOG_PERCENTILE)), len(measured)
-
     return (
-        zone_distance(left_zone),
-        zone_distance(front_zone),
-        zone_distance(right_zone),
+        float(np.min(ranges[left_zone])),
+        float(np.min(ranges[front_zone])),
+        float(np.min(ranges[right_zone])),
     )
 
 
@@ -390,11 +380,6 @@ def main():
         motor = Motor()
         motor.stop()
         start_time = time.time()
-        next_lidar_sample = 0.0
-        cached_scan = None
-        cached_scan_time = 0.0
-        cached_scan_seq = 0
-        cached_lidar_dist = None
 
         while True:
             elapsed = time.time() - start_time
@@ -404,24 +389,14 @@ def main():
 
             found = detect(frame)
             target = pick(found)
+            scan, scan_time, scan_seq = lidar.get()
+            lidar_dist = lidar_zone_distances(scan)
 
-            if elapsed >= next_lidar_sample:
-                cached_scan, cached_scan_time, cached_scan_seq = lidar.get()
-                cached_lidar_dist = lidar_zone_distances(cached_scan)
-                next_lidar_sample += LIDAR_SAMPLE_DT
-                if elapsed >= next_lidar_sample:
-                    next_lidar_sample = elapsed + LIDAR_SAMPLE_DT
-
-                if cached_lidar_dist is None:
-                    print(f"[{elapsed:.2f}s] [LIDAR] waiting...")
-                else:
-                    (left_d, left_n), (front_d, front_n), (right_d, right_n) = cached_lidar_dist
-                    print(
-                        f"[{elapsed:.2f}s] [LIDAR] "
-                        f"left={left_d:.2f}m({left_n}) "
-                        f"front={front_d:.2f}m({front_n}) "
-                        f"right={right_d:.2f}m({right_n})"
-                    )
+            if lidar_dist is None:
+                print(f"[{elapsed:.2f}s] [LIDAR] waiting...")
+            else:
+                left_d, front_d, right_d = lidar_dist
+                print(f"[{elapsed:.2f}s] [LIDAR] left={left_d:.2f}m front={front_d:.2f}m right={right_d:.2f}m")
 
             if target is None:
                 mode = "STOP: no color"
@@ -431,10 +406,10 @@ def main():
                 last_w = 0.0
                 motor.stop()
 
-            elif obstacle_detected(cached_scan):
+            elif obstacle_detected(scan):
                 mode = "AVOID: color + obstacle"
                 color_deg = color_angle_from_target(target, frame.shape[1])
-                target_v, target_w, target_deg, gap_count = avoid_cmd(cached_scan, color_deg)
+                target_v, target_w, target_deg, gap_count = avoid_cmd(scan, color_deg)
 
                 print(
                     f"[{elapsed:.2f}s] [AVOID] gap={gap_count} "
