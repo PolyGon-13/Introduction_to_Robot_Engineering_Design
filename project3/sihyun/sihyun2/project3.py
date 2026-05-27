@@ -77,6 +77,7 @@ OBSTACLE_FRONT_DEG = 65.0
 AVOID_BASE_V = 0.18
 AVOID_MAX_W = 0.90
 AVOID_TURN_GAIN = 1.05
+COLOR_TO_LIDAR_DEG = 45.0
 
 GRID = np.arange(ANG_MIN, ANG_MAX + 0.5 * ANG_STEP, ANG_STEP, dtype=np.float32)
 
@@ -250,6 +251,16 @@ def follow_cmd(target, width):
     return v, w
 
 
+def color_angle_from_target(target, width):
+    if target is None:
+        return 0.0
+
+    _, x, _, w, _, _ = target
+    err = (x + w / 2 - width / 2) / (width / 2)
+    err = clamp(err, -1.0, 1.0)
+    return clamp(-err * COLOR_TO_LIDAR_DEG, ANG_MIN, ANG_MAX)
+
+
 def front_ranges(scan):
     ranges = np.full(len(GRID), MAX_D, dtype=np.float32)
 
@@ -296,7 +307,7 @@ def obstacle_detected(scan):
     return float(np.min(ranges[front_zone])) < FREE_D
 
 
-def avoid_cmd(scan):
+def avoid_cmd(scan, color_deg=None):
     ranges = front_ranges(scan)
     gaps = find_gaps(ranges >= FREE_D)
 
@@ -306,6 +317,9 @@ def avoid_cmd(scan):
     def gap_key(gap):
         start, end = gap
         center = 0.5 * (GRID[start] + GRID[end - 1])
+        if color_deg is not None and len(gaps) >= 2:
+            color_dist = abs(norm_deg(center - color_deg))
+            return -color_dist, end - start
         return end - start, -abs(center)
 
     start, end = max(gaps, key=gap_key)
@@ -366,7 +380,8 @@ def main():
 
             elif obstacle_detected(scan):
                 mode = "AVOID: color + obstacle"
-                target_v, target_w, target_deg, gap_count = avoid_cmd(scan)
+                color_deg = color_angle_from_target(target, frame.shape[1])
+                target_v, target_w, target_deg, gap_count = avoid_cmd(scan, color_deg)
 
                 print(
                     f"[AVOID] gap={gap_count} "
