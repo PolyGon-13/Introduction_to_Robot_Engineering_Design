@@ -475,11 +475,6 @@ def open_lidar():
         return None
 
 
-# [FIX 3] No-data bins (black obstacle IR absorption) set to 0.0, not LIDAR_MAX_DIST_M.
-# Original defaulted all bins to LIDAR_MAX_DIST_M; bins with counts==0 (no reflection)
-# looked like clear space. 0.0 < AVOID_FREE_DIST(0.18m) so gaps are correctly blocked.
-# Note: bug report suggested AVOID_DANGER_DIST(0.22m) but 0.22 >= AVOID_FREE_DIST(0.18)
-# so it would still be treated as a free gap — 0.0 is the correct value.
 def scan_to_angle_ranges(scan):
     angles_grid = np.arange(
         AVOID_MIN_ANGLE_DEG,
@@ -515,10 +510,6 @@ def scan_to_angle_ranges(scan):
         if dist < ranges[bin_idx]:
             ranges[bin_idx] = dist
         counts[bin_idx] += 1
-
-    # Bins that received no return (potential black obstacles) → treat as blocked
-    no_data_mask = counts == 0
-    ranges[no_data_mask] = 0.0
 
     return angles_grid, ranges, counts
 
