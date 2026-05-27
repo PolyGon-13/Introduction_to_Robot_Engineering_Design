@@ -65,13 +65,14 @@ DIST_OFFSET = 0.0
 ANGLE_SIGN = -1.0
 MIN_Q = 1
 MIN_D = 0.05
-MAX_D = 0.35
+MAX_D = 2.5
 ANG_MIN = -90.0
 ANG_MAX = 90.0
 ANG_STEP = 1.0
 GRID = np.arange(ANG_MIN, ANG_MAX + 0.5 * ANG_STEP, ANG_STEP, dtype=np.float32)
 
 FREE_D = 0.35
+EMERGENCY_D = 0.22
 MIN_GAP_DEG = 8.0
 OBSTACLE_FRONT_DEG = 65.0
 
@@ -307,12 +308,26 @@ def obstacle_detected(scan):
     return float(np.min(ranges[front_zone])) < FREE_D
 
 
+def turn_to_clear_side(ranges, gap_count=0):
+    left_clear = float(np.mean(ranges[(GRID >= 10.0) & (GRID <= 80.0)]))
+    right_clear = float(np.mean(ranges[(GRID >= -80.0) & (GRID <= -10.0)]))
+    target_deg = 45.0 if left_clear >= right_clear else -45.0
+    w = clamp(AVOID_TURN_GAIN * np.deg2rad(target_deg), -AVOID_MAX_W, AVOID_MAX_W)
+    return 0.0, w, target_deg, gap_count
+
+
 def avoid_cmd(scan, color_deg=0.0):
     ranges = front_ranges(scan)
     gaps = find_gaps(ranges >= FREE_D)
 
+    front_zone = (GRID >= -OBSTACLE_FRONT_DEG) & (GRID <= OBSTACLE_FRONT_DEG)
+    front_min = float(np.min(ranges[front_zone]))
+
+    if front_min < EMERGENCY_D:
+        return turn_to_clear_side(ranges, len(gaps))
+
     if not gaps:
-        return 0.0, 0.0, 0.0, 0
+        return turn_to_clear_side(ranges, 0)
 
     def gap_key(gap):
         start, end = gap
@@ -323,7 +338,8 @@ def avoid_cmd(scan, color_deg=0.0):
     start, end = max(gaps, key=gap_key)
     target_deg = clamp(color_deg, GRID[start], GRID[end - 1])
     w = clamp(AVOID_TURN_GAIN * np.deg2rad(target_deg), -AVOID_MAX_W, AVOID_MAX_W)
-    return AVOID_BASE_V, w, target_deg, len(gaps)
+    v = AVOID_BASE_V * clamp((front_min - EMERGENCY_D) / (FREE_D - EMERGENCY_D), 0.0, 1.0)
+    return v, w, target_deg, len(gaps)
 
 
 def draw(frame, found, mode):
