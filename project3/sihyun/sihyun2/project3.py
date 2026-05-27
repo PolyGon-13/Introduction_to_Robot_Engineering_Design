@@ -309,23 +309,27 @@ def obstacle_detected(scan):
 
 def avoid_cmd(scan, color_deg=None):
     ranges = front_ranges(scan)
-    gaps = find_gaps(ranges >= FREE_D)
+    safe_gaps = find_gaps(ranges >= FREE_D)
 
-    if not gaps:
+    if not safe_gaps:
         return 0.0, 0.0, 0.0, 0
 
-    def gap_key(gap):
+    def gap_width(gap):
         start, end = gap
-        center = 0.5 * (GRID[start] + GRID[end - 1])
-        if color_deg is not None and len(gaps) >= 2:
-            color_dist = abs(norm_deg(center - color_deg))
-            return -color_dist, end - start
-        return end - start, -abs(center)
+        return end - start
 
-    start, end = max(gaps, key=gap_key)
+    def gap_center(gap):
+        start, end = gap
+        return 0.5 * (GRID[start] + GRID[end - 1])
+
+    if color_deg is not None and len(safe_gaps) >= 2:
+        start, end = min(safe_gaps, key=lambda gap: abs(norm_deg(gap_center(gap) - color_deg)))
+    else:
+        start, end = max(safe_gaps, key=lambda gap: (gap_width(gap), -abs(gap_center(gap))))
+
     target_deg = float(0.5 * (GRID[start] + GRID[end - 1]))
     w = clamp(AVOID_TURN_GAIN * np.deg2rad(target_deg), -AVOID_MAX_W, AVOID_MAX_W)
-    return AVOID_BASE_V, w, target_deg, len(gaps)
+    return AVOID_BASE_V, w, target_deg, len(safe_gaps)
 
 
 def draw(frame, found, mode):
