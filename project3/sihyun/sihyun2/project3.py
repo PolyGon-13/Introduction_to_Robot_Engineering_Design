@@ -21,7 +21,7 @@ except ImportError:
 # ==============================
 
 TARGET = "RED"
-SHOW_WINDOW = True
+SHOW_WINDOW = False
 MIN_AREA = 200
 
 FOLLOW_MAX_V = 0.18
@@ -74,6 +74,8 @@ FREE_D = 0.35
 MIN_GAP_DEG = 8.0
 OBSTACLE_FRONT_DEG = 90.0
 LIDAR_LOG_PERCENTILE = 20.0
+MIN_LOG_POINTS = 20
+MIN_SCAN_POINTS = 80
 
 AVOID_BASE_V = 0.18
 AVOID_MAX_W = 0.90
@@ -305,6 +307,8 @@ def obstacle_detected(scan):
 
     ranges = front_ranges(scan)
     front_zone = (GRID >= -OBSTACLE_FRONT_DEG) & (GRID <= OBSTACLE_FRONT_DEG)
+    if np.count_nonzero(ranges[front_zone] < MAX_D) < MIN_SCAN_POINTS:
+        return False
     return float(np.min(ranges[front_zone])) < FREE_D
 
 
@@ -323,6 +327,9 @@ def lidar_zone_distances(scan):
         if len(measured) == 0:
             return MAX_D, 0
         return float(np.percentile(measured, LIDAR_LOG_PERCENTILE)), len(measured)
+
+    if np.count_nonzero(ranges < MAX_D) < MIN_LOG_POINTS:
+        return None
 
     return (
         zone_distance(left_zone),
