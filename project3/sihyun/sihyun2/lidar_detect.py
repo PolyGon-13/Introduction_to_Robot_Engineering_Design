@@ -24,33 +24,36 @@ DIST_OFFSET = 0.0
 ANGLE_SIGN = -1.0
 
 MIN_D = 0.05
-MAX_D = 0.75
+MAX_D = 2.5
 MIN_Q = 1
 SCAN_HOLD = 0.30
 
-GAP_MIN = -90.0
-GAP_MAX = 90.0
-GAP_STEP = 2.0
-GAP_FREE = 0.20
-GAP_WIDTH = 10.0
+ANG_MIN = -90.0
+ANG_MAX = 90.0
+ANG_STEP = 1.0
+FREE_D = 0.25
+MIN_GAP_DEG = 8.0
 
-BASE_V = 0.16
-SLOW_V = 0.09
+BASE_V = 0.18
 MAX_W = 0.70
-KP = 1.0
-
+TURN_GAIN = 1.05
 V_STEP = 0.04
-W_STEP = 0.15
+W_STEP = 0.30
 LOOP_DT = 0.05
-GRID = np.arange(GAP_MIN, GAP_MAX + GAP_STEP, GAP_STEP)
+
+GRID = np.arange(ANG_MIN, ANG_MAX + 0.5 * ANG_STEP, ANG_STEP, dtype=np.float32)
 
 
 def clamp(x, lo, hi):
-    return max(lo, min(x, hi))
+    return float(max(lo, min(x, hi)))
 
 
 def rate(prev, target, step):
     return prev + clamp(target - prev, -step, step)
+
+
+def norm_deg(angle):
+    return (angle + 180.0) % 360.0 - 180.0
 
 
 class Motor:
@@ -72,7 +75,7 @@ class Motor:
 class RPLidarC1:
     def __init__(self):
         self.ser = serial.Serial(LIDAR_PORT, LIDAR_BAUD, timeout=0.1)
-        self.q = deque(maxlen=5)
+        self.q = deque(maxlen=3)
         self.lock = threading.Lock()
         self.running = True
 
@@ -89,12 +92,13 @@ class RPLidarC1:
         self.thread.start()
 
     def _read(self):
-        a, d, q = [], [], []
+        angles, dists, qualities = [], [], []
         while self.running:
             try:
                 p = self.ser.read(5)
                 if len(p) != 5:
                     continue
+
                 start = p[0] & 1
                 if ((p[0] & 2) >> 1) != (1 - start) or (p[1] & 1) != 1:
                     continue
@@ -103,20 +107,20 @@ class RPLidarC1:
                 angle = ((p[1] >> 1) | (p[2] << 7)) / 64.0
                 dist = (p[3] | (p[4] << 8)) / 4.0
 
-                if start and len(a) >= 50:
+                if start and len(angles) > 50:
                     scan = (
-                        np.array(a, dtype=np.float32),
-                        np.array(d, dtype=np.float32),
-                        np.array(q, dtype=np.float32),
+                        np.array(angles, dtype=np.float32),
+                        np.array(dists, dtype=np.float32),
+                        np.array(qualities, dtype=np.float32),
                     )
                     with self.lock:
                         self.q.append((scan, time.time()))
-                    a, d, q = [], [], []
+                    angles, dists, qualities = [], [], []
 
                 if dist > 0 and quality >= MIN_Q:
-                    a.append(angle)
-                    d.append(dist)
-                    q.append(quality)
+                    angles.append(angle)
+                    dists.append(dist)
+                    qualities.append(quality)
             except (serial.SerialException, OSError):
                 time.sleep(1.0)
 
@@ -135,75 +139,75 @@ class RPLidarC1:
             self.ser.close()
 
 
-def polar(scan):
-    if scan is None:
-        return np.empty(0), np.empty(0)
-    ang, dist, qual = scan
-    dist = (dist + DIST_OFFSET) / 1000.0
-    ang = ((ang + ANGLE_OFFSET + 180.0) % 360.0 - 180.0) * ANGLE_SIGN
-    ok = (dist >= MIN_D) & (dist <= MAX_D) & (qual >= MIN_Q)
-    return dist[ok], ang[ok]
-
-
 def ranges(scan):
-    r = np.full(len(GRID), MAX_D, dtype=np.float32)
-    dist, ang = polar(scan)
-    bins = np.rint((ang - GAP_MIN) / GAP_STEP).astype(np.int32)
-    for i, d in zip(bins, dist):
-        if 0 <= i < len(r):
-            r[i] = min(r[i], d)
-    return r
+    out = np.full(len(GRID), MAX_D, dtype=np.float32)
+    if scan is None:
+        return out
+
+    angles, dists, qualities = scan
+    dist_m = (dists + DIST_OFFSET) / 1000.0
+    angle_deg = norm_deg(angles + ANGLE_OFFSET) * ANGLE_SIGN
+    valid = (dist_m >= MIN_D) & (dist_m <= MAX_D) & (qualities >= MIN_Q)
+    bins = np.rint((angle_deg[valid] - ANG_MIN) / ANG_STEP).astype(np.int32)
+
+    for idx, dist in zip(bins, dist_m[valid]):
+        if 0 <= idx < len(out) and dist < out[idx]:
+            out[idx] = dist
+    return out
 
 
-def gaps(free):
-    out, start = [], None
+def find_gaps(free):
+    found, start = [], None
     for i, ok in enumerate(free):
         if ok and start is None:
             start = i
         elif not ok and start is not None:
-            out.append((start, i))
+            found.append((start, i))
             start = None
     if start is not None:
-        out.append((start, len(free)))
-    need = max(1, math.ceil(GAP_WIDTH / GAP_STEP))
-    return [(s, e) for s, e in out if e - s >= need]
+        found.append((start, len(free)))
+
+    min_bins = max(1, math.ceil(MIN_GAP_DEG / ANG_STEP))
+    return [(s, e) for s, e in found if e - s >= min_bins]
 
 
-def cmd(scan):
+def choose_cmd(scan):
     r = ranges(scan)
-    gs = gaps(r >= GAP_FREE)
-    if not gs:
+    gaps = find_gaps(r >= FREE_D)
+    if not gaps:
         return 0.0, MAX_W, 0.0, 0
-    centers = np.array([0.5 * (GRID[s] + GRID[e - 1]) for s, e in gs])
+
+    centers = np.array([0.5 * (GRID[s] + GRID[e - 1]) for s, e in gaps])
     idx = int(np.argmin(np.abs(centers)))
-    s, e = gs[idx]
-    deg = float(centers[idx])
-    v = SLOW_V if float(np.max(r[s:e])) < GAP_FREE + 0.10 else BASE_V
-    w = clamp(KP * math.radians(deg), -MAX_W, MAX_W)
-    return v, w, deg, len(gs)
+    target_deg = float(centers[idx])
+    w = clamp(TURN_GAIN * math.radians(target_deg), -MAX_W, MAX_W)
+    return BASE_V, w, target_deg, len(gaps)
 
 
 def main():
-    lidar, motor = RPLidarC1(), Motor()
+    lidar = RPLidarC1()
+    motor = Motor()
     v = w = 0.0
     try:
         motor.stop()
         while True:
             scan, t = lidar.get()
-            tv = tw = 0.0
-            if scan is not None and time.time() - t <= SCAN_HOLD:
-                tv, tw, deg, n = cmd(scan)
-                print(f"gap={n} target={deg:.0f} v={tv:.2f} w={tw:.2f}")
-            else:
+            if scan is None or time.time() - t > SCAN_HOLD:
+                tv, tw, deg, count = 0.0, 0.0, 0.0, 0
                 print("[LIDAR] waiting...")
+            else:
+                tv, tw, deg, count = choose_cmd(scan)
+                print(f"gap={count} target={deg:.0f} v={tv:.2f} w={tw:.2f}")
 
-            v, w = rate(v, tv, V_STEP), rate(w, tw, W_STEP)
+            v = rate(v, tv, V_STEP)
+            w = rate(w, tw, W_STEP)
             motor.vw(v, w)
             time.sleep(LOOP_DT)
     except KeyboardInterrupt:
         print("\n[INFO] stop")
     finally:
         motor.stop()
+        time.sleep(0.2)
         motor.close()
         lidar.close()
 
