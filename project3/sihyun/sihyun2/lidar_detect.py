@@ -33,9 +33,15 @@ ANG_MAX = 90.0
 ANG_STEP = 1.0
 FREE_D = 0.25
 MIN_GAP_DEG = 8.0
+FRONT_X_MAX = 0.35
+FRONT_Y_HALF = 0.18
+SIDE_X_MIN = -0.03
+SIDE_X_MAX = 0.25
+SIDE_Y_MIN = 0.05
+SIDE_Y_MAX = 0.35
 
 BASE_V = 0.18
-MAX_W = 0.70
+MAX_W = 0.90
 TURN_GAIN = 1.05
 V_STEP = 0.04
 W_STEP = 0.30
@@ -156,6 +162,37 @@ def ranges(scan):
     return out
 
 
+def points(scan):
+    if scan is None:
+        return np.empty((0, 2), dtype=np.float32)
+
+    angles, dists, qualities = scan
+    dist_m = (dists + DIST_OFFSET) / 1000.0
+    angle_deg = norm_deg(angles + ANGLE_OFFSET) * ANGLE_SIGN
+    valid = (dist_m >= MIN_D) & (dist_m <= MAX_D) & (qualities >= MIN_Q)
+    rad = np.deg2rad(angle_deg[valid])
+    return np.column_stack((dist_m[valid] * np.cos(rad), dist_m[valid] * np.sin(rad))).astype(np.float32)
+
+
+def side_dists(scan):
+    pts = points(scan)
+    if len(pts) == 0:
+        return MAX_D, MAX_D, MAX_D
+
+    x = pts[:, 0]
+    y = pts[:, 1]
+    abs_y = np.abs(y)
+    front = (x > 0.0) & (x < FRONT_X_MAX) & (abs_y < FRONT_Y_HALF)
+    side = (x > SIDE_X_MIN) & (x < SIDE_X_MAX) & (abs_y > SIDE_Y_MIN) & (abs_y < SIDE_Y_MAX)
+    left = side & (y > 0.0)
+    right = side & (y < 0.0)
+
+    front_d = float(np.min(x[front])) if front.any() else MAX_D
+    left_d = float(np.min(y[left])) if left.any() else MAX_D
+    right_d = float(np.min(np.abs(y[right]))) if right.any() else MAX_D
+    return front_d, left_d, right_d
+
+
 def find_gaps(free):
     found, start = [], None
     for i, ok in enumerate(free):
@@ -197,7 +234,12 @@ def main():
                 print("[LIDAR] waiting...")
             else:
                 tv, tw, deg, count = choose_cmd(scan)
-                print(f"gap={count} target={deg:.0f} v={tv:.2f} w={tw:.2f}")
+                front, left, right = side_dists(scan)
+                print(
+                    f"gap={count} target={deg:.0f} "
+                    f"front={front:.2f} left={left:.2f} right={right:.2f} "
+                    f"v={tv:.2f} w={tw:.2f}"
+                )
 
             v = rate(v, tv, V_STEP)
             w = rate(w, tw, W_STEP)
