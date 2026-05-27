@@ -1040,6 +1040,9 @@ def main():
             if avoid_info["mode"] in ("IDLE", "AVOID_HOLD"):
                 cmd_v = 0.0
                 cmd_w = 0.0
+            elif avoid_info["mode"] == "LIDAR_WAIT":
+                cmd_v = 0.0
+                cmd_w = rate_limit(last_w, target_w, W_RATE_LIMIT)
             elif avoid_info["mode"] == "AVOID_STOP_TURN":
                 cmd_v = 0.0
                 cmd_w = rate_limit(last_w, target_w, W_RATE_LIMIT)
