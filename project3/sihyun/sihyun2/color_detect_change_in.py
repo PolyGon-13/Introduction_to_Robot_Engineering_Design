@@ -64,7 +64,7 @@ ODOM_LOG_INTERVAL = 0.5  # 엔코더 누적값 로그 출력 주기(초)
 WHEEL_R = 0.034  # Arduino encoder distance calculation wheel radius(m)
 ENC_PPR = 1012.0  # Arduino encoder counts per wheel revolution
 ENC_COUNTS_PER_M = ENC_PPR / (2.0 * np.pi * WHEEL_R)
-POST_COLOR_FORWARD_M = 0.30  # Move forward after a color exits bottom before pause(m)
+POST_COLOR_FORWARD_M = 0.20  # Move forward after a color exits bottom before pause(m)
 POST_COLOR_FORWARD_TIMEOUT = 5.0  # Safety timeout for the extra forward move(s)
 ODOM_WAIT_TIMEOUT = 1.0  # Max wait for Arduino odometry before extra move(s)
 
@@ -653,8 +653,8 @@ def main():
                     current_target = TARGET_SEQUENCE[target_index]
                     mode = f"SWITCH: {prev_target}->{current_target}"
                     print(f"[{elapsed:.2f}s] [COLOR] {prev_target} done, now tracking {current_target}")
-                    target_v, target_w, last_v, last_w = stop_motion(motor)
                     drive_forward_by_encoder(motor)
+                    target_v, target_w, last_v, last_w = 0.0, 0.0, 0.0, 0.0
                     time.sleep(COLOR_SWITCH_PAUSE)
                     ok, frame = read_frame(cam)
                     if not ok:
