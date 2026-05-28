@@ -23,6 +23,7 @@ except ImportError:
 TARGET = "RED"  # 따라갈 색상 이름, None이면 모든 등록 색상 중 가장 큰 물체 추적
 SHOW_WINDOW = True  # 카메라 인식 화면을 띄울지 여부
 MIN_AREA = 200  # 색상 물체로 인정할 최소 contour 면적
+BOTTOM_LOST_RATIO = 0.88  # 색상이 화면 아래 88% 지점 아래에서 사라지면 정지로 판단
 
 FOLLOW_MAX_V = 0.18  # 색 추적 모드 최대 전진 속도
 FOLLOW_MAX_W = 0.70  # 색 추적 모드 최대 회전 속도
@@ -410,6 +411,7 @@ def main():
     last_w = 0.0  # 직전에 보낸 회전 속도
     last_color_deg = 0.0  # 마지막으로 본 색상의 라이다 기준 방향
     last_color_time = 0.0  # 마지막으로 색상을 본 시각
+    last_color_bottom_ratio = 0.0  # 마지막 색상 박스 아래쪽 위치를 화면 높이 비율로 저장
     color_lost_during_avoid = False  # 회피 중 색상을 놓쳤는지 여부
     search_start_time = None  # 회피 후 색 재탐색을 시작한 시각
 
@@ -436,6 +438,8 @@ def main():
             if target is not None:
                 last_color_deg = color_angle_from_target(target, frame.shape[1])
                 last_color_time = time.time()
+                _, _, y, _, h, _ = target
+                last_color_bottom_ratio = (y + h) / frame.shape[0]
                 search_start_time = None
 
             if lidar_dist is None:
@@ -449,6 +453,12 @@ def main():
                     f"right={right_d:.2f}m({right_n})"
                 )
 
+            color_exited_bottom = (
+                target is None
+                and last_color_time > 0.0
+                and last_color_bottom_ratio >= BOTTOM_LOST_RATIO
+            )
+
             if target is not None and has_obstacle:
                 mode = "AVOID: color + obstacle"
                 color_lost_during_avoid = False
@@ -461,6 +471,16 @@ def main():
                     f"v={target_v:.2f} "
                     f"w={target_w:.2f}"
                 )
+
+            elif color_exited_bottom:
+                mode = "STOP: color bottom"
+                target_v = 0.0
+                target_w = 0.0
+                last_v = 0.0
+                last_w = 0.0
+                color_lost_during_avoid = False
+                search_start_time = None
+                motor.stop()
 
             elif target is None and has_obstacle and last_color_time > 0.0:
                 mode = "AVOID: lost color"
