@@ -616,7 +616,7 @@ def color_cmd(target, frame, ranges, has_obstacle, color_deg, bottom_ratio, elap
 
 def search_last_cmd(last_color_deg):
     w = clamp(SEARCH_TURN_GAIN * np.deg2rad(last_color_deg), -SEARCH_MAX_W, SEARCH_MAX_W)
-    return "SEARCH: last color direction", 0.0, w
+    return "SEARCH: last color direction", FOLLOW_MAX_V, w
 
 
 def main():
@@ -709,20 +709,18 @@ def main():
                 if has_obstacle:
                     mode = "AVOID: lost color"
                     search_start_time = None
-                    target_v, target_w, target_deg, gap_count = avoid_cmd(ranges, None)
+                    target_v, target_w, target_deg, gap_count = avoid_cmd(ranges, last_color_deg)
                     log_avoid(elapsed, "AVOID_LOST", target_deg, target_v, target_w, gap_count)
                 else:
                     if search_start_time is None:
                         search_start_time = time.time()
-                    mode = "SEARCH: last color"
-                    target_v = 0.0
-                    target_w = clamp(SEARCH_TURN_GAIN * np.deg2rad(last_color_deg), -SEARCH_MAX_W, SEARCH_MAX_W)
+                    mode, target_v, target_w = search_last_cmd(last_color_deg)
 
             elif target is None and has_obstacle and last_color_time > 0.0:
                 mode = "AVOID: lost color"
                 color_lost_during_avoid = True
                 search_start_time = None
-                target_v, target_w, target_deg, gap_count = avoid_cmd(ranges, None)
+                target_v, target_w, target_deg, gap_count = avoid_cmd(ranges, last_color_deg)
                 log_avoid(elapsed, "AVOID_LOST", target_deg, target_v, target_w, gap_count)
 
             elif target is None and switch_search_active:
@@ -732,14 +730,17 @@ def main():
                 if search_start_time is None:
                     search_start_time = time.time()
 
-                mode = "SEARCH: last color"
-                target_v = 0.0
-                target_w = clamp(SEARCH_TURN_GAIN * np.deg2rad(last_color_deg), -SEARCH_MAX_W, SEARCH_MAX_W)
+                mode, target_v, target_w = search_last_cmd(last_color_deg)
 
             elif target is None:
-                mode = "STOP: no color"
-                target_v, target_w, last_v, last_w = stop_motion(motor)
-                color_lost_during_avoid, search_start_time, switch_search_active = False, None, False
+                if last_color_time > 0.0:
+                    if search_start_time is None:
+                        search_start_time = time.time()
+                    mode, target_v, target_w = search_last_cmd(last_color_deg)
+                    color_lost_during_avoid, switch_search_active = True, False
+                else:
+                    mode, target_v, target_w = search_next_cmd()
+                    color_lost_during_avoid, switch_search_active = False, True
 
             if target is not None or mode.startswith("AVOID") or mode.startswith("SEARCH"):
                 last_v = rate_limit(last_v, target_v, V_STEP)
