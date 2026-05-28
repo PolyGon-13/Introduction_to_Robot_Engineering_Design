@@ -8,6 +8,7 @@ import cv2
 import numpy as np
 import serial
 
+
 try:
     from picamera2 import Picamera2
     USE_PICAM = True  # Picamera2 사용 가능 여부
@@ -25,6 +26,7 @@ MIN_AREA = 200  # 색상 물체로 인정할 최소 contour 면적
 BOTTOM_LOST_RATIO = 0.88  # 색상이 화면 아래 88% 지점 아래에서 사라지면 정지로 판단
 COLOR_SWITCH_PAUSE = 1.0  # 다음 색 추적 전 정지 시간(초)
 COLOR_PRIORITY_BOTTOM_RATIO = 0.50  # 색상 박스 아래쪽이 화면 절반 아래면 색 추적 우선
+COLOR_EXIT_CENTER_ERR = 0.20  # 이 가로 오차 안에서 아래로 사라질 때만 다음 색으로 전환
 
 FOLLOW_MAX_V = 0.18  # 색 추적 모드 최대 전진 속도
 FOLLOW_MAX_W = 0.70  # 색 추적 모드 최대 회전 속도
@@ -267,6 +269,12 @@ def bottom_center_error(target, frame_shape):
     return clamp(angle / (np.pi / 2), -1.0, 1.0)
 
 
+def x_center_error(target, frame_shape):
+    _, width = frame_shape[:2]
+    _, x, _, w, _, _ = target
+    return clamp((x + w / 2 - width / 2) / (width / 2), -1.0, 1.0)
+
+
 def follow_cmd(target, frame_shape):
     if target is None:
         return 0.0, 0.0
@@ -423,11 +431,11 @@ def draw(frame, found, mode):
 def update_color_memory(target, frame):
     last_color_deg = color_angle_from_target(target, frame.shape)
     _, _, y, _, h, _ = target
-    return last_color_deg, time.time(), (y + h) / frame.shape[0]
+    return last_color_deg, time.time(), (y + h) / frame.shape[0], x_center_error(target, frame.shape)
 
 
 def clear_color_memory():
-    return 0.0, 0.0, 0.0
+    return 0.0, 0.0, 0.0, 0.0
 
 
 def stop_motion(motor):
@@ -467,6 +475,7 @@ def main():
     last_color_deg = 0.0  # 마지막으로 본 색상의 라이다 기준 방향
     last_color_time = 0.0  # 마지막으로 색상을 본 시각
     last_color_bottom_ratio = 0.0  # 마지막 색상 박스 아래쪽 위치를 화면 높이 비율로 저장
+    last_color_x_err = 0.0  # 마지막 색상의 화면 가로 중심 오차
     color_lost_during_avoid = False  # 회피 중 색상을 놓쳤는지 여부
     search_start_time = None  # 회피 후 색 재탐색을 시작한 시각
     switch_search_active = False  # 다음 색으로 넘어간 뒤 색이 안 보일 때 360도 탐색 여부
@@ -495,7 +504,10 @@ def main():
             has_obstacle = obstacle_detected(ranges)  # 장애물 감지 여부
 
             if target is not None:
-                last_color_deg, last_color_time, last_color_bottom_ratio = update_color_memory(target, frame)
+                last_color_deg, last_color_time, last_color_bottom_ratio, last_color_x_err = update_color_memory(
+                    target,
+                    frame,
+                )
                 search_start_time = None
                 switch_search_active = False
                 switch_search_start_time = None
@@ -506,6 +518,10 @@ def main():
                 target is None
                 and last_color_time > 0.0
                 and last_color_bottom_ratio >= BOTTOM_LOST_RATIO
+            )
+            color_exited_bottom_center = (
+                color_exited_bottom
+                and abs(last_color_x_err) <= COLOR_EXIT_CENTER_ERR
             )
             color_priority_follow = (
                 target is not None
@@ -520,7 +536,7 @@ def main():
                 target_v, target_w, target_deg, gap_count = avoid_cmd(ranges, last_color_deg)
                 log_avoid(elapsed, "AVOID", target_deg, target_v, target_w, gap_count)
 
-            elif color_exited_bottom:
+            elif color_exited_bottom_center:
                 if target_index + 1 < len(TARGET_SEQUENCE):
                     prev_target = current_target
                     target_index += 1
@@ -537,7 +553,10 @@ def main():
                     target = pick(found, current_target)
 
                     if target is not None:
-                        last_color_deg, last_color_time, last_color_bottom_ratio = update_color_memory(target, frame)
+                        last_color_deg, last_color_time, last_color_bottom_ratio, last_color_x_err = update_color_memory(
+                            target,
+                            frame,
+                        )
                         color_lost_during_avoid = False
                         search_start_time = None
                         color_priority_follow = (
@@ -556,7 +575,7 @@ def main():
                         mode = "SEARCH: next color"
                         target_v = 0.0
                         target_w = SWITCH_SEARCH_W
-                        last_color_deg, last_color_time, last_color_bottom_ratio = clear_color_memory()
+                        last_color_deg, last_color_time, last_color_bottom_ratio, last_color_x_err = clear_color_memory()
                         color_lost_during_avoid = False
                         search_start_time = None
                         switch_search_active = True
@@ -564,11 +583,24 @@ def main():
                 else:
                     mode = "STOP: color bottom"
                     target_v, target_w, last_v, last_w = stop_motion(motor)
-                    last_color_deg, last_color_time, last_color_bottom_ratio = clear_color_memory()
+                    last_color_deg, last_color_time, last_color_bottom_ratio, last_color_x_err = clear_color_memory()
                     color_lost_during_avoid = False
                     search_start_time = None
                     switch_search_active = False
                     switch_search_start_time = None
+
+            elif color_exited_bottom:
+                mode = "SEARCH: last color direction"
+                target_v = 0.0
+                target_w = clamp(
+                    SEARCH_TURN_GAIN * np.deg2rad(last_color_deg),
+                    -SEARCH_MAX_W,
+                    SEARCH_MAX_W,
+                )
+                color_lost_during_avoid = False
+                search_start_time = None
+                switch_search_active = False
+                switch_search_start_time = None
 
             elif target is None and has_obstacle and last_color_time > 0.0:
                 mode = "AVOID: lost color"
