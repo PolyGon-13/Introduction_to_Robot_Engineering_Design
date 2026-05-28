@@ -527,7 +527,7 @@ def drive_forward_by_encoder(motor, distance_m=POST_COLOR_FORWARD_M):
 
     print(f"[ODOM] move {distance_m:.2f}m target_counts={target_counts:.0f}")
 
-    moved_counts = 0.0
+    left_counts = right_counts = 0.0
     while time.time() <= deadline:
         enc_l, enc_r, _, odom_time = motor.get_odom()
         if odom_time == 0.0 or time.time() - odom_time > 0.5:
@@ -535,18 +535,24 @@ def drive_forward_by_encoder(motor, distance_m=POST_COLOR_FORWARD_M):
             print("[ODOM] encoder data timeout during extra forward move")
             return False
 
-        moved_counts = 0.5 * (abs(enc_l - start_l) + abs(enc_r - start_r))
-        if moved_counts >= target_counts:
+        left_counts = abs(enc_l - start_l)
+        right_counts = abs(enc_r - start_r)
+        if left_counts >= target_counts and right_counts >= target_counts:
             break
 
         motor.vw(forward_v, 0.0)
         time.sleep(LOOP_DT)
 
     motor.stop()
-    moved_m = moved_counts / ENC_COUNTS_PER_M
-    ok = moved_counts >= target_counts
+    left_m = left_counts / ENC_COUNTS_PER_M
+    right_m = right_counts / ENC_COUNTS_PER_M
+    ok = left_counts >= target_counts and right_counts >= target_counts
     status = "done" if ok else "timeout"
-    print(f"[ODOM] extra forward {status}: moved={moved_m:.2f}m counts={moved_counts:.0f}")
+    print(
+        f"[ODOM] extra forward {status}: "
+        f"left={left_m:.2f}m({left_counts:.0f}) "
+        f"right={right_m:.2f}m({right_counts:.0f})"
+    )
     return ok
 
 
