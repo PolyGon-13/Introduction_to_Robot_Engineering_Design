@@ -191,8 +191,6 @@ class RPLidarC1:
         self.lock = threading.Lock()
         self.running = True
         self.scan = None
-        self.scan_time = 0.0
-        self.scan_seq = 0
 
         self.ser.write(RESET)
         time.sleep(2.0)
@@ -233,8 +231,6 @@ class RPLidarC1:
 
                     with self.lock:
                         self.scan = scan
-                        self.scan_time = time.time()
-                        self.scan_seq += 1
 
                     angles, dists, qualities = [], [], []
 
@@ -248,7 +244,7 @@ class RPLidarC1:
 
     def get(self):
         with self.lock:
-            return self.scan, self.scan_time, self.scan_seq
+            return self.scan
 
     def close(self):
         self.running = False
@@ -289,11 +285,10 @@ def detect(frame):
     found = []
 
     for name, ranges in HSV_RANGES.items():
-        mask = None
+        mask = np.zeros(hsv.shape[:2], dtype=np.uint8)
 
         for lower, upper in ranges:
-            part = cv2.inRange(hsv, lower, upper)
-            mask = part if mask is None else cv2.bitwise_or(mask, part)
+            mask = cv2.bitwise_or(mask, cv2.inRange(hsv, lower, upper))
 
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, MORPH_KERNEL)
         contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -301,21 +296,23 @@ def detect(frame):
         for cnt in contours:
             area = cv2.contourArea(cnt)
 
-            if area >= MIN_AREA:
-                x, y, w, h = cv2.boundingRect(cnt)
-                rect = cv2.minAreaRect(cnt)
-                approx = cv2.approxPolyDP(cnt, 0.03 * cv2.arcLength(cnt, True), True)
-                box = approx.reshape(-1, 2) if len(approx) >= 3 else cv2.boxPoints(rect).astype(np.int32)
-                moments = cv2.moments(cnt)
+            if area < MIN_AREA:
+                continue
 
-                if moments["m00"] != 0:
-                    cx = moments["m10"] / moments["m00"]
-                    cy = moments["m01"] / moments["m00"]
-                else:
-                    cx = x + w / 2
-                    cy = y + h / 2
+            x, y, w, h = cv2.boundingRect(cnt)
+            rect = cv2.minAreaRect(cnt)
+            approx = cv2.approxPolyDP(cnt, 0.03 * cv2.arcLength(cnt, True), True)
+            box = approx.reshape(-1, 2) if len(approx) >= 3 else cv2.boxPoints(rect).astype(np.int32)
+            moments = cv2.moments(cnt)
 
-                found.append((name, x, y, w, h, int(area), float(cx), float(cy), box, cnt))
+            if moments["m00"] != 0:
+                cx = moments["m10"] / moments["m00"]
+                cy = moments["m01"] / moments["m00"]
+            else:
+                cx = x + w / 2
+                cy = y + h / 2
+
+            found.append((name, x, y, w, h, int(area), float(cx), float(cy), box, cnt))
 
     return found
 
@@ -397,17 +394,11 @@ def find_gaps(free):
 
 
 def obstacle_detected(ranges):
-    if ranges is None:
-        return False
-
-    return float(np.min(ranges[OBSTACLE_ZONE])) < FREE_D
+    return ranges is not None and float(np.min(ranges[OBSTACLE_ZONE])) < FREE_D
 
 
 def front_is_clear(ranges):
-    if ranges is None:
-        return False
-
-    return float(np.min(ranges[FRONT_LOG_ZONE])) >= FREE_D
+    return ranges is not None and float(np.min(ranges[FRONT_LOG_ZONE])) >= FREE_D
 
 
 def lidar_zone_distances(ranges):
@@ -431,9 +422,7 @@ def lidar_zone_distances(ranges):
 def zone_min_distance(ranges, zone):
     values = ranges[zone]
     measured = values[values < MAX_D]
-    if len(measured) == 0:
-        return MAX_D
-    return float(np.min(measured))
+    return MAX_D if len(measured) == 0 else float(np.min(measured))
 
 
 def avoid_cmd(ranges, color_deg=None):
@@ -494,6 +483,15 @@ def draw(frame, found, mode):
     cv2.putText(frame, mode, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
 
 
+def show_frame(frame, found, mode):
+    if not SHOW_WINDOW:
+        return False
+
+    draw(frame, found, mode)
+    cv2.imshow("project3", frame)
+    return cv2.waitKey(1) & 0xFF == ord("q")
+
+
 def update_color_memory(target, frame):
     last_color_deg = color_angle_from_target(target, frame.shape)
     box = target[8]
@@ -505,18 +503,18 @@ def clear_color_memory():
     return 0.0, 0.0, 0.0, 0.0
 
 
-def stop_motion(motor):
-    motor.stop()
-    return 0.0, 0.0, 0.0, 0.0
-
-
 def search_next_cmd():
     return "SEARCH: next color", 0.0, SWITCH_SEARCH_W
 
 
+def avoid_lost_cmd(elapsed, ranges, color_deg):
+    target_v, target_w, target_deg, gap_count = avoid_cmd(ranges, color_deg)
+    log_avoid(elapsed, "AVOID_LOST", target_deg, target_v, target_w, gap_count)
+    return "AVOID: lost color", target_v, target_w
+
+
 def drive_forward_by_encoder(motor, distance_m=POST_COLOR_FORWARD_M):
     motor.stop()
-    time.sleep(PRE_FORWARD_STOP_SEC)
 
     start_odom = None
     wait_start = time.time()
@@ -626,6 +624,9 @@ def main():
     color_lost_during_avoid = False
     search_start_time = None
     switch_search_active = False
+    pending_forward_action = None
+    pending_forward_time = 0.0
+    switch_pause_until = 0.0
     target_index = 0
     current_target = TARGET_SEQUENCE[target_index]
 
@@ -646,7 +647,7 @@ def main():
             found = detect(frame)  # 현재 프레임에서 찾은 색상 물체 목록
             target = pick(found, current_target)  # 따라갈 대상 색상 물체
             found = [target] if target is not None else []
-            scan, scan_time, scan_seq = lidar.get()  # 최신 라이다 스캔 데이터
+            scan = lidar.get()  # 최신 라이다 스캔 데이터
             ranges = front_ranges(scan) if scan is not None else None  # 각도별 전방 거리 배열
             lidar_dist = lidar_zone_distances(ranges)  # 좌/정면/우측 로그용 최소 거리
             has_obstacle = obstacle_detected(ranges)  # 장애물 감지 여부
@@ -663,6 +664,41 @@ def main():
 
             color_exited_bottom = target is None and last_color_time > 0.0 and last_color_bottom_ratio >= BOTTOM_LOST_RATIO
             color_exited_bottom_center = color_exited_bottom and abs(last_color_x_err) <= COLOR_EXIT_CENTER_ERR
+            now = time.time()
+
+            if pending_forward_action is not None:
+                mode = "PAUSE: before forward"
+                target_v, target_w = 0.0, 0.0
+                motor.stop()
+
+                if now >= pending_forward_time:
+                    drive_forward_by_encoder(motor)
+                    last_v, last_w = 0.0, 0.0
+
+                    if pending_forward_action == "complete":
+                        print(f"[{elapsed:.2f}s] [COLOR] {current_target} done, mission complete")
+                        break
+
+                    pending_forward_action = None
+                    switch_pause_until = time.time() + COLOR_SWITCH_PAUSE
+
+                if show_frame(frame, found, mode):
+                    break
+
+                time.sleep(LOOP_DT)
+                continue
+
+            if now < switch_pause_until:
+                mode = "PAUSE: color switch"
+                target_v, target_w = 0.0, 0.0
+                motor.stop()
+
+                if show_frame(frame, found, mode):
+                    break
+
+                time.sleep(LOOP_DT)
+                continue
+
             if target is not None:
                 color_lost_during_avoid = False
                 mode, target_v, target_w = color_cmd(target, frame, ranges, has_obstacle, last_color_deg, last_color_bottom_ratio, elapsed)
@@ -674,55 +710,37 @@ def main():
                     current_target = TARGET_SEQUENCE[target_index]
                     mode = f"SWITCH: {prev_target}->{current_target}"
                     print(f"[{elapsed:.2f}s] [COLOR] {prev_target} done, now tracking {current_target}")
-                    drive_forward_by_encoder(motor)
                     target_v, target_w, last_v, last_w = 0.0, 0.0, 0.0, 0.0
-                    time.sleep(COLOR_SWITCH_PAUSE)
-                    ok, frame = read_frame(cam)
-                    if not ok:
-                        break
-
-                    found = detect(frame)
-                    target = pick(found, current_target)
-                    found = [target] if target is not None else []
-
-                    if target is not None:
-                        last_color_deg, last_color_time, last_color_bottom_ratio, last_color_x_err = update_color_memory(target, frame)
-                        color_lost_during_avoid = False
-                        search_start_time = None
-                        mode, target_v, target_w = color_cmd(target, frame, ranges, has_obstacle, last_color_deg, last_color_bottom_ratio, elapsed)
-                    else:
-                        mode, target_v, target_w = search_next_cmd()
-                        last_color_deg, last_color_time, last_color_bottom_ratio, last_color_x_err = clear_color_memory()
-                        color_lost_during_avoid, search_start_time = False, None
-                        switch_search_active = True
+                    last_color_deg, last_color_time, last_color_bottom_ratio, last_color_x_err = clear_color_memory()
+                    color_lost_during_avoid, search_start_time = False, None
+                    switch_search_active = True
+                    pending_forward_action = "switch"
+                    pending_forward_time = time.time() + PRE_FORWARD_STOP_SEC
+                    motor.stop()
                 else:
                     mode = "STOP: color bottom"
-                    drive_forward_by_encoder(motor)
                     target_v, target_w, last_v, last_w = 0.0, 0.0, 0.0, 0.0
                     last_color_deg, last_color_time, last_color_bottom_ratio, last_color_x_err = clear_color_memory()
                     color_lost_during_avoid, search_start_time, switch_search_active = False, None, False
-                    print(f"[{elapsed:.2f}s] [COLOR] {current_target} done, mission complete")
-                    break
+                    pending_forward_action = "complete"
+                    pending_forward_time = time.time() + PRE_FORWARD_STOP_SEC
+                    motor.stop()
 
             elif color_exited_bottom:
                 color_lost_during_avoid = True
                 switch_search_active = False
                 if has_obstacle:
-                    mode = "AVOID: lost color"
                     search_start_time = None
-                    target_v, target_w, target_deg, gap_count = avoid_cmd(ranges, last_color_deg)
-                    log_avoid(elapsed, "AVOID_LOST", target_deg, target_v, target_w, gap_count)
+                    mode, target_v, target_w = avoid_lost_cmd(elapsed, ranges, last_color_deg)
                 else:
                     if search_start_time is None:
                         search_start_time = time.time()
                     mode, target_v, target_w = search_last_cmd(last_color_deg)
 
             elif target is None and has_obstacle and last_color_time > 0.0:
-                mode = "AVOID: lost color"
                 color_lost_during_avoid = True
                 search_start_time = None
-                target_v, target_w, target_deg, gap_count = avoid_cmd(ranges, last_color_deg)
-                log_avoid(elapsed, "AVOID_LOST", target_deg, target_v, target_w, gap_count)
+                mode, target_v, target_w = avoid_lost_cmd(elapsed, ranges, last_color_deg)
 
             elif target is None and switch_search_active:
                 mode, target_v, target_w = search_next_cmd()
@@ -749,11 +767,8 @@ def main():
                 last_w = rate_limit(last_w, target_w, w_step)
                 motor.vw(last_v, last_w)
 
-            if SHOW_WINDOW:
-                draw(frame, found, mode)
-                cv2.imshow("project3", frame)
-                if cv2.waitKey(1) & 0xFF == ord("q"):
-                    break
+            if show_frame(frame, found, mode):
+                break
 
             time.sleep(LOOP_DT)
 
