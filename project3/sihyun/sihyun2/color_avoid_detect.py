@@ -81,7 +81,7 @@ OBSTACLE_FRONT_DEG = 90.0
 
 AVOID_BASE_V = 0.18
 AVOID_MAX_W = 0.90
-AVOID_TURN_GAIN = 1.5  // 장애물 회전 kp값
+AVOID_TURN_GAIN = 1.5  # 장애물 회전 kp값
 COLOR_TO_LIDAR_DEG = 45.0
 
 GRID = np.arange(ANG_MIN, ANG_MAX + 0.5 * ANG_STEP, ANG_STEP, dtype=np.float32)
