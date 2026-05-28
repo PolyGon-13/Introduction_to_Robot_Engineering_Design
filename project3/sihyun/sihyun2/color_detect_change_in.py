@@ -36,7 +36,7 @@ DEADBAND = 0.08  # 화면 중심 근처 오차를 0으로 처리하는 범위
 HSV_RANGES = {
     "RED": [([0, 100, 120], [5, 255, 255]), ([165, 80, 120], [179, 255, 255])],  # 빨간색 HSV 범위
     "BLUE": [([104, 90, 90], [116, 255, 230])],  # 파란색 HSV 범위
-    "YELLOW": [([17, 100, 150], [27, 255, 255])],  # 노란색 HSV 범위
+    "YELLOW": [([19, 130, 170], [25, 255, 255])],  # 노란색 HSV 범위
 }
 HSV_RANGES = {
     name: [(np.array(lower, dtype=np.uint8), np.array(upper, dtype=np.uint8)) for lower, upper in ranges]
