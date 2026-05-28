@@ -347,7 +347,7 @@ def follow_cmd(target, frame_shape):
     err = bottom_center_error(target, frame_shape)
     err = 0.0 if abs(err) < DEADBAND else err
 
-    v = FOLLOW_MAX_V * (1.0 - 0.45 * min(1.0, abs(err)))
+    v = FOLLOW_MAX_V
     w = clamp(-FOLLOW_KP * err, -FOLLOW_MAX_W, FOLLOW_MAX_W)
     return v, w
 
