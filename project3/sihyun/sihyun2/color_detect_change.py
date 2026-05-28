@@ -25,6 +25,7 @@ SHOW_WINDOW = True  # 카메라 인식 화면을 띄울지 여부
 MIN_AREA = 200  # 색상 물체로 인정할 최소 contour 면적
 BOTTOM_LOST_RATIO = 0.88  # 색상이 화면 아래 88% 지점 아래에서 사라지면 정지로 판단
 COLOR_SWITCH_PAUSE = 1.0  # 다음 색 추적 전 정지 시간(초)
+COLOR_PRIORITY_BOTTOM_RATIO = 0.50  # 색상 박스 아래쪽이 화면 절반 아래면 색 추적 우선
 
 FOLLOW_MAX_V = 0.18  # 색 추적 모드 최대 전진 속도
 FOLLOW_MAX_W = 0.70  # 색 추적 모드 최대 회전 속도
@@ -329,6 +330,13 @@ def obstacle_detected(ranges):
     return float(np.min(ranges[OBSTACLE_ZONE])) < FREE_D
 
 
+def front_is_clear(ranges):
+    if ranges is None:
+        return False
+
+    return float(np.min(ranges[FRONT_LOG_ZONE])) >= FREE_D
+
+
 def lidar_zone_distances(ranges):
     if ranges is None:
         return None
@@ -495,8 +503,13 @@ def main():
                 and last_color_time > 0.0
                 and last_color_bottom_ratio >= BOTTOM_LOST_RATIO
             )
+            color_priority_follow = (
+                target is not None
+                and last_color_bottom_ratio >= COLOR_PRIORITY_BOTTOM_RATIO
+                and front_is_clear(ranges)
+            )
 
-            if target is not None and has_obstacle:
+            if target is not None and has_obstacle and not color_priority_follow:
                 mode = "AVOID: color + obstacle"
                 color_lost_during_avoid = False
                 search_start_time = None
@@ -523,8 +536,12 @@ def main():
                         last_color_deg, last_color_time, last_color_bottom_ratio = update_color_memory(target, frame)
                         color_lost_during_avoid = False
                         search_start_time = None
+                        color_priority_follow = (
+                            last_color_bottom_ratio >= COLOR_PRIORITY_BOTTOM_RATIO
+                            and front_is_clear(ranges)
+                        )
 
-                        if has_obstacle:
+                        if has_obstacle and not color_priority_follow:
                             mode = "AVOID: color + obstacle"
                             target_v, target_w, target_deg, gap_count = avoid_cmd(ranges, last_color_deg)
                             log_avoid(elapsed, "AVOID", target_deg, target_v, target_w, gap_count)
