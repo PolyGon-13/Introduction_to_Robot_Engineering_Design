@@ -480,6 +480,7 @@ def draw(frame, found, mode):
         center = (int(round(cx)), int(round(cy)))
 
         cv2.drawContours(frame, [cnt], -1, color, 2)
+        cv2.polylines(frame, [box], True, color, 2)
         cv2.circle(frame, center, 5, color, -1)
         cv2.putText(
             frame,
