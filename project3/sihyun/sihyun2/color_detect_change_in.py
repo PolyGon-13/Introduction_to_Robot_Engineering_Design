@@ -42,7 +42,7 @@ HSV_RANGES = {
     name: [(np.array(lower, dtype=np.uint8), np.array(upper, dtype=np.uint8)) for lower, upper in ranges]
     for name, ranges in HSV_RANGES.items()
 }  # cv2.inRange에서 바로 쓰도록 HSV 범위를 numpy 배열로 변환
-BOX_COLORS = {"RED": (0, 0, 255), "BLUE": (255, 0, 0), "YELLOW": (0, 255, 255)}  # 화면 표시용 박스 색상(BGR)
+BOX_COLORS = {"RED": (0, 0, 255), "BLUE": (255, 0, 0), "YELLOW": (0, 255, 255)}  # 화면 표시용 색상(BGR)
 MORPH_KERNEL = np.ones((5, 5), np.uint8)  # 색상 마스크 잡음 제거용 커널
 
 
@@ -305,17 +305,16 @@ def detect(frame):
 
             if area >= MIN_AREA:
                 x, y, w, h = cv2.boundingRect(cnt)
-                rect = cv2.minAreaRect(cnt)
-                box = cv2.boxPoints(rect).astype(np.int32)
                 moments = cv2.moments(cnt)
 
                 if moments["m00"] != 0:
                     cx = moments["m10"] / moments["m00"]
                     cy = moments["m01"] / moments["m00"]
                 else:
-                    cx, cy = rect[0]
+                    cx = x + w / 2
+                    cy = y + h / 2
 
-                found.append((name, x, y, w, h, int(area), float(cx), float(cy), box, cnt))
+                found.append((name, x, y, w, h, int(area), float(cx), float(cy), cnt))
 
     return found
 
@@ -474,12 +473,11 @@ def avoid_cmd(ranges, color_deg=None):
 
 
 def draw(frame, found, mode):
-    for name, x, y, w, h, area, cx, cy, box, cnt in found:
+    for name, x, y, w, h, area, cx, cy, cnt in found:
         color = BOX_COLORS[name]
         center = (int(round(cx)), int(round(cy)))
 
         cv2.drawContours(frame, [cnt], -1, color, 2)
-        cv2.polylines(frame, [box], True, color, 2)
         cv2.circle(frame, center, 5, color, -1)
         cv2.putText(
             frame,
@@ -496,8 +494,8 @@ def draw(frame, found, mode):
 
 def update_color_memory(target, frame):
     last_color_deg = color_angle_from_target(target, frame.shape)
-    box = target[8]
-    bottom_ratio = float(np.max(box[:, 1])) / frame.shape[0]
+    cnt = target[8]
+    bottom_ratio = float(np.min(cnt[:, 0, 1])) / frame.shape[0]
     return last_color_deg, time.time(), bottom_ratio, x_center_error(target, frame.shape)
 
 
