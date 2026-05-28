@@ -68,6 +68,7 @@ PRE_FORWARD_STOP_SEC = 0.5  # Stop before encoder-based extra forward move(s)
 POST_COLOR_FORWARD_M = 0.20  # Move forward after a color exits bottom before pause(m)
 POST_COLOR_FORWARD_TIMEOUT = 5.0  # Safety timeout for the extra forward move(s)
 ODOM_WAIT_TIMEOUT = 1.0  # Max wait for Arduino odometry before extra move(s)
+MODE_LOG_INTERVAL = 0.5  # 주행 모드/속도 로그 출력 주기(초)
 
 
 # ==============================
@@ -594,6 +595,15 @@ def log_odom(elapsed, odom):
     print(f"[{elapsed:.2f}s] [ODOM] left={enc_l} right={enc_r} arduino_ms={arduino_ms}")
 
 
+def log_mode(elapsed, mode, target_v, target_w, last_v, last_w, has_obstacle, target):
+    seen = target is not None
+    print(
+        f"[{elapsed:.2f}s] [MODE] {mode} "
+        f"target_seen={seen} obstacle={has_obstacle} "
+        f"cmd=({target_v:.2f},{target_w:.2f}) actual=({last_v:.2f},{last_w:.2f})"
+    )
+
+
 def color_cmd(target, frame, ranges, has_obstacle, color_deg, bottom_ratio, elapsed):
     priority = bottom_ratio >= COLOR_PRIORITY_BOTTOM_RATIO and front_is_clear(ranges)
     if has_obstacle and not priority:
@@ -614,7 +624,7 @@ def main():
     cam = lidar = motor = None
     last_v = last_w = 0.0
     last_color_deg = last_color_time = last_color_bottom_ratio = last_color_x_err = 0.0
-    last_odom_log_time = 0.0
+    last_odom_log_time = last_mode_log_time = 0.0
     color_lost_during_avoid = False
     search_start_time = None
     switch_search_active = False
@@ -732,6 +742,10 @@ def main():
                 w_step = AVOID_W_STEP if mode.startswith("AVOID") else FOLLOW_W_STEP
                 last_w = rate_limit(last_w, target_w, w_step)
                 motor.vw(last_v, last_w)
+
+            if time.time() - last_mode_log_time >= MODE_LOG_INTERVAL:
+                log_mode(elapsed, mode, target_v, target_w, last_v, last_w, has_obstacle, target)
+                last_mode_log_time = time.time()
 
             if SHOW_WINDOW:
                 draw(frame, found, mode)
