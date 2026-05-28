@@ -305,6 +305,8 @@ def detect(frame):
 
             if area >= MIN_AREA:
                 x, y, w, h = cv2.boundingRect(cnt)
+                rect = cv2.minAreaRect(cnt)
+                box = cv2.boxPoints(rect).astype(np.int32)
                 moments = cv2.moments(cnt)
 
                 if moments["m00"] != 0:
@@ -314,7 +316,7 @@ def detect(frame):
                     cx = x + w / 2
                     cy = y + h / 2
 
-                found.append((name, x, y, w, h, int(area), float(cx), float(cy), cnt))
+                found.append((name, x, y, w, h, int(area), float(cx), float(cy), box, cnt))
 
     return found
 
@@ -473,7 +475,7 @@ def avoid_cmd(ranges, color_deg=None):
 
 
 def draw(frame, found, mode):
-    for name, x, y, w, h, area, cx, cy, cnt in found:
+    for name, x, y, w, h, area, cx, cy, box, cnt in found:
         color = BOX_COLORS[name]
         center = (int(round(cx)), int(round(cy)))
 
@@ -494,8 +496,8 @@ def draw(frame, found, mode):
 
 def update_color_memory(target, frame):
     last_color_deg = color_angle_from_target(target, frame.shape)
-    cnt = target[8]
-    bottom_ratio = float(np.max(cnt[:, 0, 1])) / frame.shape[0]
+    box = target[8]
+    bottom_ratio = float(np.max(box[:, 1])) / frame.shape[0]
     return last_color_deg, time.time(), bottom_ratio, x_center_error(target, frame.shape)
 
 
