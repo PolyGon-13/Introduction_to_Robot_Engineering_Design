@@ -9,7 +9,6 @@ import numpy as np
 import serial
 
 
-
 try:
     from picamera2 import Picamera2
     USE_PICAM = True  # Picamera2 사용 가능 여부
@@ -27,7 +26,7 @@ MIN_AREA = 200  # 색상 물체로 인정할 최소 contour 면적
 BOTTOM_LOST_RATIO = 0.88  # 색상이 화면 아래 88% 지점 아래에서 사라지면 정지로 판단
 COLOR_SWITCH_PAUSE = 1.0  # 다음 색 추적 전 정지 시간(초)
 COLOR_PRIORITY_BOTTOM_RATIO = 0.75  # 색상 박스 아래쪽이 화면 4등분 중 맨 아래 구역이면 색 추적 우선
-COLOR_EXIT_CENTER_ERR = 0.20  # 이 가로 오차 안에서 아래로 사라질 때만 다음 색으로 전환
+COLOR_EXIT_CENTER_ERR = 0.30  # 이 가로 오차 안에서 아래로 사라질 때만 다음 색으로 전환
 
 FOLLOW_MAX_V = 0.18  # 색 추적 모드 최대 전진 속도
 FOLLOW_MAX_W = 0.70  # 색 추적 모드 최대 회전 속도
