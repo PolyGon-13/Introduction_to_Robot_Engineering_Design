@@ -81,7 +81,7 @@ OBSTACLE_FRONT_DEG = 90.0
 
 AVOID_BASE_V = 0.18
 AVOID_MAX_W = 0.90
-AVOID_TURN_GAIN = 1.5  # 장애물 회전 kp값
+AVOID_TURN_GAIN = 1.2  # 장애물 회전 kp값
 COLOR_TO_LIDAR_DEG = 45.0
 
 GRID = np.arange(ANG_MIN, ANG_MAX + 0.5 * ANG_STEP, ANG_STEP, dtype=np.float32)
@@ -346,7 +346,9 @@ def avoid_cmd(ranges, color_deg=None):
         start, end = gap
         return 0.5 * (GRID[start] + GRID[end - 1])
 
-    if color_deg is not None and len(safe_gaps) >= 2:
+    front_blocked = float(np.min(ranges[FRONT_LOG_ZONE])) < FREE_D
+
+    if color_deg is not None and len(safe_gaps) >= 2 and not front_blocked:
         start, end = min(safe_gaps, key=lambda gap: abs(norm_deg(gap_center(gap) - color_deg)))
     else:
         start, end = max(safe_gaps, key=lambda gap: (gap_width(gap), -abs(gap_center(gap))))
