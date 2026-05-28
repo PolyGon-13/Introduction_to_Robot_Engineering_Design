@@ -65,7 +65,7 @@ WHEEL_R = 0.034  # Arduino encoder distance calculation wheel radius(m)
 ENC_PPR = 1012.0  # Arduino encoder counts per wheel revolution
 ENC_COUNTS_PER_M = ENC_PPR / (2.0 * np.pi * WHEEL_R)
 PRE_FORWARD_STOP_SEC = 0.5  # Stop before encoder-based extra forward move(s)
-POST_COLOR_FORWARD_M = 0.30  # Move forward after a color exits bottom before pause(m)
+POST_COLOR_FORWARD_M = 0.20  # Move forward after a color exits bottom before pause(m)
 POST_COLOR_FORWARD_TIMEOUT = 5.0  # Safety timeout for the extra forward move(s)
 ODOM_WAIT_TIMEOUT = 1.0  # Max wait for Arduino odometry before extra move(s)
 
