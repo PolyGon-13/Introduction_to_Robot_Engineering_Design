@@ -306,7 +306,8 @@ def detect(frame):
             if area >= MIN_AREA:
                 x, y, w, h = cv2.boundingRect(cnt)
                 rect = cv2.minAreaRect(cnt)
-                box = cv2.boxPoints(rect).astype(np.int32)
+                approx = cv2.approxPolyDP(cnt, 0.03 * cv2.arcLength(cnt, True), True)
+                box = approx.reshape(-1, 2) if len(approx) >= 3 else cv2.boxPoints(rect).astype(np.int32)
                 moments = cv2.moments(cnt)
 
                 if moments["m00"] != 0:
