@@ -495,7 +495,7 @@ def draw(frame, found, mode):
 def update_color_memory(target, frame):
     last_color_deg = color_angle_from_target(target, frame.shape)
     cnt = target[8]
-    bottom_ratio = float(np.min(cnt[:, 0, 1])) / frame.shape[0]
+    bottom_ratio = float(np.max(cnt[:, 0, 1])) / frame.shape[0]
     return last_color_deg, time.time(), bottom_ratio, x_center_error(target, frame.shape)
 
 
