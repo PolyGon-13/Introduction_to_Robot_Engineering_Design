@@ -56,7 +56,6 @@ V_STEP = 0.04  # 전진 속도 명령의 루프당 최대 변화량
 FOLLOW_W_STEP = 0.15  # 색 추적 모드 회전 속도 명령의 루프당 최대 변화량
 AVOID_W_STEP = 0.20  # 장애물 회피 모드 회전 속도 명령의 루프당 최대 변화량
 LOOP_DT = 0.05  # 메인 루프 대기 시간(초)
-SEARCH_TIMEOUT = 3.0  # 회피 후 색을 다시 찾는 최대 시간(초)
 SEARCH_MAX_W = 0.90  # 색 재탐색 모드 최대 회전 속도
 SEARCH_TURN_GAIN = 1.0  # 마지막 색 방향을 회전 속도로 바꾸는 비례 계수
 SWITCH_SEARCH_W = 0.90  # 다음 색이 안 보일 때 제자리 탐색 회전 속도
@@ -734,14 +733,8 @@ def main():
                     search_start_time = time.time()
 
                 mode = "SEARCH: last color"
-                if time.time() - search_start_time <= SEARCH_TIMEOUT:
-                    target_v = 0.0
-                    target_w = clamp(SEARCH_TURN_GAIN * np.deg2rad(last_color_deg), -SEARCH_MAX_W, SEARCH_MAX_W)
-                else:
-                    mode = "STOP: search timeout"
-                    target_v, target_w, last_v, last_w = stop_motion(motor)
-                    color_lost_during_avoid = False
-                    search_start_time = None
+                target_v = 0.0
+                target_w = clamp(SEARCH_TURN_GAIN * np.deg2rad(last_color_deg), -SEARCH_MAX_W, SEARCH_MAX_W)
 
             elif target is None:
                 mode = "STOP: no color"
