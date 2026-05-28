@@ -443,6 +443,10 @@ def stop_motion(motor):
     return 0.0, 0.0, 0.0, 0.0
 
 
+def search_next_cmd():
+    return "SEARCH: next color", 0.0, SWITCH_SEARCH_W
+
+
 def log_lidar(elapsed, lidar_dist):
     if lidar_dist is None:
         print(f"[{elapsed:.2f}s] [LIDAR] waiting...")
@@ -466,20 +470,29 @@ def log_avoid(elapsed, tag, target_deg, target_v, target_w, gap_count):
     )
 
 
+def color_cmd(target, frame, ranges, has_obstacle, color_deg, bottom_ratio, elapsed):
+    priority = bottom_ratio >= COLOR_PRIORITY_BOTTOM_RATIO and front_is_clear(ranges)
+    if has_obstacle and not priority:
+        target_v, target_w, target_deg, gap_count = avoid_cmd(ranges, color_deg)
+        log_avoid(elapsed, "AVOID", target_deg, target_v, target_w, gap_count)
+        return "AVOID: color + obstacle", target_v, target_w
+
+    target_v, target_w = follow_cmd(target, frame.shape)
+    return "FOLLOW: color only", target_v, target_w
+
+
+def search_last_cmd(last_color_deg):
+    w = clamp(SEARCH_TURN_GAIN * np.deg2rad(last_color_deg), -SEARCH_MAX_W, SEARCH_MAX_W)
+    return "SEARCH: last color direction", 0.0, w
+
+
 def main():
-    cam = None  # 카메라 객체
-    lidar = None  # 라이다 객체
-    motor = None  # 모터 제어 객체
-    last_v = 0.0  # 직전에 보낸 전진 속도
-    last_w = 0.0  # 직전에 보낸 회전 속도
-    last_color_deg = 0.0  # 마지막으로 본 색상의 라이다 기준 방향
-    last_color_time = 0.0  # 마지막으로 색상을 본 시각
-    last_color_bottom_ratio = 0.0  # 마지막 색상 박스 아래쪽 위치를 화면 높이 비율로 저장
-    last_color_x_err = 0.0  # 마지막 색상의 화면 가로 중심 오차
-    color_lost_during_avoid = False  # 회피 중 색상을 놓쳤는지 여부
-    search_start_time = None  # 회피 후 색 재탐색을 시작한 시각
-    switch_search_active = False  # 다음 색으로 넘어간 뒤 색이 안 보일 때 360도 탐색 여부
-    switch_search_start_time = None
+    cam = lidar = motor = None
+    last_v = last_w = 0.0
+    last_color_deg = last_color_time = last_color_bottom_ratio = last_color_x_err = 0.0
+    color_lost_during_avoid = False
+    search_start_time = None
+    switch_search_active = False
     target_index = 0
     current_target = TARGET_SEQUENCE[target_index]
 
@@ -504,37 +517,16 @@ def main():
             has_obstacle = obstacle_detected(ranges)  # 장애물 감지 여부
 
             if target is not None:
-                last_color_deg, last_color_time, last_color_bottom_ratio, last_color_x_err = update_color_memory(
-                    target,
-                    frame,
-                )
-                search_start_time = None
-                switch_search_active = False
-                switch_search_start_time = None
+                last_color_deg, last_color_time, last_color_bottom_ratio, last_color_x_err = update_color_memory(target, frame)
+                search_start_time, switch_search_active = None, False
 
             log_lidar(elapsed, lidar_dist)
 
-            color_exited_bottom = (
-                target is None
-                and last_color_time > 0.0
-                and last_color_bottom_ratio >= BOTTOM_LOST_RATIO
-            )
-            color_exited_bottom_center = (
-                color_exited_bottom
-                and abs(last_color_x_err) <= COLOR_EXIT_CENTER_ERR
-            )
-            color_priority_follow = (
-                target is not None
-                and last_color_bottom_ratio >= COLOR_PRIORITY_BOTTOM_RATIO
-                and front_is_clear(ranges)
-            )
-
-            if target is not None and has_obstacle and not color_priority_follow:
-                mode = "AVOID: color + obstacle"
+            color_exited_bottom = target is None and last_color_time > 0.0 and last_color_bottom_ratio >= BOTTOM_LOST_RATIO
+            color_exited_bottom_center = color_exited_bottom and abs(last_color_x_err) <= COLOR_EXIT_CENTER_ERR
+            if target is not None:
                 color_lost_during_avoid = False
-                search_start_time = None
-                target_v, target_w, target_deg, gap_count = avoid_cmd(ranges, last_color_deg)
-                log_avoid(elapsed, "AVOID", target_deg, target_v, target_w, gap_count)
+                mode, target_v, target_w = color_cmd(target, frame, ranges, has_obstacle, last_color_deg, last_color_bottom_ratio, elapsed)
 
             elif color_exited_bottom_center:
                 if target_index + 1 < len(TARGET_SEQUENCE):
@@ -553,54 +545,35 @@ def main():
                     target = pick(found, current_target)
 
                     if target is not None:
-                        last_color_deg, last_color_time, last_color_bottom_ratio, last_color_x_err = update_color_memory(
-                            target,
-                            frame,
-                        )
+                        last_color_deg, last_color_time, last_color_bottom_ratio, last_color_x_err = update_color_memory(target, frame)
                         color_lost_during_avoid = False
                         search_start_time = None
-                        color_priority_follow = (
-                            last_color_bottom_ratio >= COLOR_PRIORITY_BOTTOM_RATIO
-                            and front_is_clear(ranges)
-                        )
-
-                        if has_obstacle and not color_priority_follow:
-                            mode = "AVOID: color + obstacle"
-                            target_v, target_w, target_deg, gap_count = avoid_cmd(ranges, last_color_deg)
-                            log_avoid(elapsed, "AVOID", target_deg, target_v, target_w, gap_count)
-                        else:
-                            mode = "FOLLOW: color only"
-                            target_v, target_w = follow_cmd(target, frame.shape)
+                        mode, target_v, target_w = color_cmd(target, frame, ranges, has_obstacle, last_color_deg, last_color_bottom_ratio, elapsed)
                     else:
-                        mode = "SEARCH: next color"
-                        target_v = 0.0
-                        target_w = SWITCH_SEARCH_W
+                        mode, target_v, target_w = search_next_cmd()
                         last_color_deg, last_color_time, last_color_bottom_ratio, last_color_x_err = clear_color_memory()
-                        color_lost_during_avoid = False
-                        search_start_time = None
+                        color_lost_during_avoid, search_start_time = False, None
                         switch_search_active = True
-                        switch_search_start_time = time.time()
                 else:
                     mode = "STOP: color bottom"
                     target_v, target_w, last_v, last_w = stop_motion(motor)
                     last_color_deg, last_color_time, last_color_bottom_ratio, last_color_x_err = clear_color_memory()
-                    color_lost_during_avoid = False
-                    search_start_time = None
-                    switch_search_active = False
-                    switch_search_start_time = None
+                    color_lost_during_avoid, search_start_time, switch_search_active = False, None, False
 
             elif color_exited_bottom:
-                mode = "SEARCH: last color direction"
-                target_v = 0.0
-                target_w = clamp(
-                    SEARCH_TURN_GAIN * np.deg2rad(last_color_deg),
-                    -SEARCH_MAX_W,
-                    SEARCH_MAX_W,
-                )
-                color_lost_during_avoid = False
-                search_start_time = None
+                color_lost_during_avoid = True
                 switch_search_active = False
-                switch_search_start_time = None
+                if has_obstacle:
+                    mode = "AVOID: lost color"
+                    search_start_time = None
+                    target_v, target_w, target_deg, gap_count = avoid_cmd(ranges, None)
+                    log_avoid(elapsed, "AVOID_LOST", target_deg, target_v, target_w, gap_count)
+                else:
+                    if search_start_time is None:
+                        search_start_time = time.time()
+                    mode = "SEARCH: last color"
+                    target_v = 0.0
+                    target_w = clamp(SEARCH_TURN_GAIN * np.deg2rad(last_color_deg), -SEARCH_MAX_W, SEARCH_MAX_W)
 
             elif target is None and has_obstacle and last_color_time > 0.0:
                 mode = "AVOID: lost color"
@@ -610,12 +583,7 @@ def main():
                 log_avoid(elapsed, "AVOID_LOST", target_deg, target_v, target_w, gap_count)
 
             elif target is None and switch_search_active:
-                if switch_search_start_time is None:
-                    switch_search_start_time = time.time()
-
-                mode = "SEARCH: next color"
-                target_v = 0.0
-                target_w = SWITCH_SEARCH_W
+                mode, target_v, target_w = search_next_cmd()
 
             elif target is None and color_lost_during_avoid:
                 if search_start_time is None:
@@ -624,11 +592,7 @@ def main():
                 mode = "SEARCH: last color"
                 if time.time() - search_start_time <= SEARCH_TIMEOUT:
                     target_v = 0.0
-                    target_w = clamp(
-                        SEARCH_TURN_GAIN * np.deg2rad(last_color_deg),
-                        -SEARCH_MAX_W,
-                        SEARCH_MAX_W,
-                    )
+                    target_w = clamp(SEARCH_TURN_GAIN * np.deg2rad(last_color_deg), -SEARCH_MAX_W, SEARCH_MAX_W)
                 else:
                     mode = "STOP: search timeout"
                     target_v, target_w, last_v, last_w = stop_motion(motor)
@@ -638,18 +602,7 @@ def main():
             elif target is None:
                 mode = "STOP: no color"
                 target_v, target_w, last_v, last_w = stop_motion(motor)
-                color_lost_during_avoid = False
-                search_start_time = None
-                switch_search_active = False
-                switch_search_start_time = None
-
-            else:
-                mode = "FOLLOW: color only"
-                color_lost_during_avoid = False
-                search_start_time = None
-                switch_search_active = False
-                switch_search_start_time = None
-                target_v, target_w = follow_cmd(target, frame.shape)
+                color_lost_during_avoid, search_start_time, switch_search_active = False, None, False
 
             if target is not None or mode.startswith("AVOID") or mode.startswith("SEARCH"):
                 last_v = rate_limit(last_v, target_v, V_STEP)
