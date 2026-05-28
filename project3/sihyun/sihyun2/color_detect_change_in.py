@@ -64,11 +64,10 @@ ODOM_LOG_INTERVAL = 0.5  # 엔코더 누적값 로그 출력 주기(초)
 WHEEL_R = 0.034  # Arduino encoder distance calculation wheel radius(m)
 ENC_PPR = 1012.0  # Arduino encoder counts per wheel revolution
 ENC_COUNTS_PER_M = ENC_PPR / (2.0 * np.pi * WHEEL_R)
+PRE_FORWARD_STOP_SEC = 0.5  # Stop before encoder-based extra forward move(s)
 POST_COLOR_FORWARD_M = 0.20  # Move forward after a color exits bottom before pause(m)
 POST_COLOR_FORWARD_TIMEOUT = 5.0  # Safety timeout for the extra forward move(s)
 ODOM_WAIT_TIMEOUT = 1.0  # Max wait for Arduino odometry before extra move(s)
-ENC_STRAIGHT_KP = 0.004  # Encoder count difference to angular correction gain
-ENC_STRAIGHT_MAX_W = 0.25  # Max angular correction during encoder forward move(rad/s)
 
 
 # ==============================
@@ -506,6 +505,9 @@ def search_next_cmd():
 
 
 def drive_forward_by_encoder(motor, distance_m=POST_COLOR_FORWARD_M):
+    motor.stop()
+    time.sleep(PRE_FORWARD_STOP_SEC)
+
     start_odom = None
     wait_start = time.time()
 
@@ -542,9 +544,7 @@ def drive_forward_by_encoder(motor, distance_m=POST_COLOR_FORWARD_M):
         if left_counts >= target_counts and right_counts >= target_counts:
             break
 
-        count_err = right_counts - left_counts
-        correction_w = clamp(ENC_STRAIGHT_KP * count_err, -ENC_STRAIGHT_MAX_W, ENC_STRAIGHT_MAX_W)
-        motor.vw(forward_v, correction_w)
+        motor.vw(forward_v, 0.0)
         time.sleep(LOOP_DT)
 
     motor.stop()
