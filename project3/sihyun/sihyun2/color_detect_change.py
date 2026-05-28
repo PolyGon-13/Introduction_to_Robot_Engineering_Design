@@ -9,7 +9,6 @@ import numpy as np
 import serial
 
 
-
 try:
     from picamera2 import Picamera2
     USE_PICAM = True  # Picamera2 사용 가능 여부
@@ -404,6 +403,44 @@ def draw(frame, found, mode):
     cv2.putText(frame, mode, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
 
 
+def update_color_memory(target, frame):
+    last_color_deg = color_angle_from_target(target, frame.shape[1])
+    _, _, y, _, h, _ = target
+    return last_color_deg, time.time(), (y + h) / frame.shape[0]
+
+
+def clear_color_memory():
+    return 0.0, 0.0, 0.0
+
+
+def stop_motion(motor):
+    motor.stop()
+    return 0.0, 0.0, 0.0, 0.0
+
+
+def log_lidar(elapsed, lidar_dist):
+    if lidar_dist is None:
+        print(f"[{elapsed:.2f}s] [LIDAR] waiting...")
+        return
+
+    (left_d, left_n), (front_d, front_n), (right_d, right_n) = lidar_dist
+    print(
+        f"[{elapsed:.2f}s] [LIDAR] "
+        f"left={left_d:.2f}m({left_n}) "
+        f"front={front_d:.2f}m({front_n}) "
+        f"right={right_d:.2f}m({right_n})"
+    )
+
+
+def log_avoid(elapsed, tag, target_deg, target_v, target_w, gap_count):
+    print(
+        f"[{elapsed:.2f}s] [{tag}] gap={gap_count} "
+        f"target={target_deg:.0f} "
+        f"v={target_v:.2f} "
+        f"w={target_w:.2f}"
+    )
+
+
 def main():
     cam = None  # 카메라 객체
     lidar = None  # 라이다 객체
@@ -439,22 +476,10 @@ def main():
             has_obstacle = obstacle_detected(ranges)  # 장애물 감지 여부
 
             if target is not None:
-                last_color_deg = color_angle_from_target(target, frame.shape[1])
-                last_color_time = time.time()
-                _, _, y, _, h, _ = target
-                last_color_bottom_ratio = (y + h) / frame.shape[0]
+                last_color_deg, last_color_time, last_color_bottom_ratio = update_color_memory(target, frame)
                 search_start_time = None
 
-            if lidar_dist is None:
-                print(f"[{elapsed:.2f}s] [LIDAR] waiting...")
-            else:
-                (left_d, left_n), (front_d, front_n), (right_d, right_n) = lidar_dist
-                print(
-                    f"[{elapsed:.2f}s] [LIDAR] "
-                    f"left={left_d:.2f}m({left_n}) "
-                    f"front={front_d:.2f}m({front_n}) "
-                    f"right={right_d:.2f}m({right_n})"
-                )
+            log_lidar(elapsed, lidar_dist)
 
             color_exited_bottom = (
                 target is None
@@ -467,13 +492,7 @@ def main():
                 color_lost_during_avoid = False
                 search_start_time = None
                 target_v, target_w, target_deg, gap_count = avoid_cmd(ranges, last_color_deg)
-
-                print(
-                    f"[{elapsed:.2f}s] [AVOID] gap={gap_count} "
-                    f"target={target_deg:.0f} "
-                    f"v={target_v:.2f} "
-                    f"w={target_w:.2f}"
-                )
+                log_avoid(elapsed, "AVOID", target_deg, target_v, target_w, gap_count)
 
             elif color_exited_bottom:
                 if target_index + 1 < len(TARGET_SEQUENCE):
@@ -482,32 +501,38 @@ def main():
                     current_target = TARGET_SEQUENCE[target_index]
                     mode = f"SWITCH: {prev_target}->{current_target}"
                     print(f"[{elapsed:.2f}s] [COLOR] {prev_target} done, now tracking {current_target}")
+                    target = pick(found, current_target)
+
+                    if target is not None:
+                        last_color_deg, last_color_time, last_color_bottom_ratio = update_color_memory(target, frame)
+                        color_lost_during_avoid = False
+                        search_start_time = None
+
+                        if has_obstacle:
+                            mode = "AVOID: color + obstacle"
+                            target_v, target_w, target_deg, gap_count = avoid_cmd(ranges, last_color_deg)
+                            log_avoid(elapsed, "AVOID", target_deg, target_v, target_w, gap_count)
+                        else:
+                            mode = "FOLLOW: color only"
+                            target_v, target_w = follow_cmd(target, frame.shape[1])
+                    else:
+                        target_v, target_w, last_v, last_w = stop_motion(motor)
+                        last_color_deg, last_color_time, last_color_bottom_ratio = clear_color_memory()
+                        color_lost_during_avoid = False
+                        search_start_time = None
                 else:
                     mode = "STOP: color bottom"
-
-                target_v = 0.0
-                target_w = 0.0
-                last_v = 0.0
-                last_w = 0.0
-                last_color_deg = 0.0
-                last_color_time = 0.0
-                last_color_bottom_ratio = 0.0
-                color_lost_during_avoid = False
-                search_start_time = None
-                motor.stop()
+                    target_v, target_w, last_v, last_w = stop_motion(motor)
+                    last_color_deg, last_color_time, last_color_bottom_ratio = clear_color_memory()
+                    color_lost_during_avoid = False
+                    search_start_time = None
 
             elif target is None and has_obstacle and last_color_time > 0.0:
                 mode = "AVOID: lost color"
                 color_lost_during_avoid = True
                 search_start_time = None
                 target_v, target_w, target_deg, gap_count = avoid_cmd(ranges, None)
-
-                print(
-                    f"[{elapsed:.2f}s] [AVOID_LOST] gap={gap_count} "
-                    f"target={target_deg:.0f} "
-                    f"v={target_v:.2f} "
-                    f"w={target_w:.2f}"
-                )
+                log_avoid(elapsed, "AVOID_LOST", target_deg, target_v, target_w, gap_count)
 
             elif target is None and color_lost_during_avoid:
                 if search_start_time is None:
@@ -523,23 +548,15 @@ def main():
                     )
                 else:
                     mode = "STOP: search timeout"
-                    target_v = 0.0
-                    target_w = 0.0
-                    last_v = 0.0
-                    last_w = 0.0
+                    target_v, target_w, last_v, last_w = stop_motion(motor)
                     color_lost_during_avoid = False
                     search_start_time = None
-                    motor.stop()
 
             elif target is None:
                 mode = "STOP: no color"
-                target_v = 0.0
-                target_w = 0.0
-                last_v = 0.0
-                last_w = 0.0
+                target_v, target_w, last_v, last_w = stop_motion(motor)
                 color_lost_during_avoid = False
                 search_start_time = None
-                motor.stop()
 
             else:
                 mode = "FOLLOW: color only"
