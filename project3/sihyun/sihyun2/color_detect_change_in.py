@@ -631,6 +631,7 @@ def main():
 
             found = detect(frame)  # 현재 프레임에서 찾은 색상 물체 목록
             target = pick(found, current_target)  # 따라갈 대상 색상 물체
+            found = [target] if target is not None else []
             scan, scan_time, scan_seq = lidar.get()  # 최신 라이다 스캔 데이터
             ranges = front_ranges(scan) if scan is not None else None  # 각도별 전방 거리 배열
             lidar_dist = lidar_zone_distances(ranges)  # 좌/정면/우측 로그용 최소 거리
@@ -668,6 +669,7 @@ def main():
 
                     found = detect(frame)
                     target = pick(found, current_target)
+                    found = [target] if target is not None else []
 
                     if target is not None:
                         last_color_deg, last_color_time, last_color_bottom_ratio, last_color_x_err = update_color_memory(target, frame)
@@ -681,7 +683,8 @@ def main():
                         switch_search_active = True
                 else:
                     mode = "STOP: color bottom"
-                    target_v, target_w, last_v, last_w = stop_motion(motor)
+                    drive_forward_by_encoder(motor)
+                    target_v, target_w, last_v, last_w = 0.0, 0.0, 0.0, 0.0
                     last_color_deg, last_color_time, last_color_bottom_ratio, last_color_x_err = clear_color_memory()
                     color_lost_during_avoid, search_start_time, switch_search_active = False, None, False
 
