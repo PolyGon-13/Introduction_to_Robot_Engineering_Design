@@ -481,50 +481,19 @@ def main():
                     current_target = TARGET_SEQUENCE[target_index]
                     mode = f"SWITCH: {prev_target}->{current_target}"
                     print(f"[{elapsed:.2f}s] [COLOR] {prev_target} done, now tracking {current_target}")
-
-                    last_color_deg = 0.0
-                    last_color_time = 0.0
-                    last_color_bottom_ratio = 0.0
-                    color_lost_during_avoid = False
-                    search_start_time = None
-                    target = pick(found, current_target)
-
-                    if target is not None:
-                        last_color_deg = color_angle_from_target(target, frame.shape[1])
-                        last_color_time = time.time()
-                        _, _, y, _, h, _ = target
-                        last_color_bottom_ratio = (y + h) / frame.shape[0]
-
-                        if has_obstacle:
-                            mode = "AVOID: color + obstacle"
-                            target_v, target_w, target_deg, gap_count = avoid_cmd(ranges, last_color_deg)
-                            print(
-                                f"[{elapsed:.2f}s] [AVOID] gap={gap_count} "
-                                f"target={target_deg:.0f} "
-                                f"v={target_v:.2f} "
-                                f"w={target_w:.2f}"
-                            )
-                        else:
-                            mode = "FOLLOW: color only"
-                            target_v, target_w = follow_cmd(target, frame.shape[1])
-                    else:
-                        target_v = 0.0
-                        target_w = 0.0
-                        last_v = 0.0
-                        last_w = 0.0
-                        motor.stop()
                 else:
                     mode = "STOP: color bottom"
-                    target_v = 0.0
-                    target_w = 0.0
-                    last_v = 0.0
-                    last_w = 0.0
-                    last_color_deg = 0.0
-                    last_color_time = 0.0
-                    last_color_bottom_ratio = 0.0
-                    color_lost_during_avoid = False
-                    search_start_time = None
-                    motor.stop()
+
+                target_v = 0.0
+                target_w = 0.0
+                last_v = 0.0
+                last_w = 0.0
+                last_color_deg = 0.0
+                last_color_time = 0.0
+                last_color_bottom_ratio = 0.0
+                color_lost_during_avoid = False
+                search_start_time = None
+                motor.stop()
 
             elif target is None and has_obstacle and last_color_time > 0.0:
                 mode = "AVOID: lost color"
