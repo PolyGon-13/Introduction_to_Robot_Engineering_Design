@@ -255,12 +255,22 @@ def pick(found, target_name):
     return max(targets, key=lambda item: item[5], default=None)
 
 
-def follow_cmd(target, width):
+def bottom_center_error(target, frame_shape):
+    height, width = frame_shape[:2]
+    _, x, y, w, h, _ = target
+    cx = x + w / 2
+    cy = y + h / 2
+    dx = cx - width / 2
+    dy = max(1.0, height - cy)
+    angle = np.arctan2(dx, dy)
+    return clamp(angle / (np.pi / 2), -1.0, 1.0)
+
+
+def follow_cmd(target, frame_shape):
     if target is None:
         return 0.0, 0.0
 
-    _, x, _, w, _, _ = target
-    err = (x + w / 2 - width / 2) / (width / 2)
+    err = bottom_center_error(target, frame_shape)
     err = 0.0 if abs(err) < DEADBAND else err
 
     v = FOLLOW_MAX_V * (1.0 - 0.45 * min(1.0, abs(err)))
@@ -268,13 +278,11 @@ def follow_cmd(target, width):
     return v, w
 
 
-def color_angle_from_target(target, width):
+def color_angle_from_target(target, frame_shape):
     if target is None:
         return 0.0
 
-    _, x, _, w, _, _ = target
-    err = (x + w / 2 - width / 2) / (width / 2)
-    err = clamp(err, -1.0, 1.0)
+    err = bottom_center_error(target, frame_shape)
     return clamp(-err * COLOR_TO_LIDAR_DEG, ANG_MIN, ANG_MAX)
 
 
@@ -405,7 +413,7 @@ def draw(frame, found, mode):
 
 
 def update_color_memory(target, frame):
-    last_color_deg = color_angle_from_target(target, frame.shape[1])
+    last_color_deg = color_angle_from_target(target, frame.shape)
     _, _, y, _, h, _ = target
     return last_color_deg, time.time(), (y + h) / frame.shape[0]
 
@@ -522,7 +530,7 @@ def main():
                             log_avoid(elapsed, "AVOID", target_deg, target_v, target_w, gap_count)
                         else:
                             mode = "FOLLOW: color only"
-                            target_v, target_w = follow_cmd(target, frame.shape[1])
+                            target_v, target_w = follow_cmd(target, frame.shape)
                     else:
                         target_v, target_w, last_v, last_w = stop_motion(motor)
                         last_color_deg, last_color_time, last_color_bottom_ratio = clear_color_memory()
@@ -570,7 +578,7 @@ def main():
                 mode = "FOLLOW: color only"
                 color_lost_during_avoid = False
                 search_start_time = None
-                target_v, target_w = follow_cmd(target, frame.shape[1])
+                target_v, target_w = follow_cmd(target, frame.shape)
 
             if target is not None or mode.startswith("AVOID") or mode.startswith("SEARCH"):
                 last_v = rate_limit(last_v, target_v, V_STEP)
