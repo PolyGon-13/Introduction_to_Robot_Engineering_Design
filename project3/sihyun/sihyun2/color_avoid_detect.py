@@ -11,90 +11,90 @@ import serial
 
 try:
     from picamera2 import Picamera2
-    USE_PICAM = True
+    USE_PICAM = True  # Picamera2 사용 가능 여부
 except ImportError:
-    USE_PICAM = False
+    USE_PICAM = False  # Picamera2가 없으면 OpenCV USB 카메라 사용
 
 
 # ==============================
 # HSV color following settings
 # ==============================
 
-TARGET = "RED"
-SHOW_WINDOW = True
-MIN_AREA = 200
+TARGET = "RED"  # 따라갈 색상 이름, None이면 모든 등록 색상 중 가장 큰 물체 추적
+SHOW_WINDOW = True  # 카메라 인식 화면을 띄울지 여부
+MIN_AREA = 200  # 색상 물체로 인정할 최소 contour 면적
 
-FOLLOW_MAX_V = 0.18
-FOLLOW_MAX_W = 0.70
-FOLLOW_KP = 0.85
-DEADBAND = 0.08
+FOLLOW_MAX_V = 0.18  # 색 추적 모드 최대 전진 속도
+FOLLOW_MAX_W = 0.70  # 색 추적 모드 최대 회전 속도
+FOLLOW_KP = 0.85  # 색 중심 오차를 회전 속도로 바꾸는 비례 계수
+DEADBAND = 0.08  # 화면 중심 근처 오차를 0으로 처리하는 범위
 
 HSV_RANGES = {
-    "RED": [([0, 90, 120], [10, 255, 255]), ([170, 90, 120], [179, 255, 255])],
-    "BLUE": [([102, 85, 110], [126, 255, 255])],
-    "YELLOW": [([22, 85, 140], [36, 255, 255])],
+    "RED": [([0, 90, 120], [10, 255, 255]), ([170, 90, 120], [179, 255, 255])],  # 빨간색 HSV 범위
+    "BLUE": [([102, 85, 110], [126, 255, 255])],  # 파란색 HSV 범위
+    "YELLOW": [([22, 85, 140], [36, 255, 255])],  # 노란색 HSV 범위
 }
 HSV_RANGES = {
     name: [(np.array(lower, dtype=np.uint8), np.array(upper, dtype=np.uint8)) for lower, upper in ranges]
     for name, ranges in HSV_RANGES.items()
-}
-BOX_COLORS = {"RED": (0, 0, 255), "BLUE": (255, 0, 0), "YELLOW": (0, 255, 255)}
-MORPH_KERNEL = np.ones((5, 5), np.uint8)
+}  # cv2.inRange에서 바로 쓰도록 HSV 범위를 numpy 배열로 변환
+BOX_COLORS = {"RED": (0, 0, 255), "BLUE": (255, 0, 0), "YELLOW": (0, 255, 255)}  # 화면 표시용 박스 색상(BGR)
+MORPH_KERNEL = np.ones((5, 5), np.uint8)  # 색상 마스크 잡음 제거용 커널
 
 
 # ==============================
 # Motor settings
 # ==============================
 
-ARDU_PORT = "/dev/ttyS0"
-ARDU_BAUD = 9600
-V_STEP = 0.04
-FOLLOW_W_STEP = 0.15
-AVOID_W_STEP = 0.20
-LOOP_DT = 0.05
-SEARCH_TIMEOUT = 3.0
-SEARCH_MAX_W = 0.45
-SEARCH_TURN_GAIN = 1.0
+ARDU_PORT = "/dev/ttyS0"  # 아두이노 모터 제어 시리얼 포트
+ARDU_BAUD = 9600  # 아두이노 시리얼 통신 속도
+V_STEP = 0.04  # 전진 속도 명령의 루프당 최대 변화량
+FOLLOW_W_STEP = 0.15  # 색 추적 모드 회전 속도 명령의 루프당 최대 변화량
+AVOID_W_STEP = 0.20  # 장애물 회피 모드 회전 속도 명령의 루프당 최대 변화량
+LOOP_DT = 0.05  # 메인 루프 대기 시간(초)
+SEARCH_TIMEOUT = 3.0  # 회피 후 색을 다시 찾는 최대 시간(초)
+SEARCH_MAX_W = 0.90  # 색 재탐색 모드 최대 회전 속도
+SEARCH_TURN_GAIN = 1.0  # 마지막 색 방향을 회전 속도로 바꾸는 비례 계수
 
 
 # ==============================
 # RPLidar obstacle avoidance settings
 # ==============================
 
-LIDAR_PORT = "/dev/ttyUSB0"
-LIDAR_BAUD = 460800
+LIDAR_PORT = "/dev/ttyUSB0"  # RPLidar 시리얼 포트
+LIDAR_BAUD = 460800  # RPLidar 시리얼 통신 속도
 
-RESET = b"\xA5\x40"
-SCAN = b"\xA5\x20"
-LIDAR_STOP = b"\xA5\x25"
+RESET = b"\xA5\x40"  # 라이다 리셋 명령
+SCAN = b"\xA5\x20"  # 라이다 스캔 시작 명령
+LIDAR_STOP = b"\xA5\x25"  # 라이다 스캔 정지 명령
 
-ANGLE_OFFSET = 1.54
-DIST_OFFSET = 0.0
-ANGLE_SIGN = -1.0
-MIN_Q = 1
-MIN_D = 0.01
-MAX_D = 2.5
+ANGLE_OFFSET = 1.54  # 라이다 장착 각도 보정값(도)
+DIST_OFFSET = 0.0  # 라이다 거리 보정값(mm)
+ANGLE_SIGN = -1.0  # 라이다 좌우 방향 보정 부호
+MIN_Q = 1  # 사용할 라이다 측정 품질 최소값
+MIN_D = 0.01  # 사용할 최소 거리(m)
+MAX_D = 2.5  # 사용할 최대 거리(m)
 
-ANG_MIN = -90.0
-ANG_MAX = 90.0
-ANG_STEP = 1.0
-FREE_D = 0.35
-MIN_GAP_DEG = 8.0
-OBSTACLE_FRONT_DEG = 90.0
+ANG_MIN = -90.0  # 회피 계산에 사용할 최소 각도(오른쪽)
+ANG_MAX = 90.0  # 회피 계산에 사용할 최대 각도(왼쪽)
+ANG_STEP = 1.0  # 라이다 거리 배열의 각도 간격(도)
+FREE_D = 0.35  # 이 거리 이상이면 빈 공간으로 판단(m)
+MIN_GAP_DEG = 8.0  # 통과 가능한 gap으로 인정할 최소 각도 폭(도)
+OBSTACLE_FRONT_DEG = 90.0  # 장애물 감지에 사용할 전방 각도 범위(좌우)
 
-AVOID_BASE_V = 0.18
-AVOID_MAX_W = 0.90
-AVOID_TURN_GAIN = 1.2
-SIDE_CLEAR_D = 0.20
-SIDE_CORRECT_MAX_DEG = 30.0
-COLOR_TO_LIDAR_DEG = 45.0
+AVOID_BASE_V = 0.18  # 장애물 회피 모드 전진 속도
+AVOID_MAX_W = 0.90  # 장애물 회피 모드 최대 회전 속도
+AVOID_TURN_GAIN = 1.2  # 회피 목표 각도를 회전 속도로 바꾸는 비례 계수
+SIDE_CLEAR_D = 0.20  # 좌우 장애물 거리 보정을 시작하는 기준 거리(m)
+SIDE_CORRECT_MAX_DEG = 30.0  # 좌우 장애물 거리로 보정할 수 있는 최대 각도(도)
+COLOR_TO_LIDAR_DEG = 45.0  # 카메라 화면 좌우 끝을 라이다 각도로 환산할 최대 각도(도)
 
-GRID = np.arange(ANG_MIN, ANG_MAX + 0.5 * ANG_STEP, ANG_STEP, dtype=np.float32)
-LEFT_ZONE = (GRID >= 10.0) & (GRID <= 80.0)
-FRONT_LOG_ZONE = (GRID >= -10.0) & (GRID <= 10.0)
-RIGHT_ZONE = (GRID >= -80.0) & (GRID <= -10.0)
-OBSTACLE_ZONE = (GRID >= -OBSTACLE_FRONT_DEG) & (GRID <= OBSTACLE_FRONT_DEG)
-MIN_GAP_BINS = max(1, int(np.ceil(MIN_GAP_DEG / ANG_STEP)))
+GRID = np.arange(ANG_MIN, ANG_MAX + 0.5 * ANG_STEP, ANG_STEP, dtype=np.float32)  # 회피 계산용 각도 배열
+LEFT_ZONE = (GRID >= 10.0) & (GRID <= 80.0)  # 왼쪽 장애물 거리 확인 구역
+FRONT_LOG_ZONE = (GRID >= -10.0) & (GRID <= 10.0)  # 정면 장애물 확인 구역
+RIGHT_ZONE = (GRID >= -80.0) & (GRID <= -10.0)  # 오른쪽 장애물 거리 확인 구역
+OBSTACLE_ZONE = (GRID >= -OBSTACLE_FRONT_DEG) & (GRID <= OBSTACLE_FRONT_DEG)  # 장애물 있음/없음 판단 구역
+MIN_GAP_BINS = max(1, int(np.ceil(MIN_GAP_DEG / ANG_STEP)))  # 최소 gap 각도를 배열 칸 수로 변환한 값
 
 
 def clamp(value, low, high):
@@ -346,39 +346,39 @@ def zone_min_distance(ranges, zone):
 
 
 def avoid_cmd(ranges, color_deg=None):
-    safe_gaps = find_gaps(ranges >= FREE_D)
+    safe_gaps = find_gaps(ranges >= FREE_D)  # 안전 거리 이상 비어 있는 gap 목록
 
     if not safe_gaps:
         return 0.0, 0.0, 0.0, 0
 
     def gap_width(gap):
-        start, end = gap
+        start, end = gap  # gap의 시작/끝 배열 인덱스
         return end - start
 
     def gap_center(gap):
-        start, end = gap
+        start, end = gap  # gap의 시작/끝 배열 인덱스
         return 0.5 * (GRID[start] + GRID[end - 1])
 
-    front_blocked = float(np.min(ranges[FRONT_LOG_ZONE])) < FREE_D
+    front_blocked = float(np.min(ranges[FRONT_LOG_ZONE])) < FREE_D  # 정면이 안전 거리보다 가까이 막혔는지 여부
 
     if color_deg is not None and len(safe_gaps) >= 2 and not front_blocked:
         start, end = min(safe_gaps, key=lambda gap: abs(norm_deg(gap_center(gap) - color_deg)))
     else:
         start, end = max(safe_gaps, key=lambda gap: (gap_width(gap), -abs(gap_center(gap))))
 
-    target_deg = float(0.5 * (GRID[start] + GRID[end - 1]))
-    left_d = zone_min_distance(ranges, LEFT_ZONE)
-    right_d = zone_min_distance(ranges, RIGHT_ZONE)
-    left_risk = max(0.0, SIDE_CLEAR_D - left_d)
-    right_risk = max(0.0, SIDE_CLEAR_D - right_d)
+    target_deg = float(0.5 * (GRID[start] + GRID[end - 1]))  # 선택한 gap 중심 각도
+    left_d = zone_min_distance(ranges, LEFT_ZONE)  # 왼쪽 구역에서 가장 가까운 장애물 거리
+    right_d = zone_min_distance(ranges, RIGHT_ZONE)  # 오른쪽 구역에서 가장 가까운 장애물 거리
+    left_risk = max(0.0, SIDE_CLEAR_D - left_d)  # 왼쪽 장애물이 가까울수록 커지는 위험도
+    right_risk = max(0.0, SIDE_CLEAR_D - right_d)  # 오른쪽 장애물이 가까울수록 커지는 위험도
     side_correct_deg = clamp(
         (right_risk - left_risk) / SIDE_CLEAR_D * SIDE_CORRECT_MAX_DEG,
         -SIDE_CORRECT_MAX_DEG,
         SIDE_CORRECT_MAX_DEG,
-    )
+    )  # 가까운 측면 장애물에서 멀어지기 위한 각도 보정값
     target_deg = clamp(target_deg + side_correct_deg, ANG_MIN, ANG_MAX)
 
-    w = clamp(AVOID_TURN_GAIN * np.deg2rad(target_deg), -AVOID_MAX_W, AVOID_MAX_W)
+    w = clamp(AVOID_TURN_GAIN * np.deg2rad(target_deg), -AVOID_MAX_W, AVOID_MAX_W)  # 최종 회전 속도
     return AVOID_BASE_V, w, target_deg, len(safe_gaps)
 
 
@@ -403,35 +403,35 @@ def draw(frame, found, mode):
 
 
 def main():
-    cam = None
-    lidar = None
-    motor = None
-    last_v = 0.0
-    last_w = 0.0
-    last_color_deg = 0.0
-    last_color_time = 0.0
-    color_lost_during_avoid = False
-    search_start_time = None
+    cam = None  # 카메라 객체
+    lidar = None  # 라이다 객체
+    motor = None  # 모터 제어 객체
+    last_v = 0.0  # 직전에 보낸 전진 속도
+    last_w = 0.0  # 직전에 보낸 회전 속도
+    last_color_deg = 0.0  # 마지막으로 본 색상의 라이다 기준 방향
+    last_color_time = 0.0  # 마지막으로 색상을 본 시각
+    color_lost_during_avoid = False  # 회피 중 색상을 놓쳤는지 여부
+    search_start_time = None  # 회피 후 색 재탐색을 시작한 시각
 
     try:
         cam = open_camera()
         lidar = RPLidarC1()
         motor = Motor()
         motor.stop()
-        start_time = time.time()
+        start_time = time.time()  # 로그 출력용 시작 시각
 
         while True:
-            elapsed = time.time() - start_time
+            elapsed = time.time() - start_time  # 프로그램 시작 후 경과 시간
             ok, frame = read_frame(cam)
             if not ok:
                 break
 
-            found = detect(frame)
-            target = pick(found)
-            scan, scan_time, scan_seq = lidar.get()
-            ranges = front_ranges(scan) if scan is not None else None
-            lidar_dist = lidar_zone_distances(ranges)
-            has_obstacle = obstacle_detected(ranges)
+            found = detect(frame)  # 현재 프레임에서 찾은 색상 물체 목록
+            target = pick(found)  # 따라갈 대상 색상 물체
+            scan, scan_time, scan_seq = lidar.get()  # 최신 라이다 스캔 데이터
+            ranges = front_ranges(scan) if scan is not None else None  # 각도별 전방 거리 배열
+            lidar_dist = lidar_zone_distances(ranges)  # 좌/정면/우측 로그용 최소 거리
+            has_obstacle = obstacle_detected(ranges)  # 장애물 감지 여부
 
             if target is not None:
                 last_color_deg = color_angle_from_target(target, frame.shape[1])
