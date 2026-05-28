@@ -527,7 +527,7 @@ def drive_forward_by_encoder(motor, distance_m=POST_COLOR_FORWARD_M):
     timeout = max(POST_COLOR_FORWARD_TIMEOUT, abs(distance_m / max(abs(FOLLOW_MAX_V), 0.01)) * 2.0)
     deadline = time.time() + timeout
 
-    print(f"[ODOM] move {distance_m:.2f}m target_counts={target_counts:.0f}")
+    print(f"[ODOM] move {distance_m:.2f}m v={forward_v:.3f} target_counts={target_counts:.0f}")
 
     left_counts = right_counts = 0.0
     while time.time() <= deadline:
@@ -590,12 +590,28 @@ def log_odom(elapsed, odom):
     print(f"[{elapsed:.2f}s] [ODOM] left={enc_l} right={enc_r} arduino_ms={arduino_ms}")
 
 
-def log_mode(elapsed, mode, target_v, target_w, last_v, last_w, has_obstacle, target):
+def log_mode(
+    elapsed,
+    mode,
+    target_v,
+    target_w,
+    last_v,
+    last_w,
+    has_obstacle,
+    target,
+    color_exited_bottom,
+    color_exited_bottom_center,
+    color_lost_during_avoid,
+    switch_search_active,
+):
     seen = target is not None
     print(
         f"[{elapsed:.2f}s] [MODE] {mode} "
         f"target_seen={seen} obstacle={has_obstacle} "
-        f"cmd=({target_v:.2f},{target_w:.2f}) actual=({last_v:.2f},{last_w:.2f})"
+        f"exit_bottom={color_exited_bottom} exit_center={color_exited_bottom_center} "
+        f"lost_avoid={color_lost_during_avoid} switch_search={switch_search_active} "
+        f"target_v={target_v:.3f} target_w={target_w:.3f} "
+        f"last_v={last_v:.3f} last_w={last_w:.3f}"
     )
 
 
@@ -736,7 +752,20 @@ def main():
                 motor.vw(last_v, last_w)
 
             if time.time() - last_mode_log_time >= MODE_LOG_INTERVAL:
-                log_mode(elapsed, mode, target_v, target_w, last_v, last_w, has_obstacle, target)
+                log_mode(
+                    elapsed,
+                    mode,
+                    target_v,
+                    target_w,
+                    last_v,
+                    last_w,
+                    has_obstacle,
+                    target,
+                    color_exited_bottom,
+                    color_exited_bottom_center,
+                    color_lost_during_avoid,
+                    switch_search_active,
+                )
                 last_mode_log_time = time.time()
 
             if SHOW_WINDOW:
