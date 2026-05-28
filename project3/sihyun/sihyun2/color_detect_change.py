@@ -8,6 +8,7 @@ import cv2
 import numpy as np
 import serial
 
+
 try:
     from picamera2 import Picamera2
     USE_PICAM = True  # Picamera2 사용 가능 여부
@@ -213,8 +214,8 @@ def open_camera():
         return cam
 
     cam = cv2.VideoCapture(0)
-    cam.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-    cam.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+    cam.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+    cam.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
     return cam
 
 
