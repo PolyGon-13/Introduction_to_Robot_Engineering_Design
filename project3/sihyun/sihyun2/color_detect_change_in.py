@@ -305,7 +305,17 @@ def detect(frame):
 
             if area >= MIN_AREA:
                 x, y, w, h = cv2.boundingRect(cnt)
-                found.append((name, x, y, w, h, int(area)))
+                rect = cv2.minAreaRect(cnt)
+                box = cv2.boxPoints(rect).astype(np.int32)
+                moments = cv2.moments(cnt)
+
+                if moments["m00"] != 0:
+                    cx = moments["m10"] / moments["m00"]
+                    cy = moments["m01"] / moments["m00"]
+                else:
+                    cx, cy = rect[0]
+
+                found.append((name, x, y, w, h, int(area), float(cx), float(cy), box, cnt))
 
     return found
 
@@ -317,9 +327,7 @@ def pick(found, target_name):
 
 def bottom_center_error(target, frame_shape):
     height, width = frame_shape[:2]
-    _, x, y, w, h, _ = target
-    cx = x + w / 2
-    cy = y + h / 2
+    cx, cy = target[6], target[7]
     dx = cx - width / 2
     dy = max(1.0, height - cy)
     angle = np.arctan2(dx, dy)
@@ -328,8 +336,8 @@ def bottom_center_error(target, frame_shape):
 
 def x_center_error(target, frame_shape):
     _, width = frame_shape[:2]
-    _, x, _, w, _, _ = target
-    return clamp((x + w / 2 - width / 2) / (width / 2), -1.0, 1.0)
+    cx = target[6]
+    return clamp((cx - width / 2) / (width / 2), -1.0, 1.0)
 
 
 def follow_cmd(target, frame_shape):
@@ -466,15 +474,16 @@ def avoid_cmd(ranges, color_deg=None):
 
 
 def draw(frame, found, mode):
-    for name, x, y, w, h, area in found:
+    for name, x, y, w, h, area, cx, cy, box, cnt in found:
         color = BOX_COLORS[name]
-        cx, cy = x + w // 2, y + h // 2
+        center = (int(round(cx)), int(round(cy)))
 
-        cv2.rectangle(frame, (x, y), (x + w, y + h), color, 2)
-        cv2.circle(frame, (cx, cy), 5, color, -1)
+        cv2.drawContours(frame, [cnt], -1, color, 2)
+        cv2.polylines(frame, [box], True, color, 2)
+        cv2.circle(frame, center, 5, color, -1)
         cv2.putText(
             frame,
-            f"{name} {cx},{cy} {area}",
+            f"{name} {center[0]},{center[1]} {area}",
             (x, max(20, y - 8)),
             cv2.FONT_HERSHEY_SIMPLEX,
             0.55,
@@ -487,8 +496,9 @@ def draw(frame, found, mode):
 
 def update_color_memory(target, frame):
     last_color_deg = color_angle_from_target(target, frame.shape)
-    _, _, y, _, h, _ = target
-    return last_color_deg, time.time(), (y + h) / frame.shape[0], x_center_error(target, frame.shape)
+    box = target[8]
+    bottom_ratio = float(np.max(box[:, 1])) / frame.shape[0]
+    return last_color_deg, time.time(), bottom_ratio, x_center_error(target, frame.shape)
 
 
 def clear_color_memory():
