@@ -24,6 +24,7 @@ TARGET_SEQUENCE = ("RED", "YELLOW", "BLUE")  # Follow colors in this order.
 SHOW_WINDOW = True  # 카메라 인식 화면을 띄울지 여부
 MIN_AREA = 200  # 색상 물체로 인정할 최소 contour 면적
 BOTTOM_LOST_RATIO = 0.88  # 색상이 화면 아래 88% 지점 아래에서 사라지면 정지로 판단
+COLOR_SWITCH_PAUSE = 1.0  # 다음 색 추적 전 정지 시간(초)
 
 FOLLOW_MAX_V = 0.18  # 색 추적 모드 최대 전진 속도
 FOLLOW_MAX_W = 0.70  # 색 추적 모드 최대 회전 속도
@@ -501,6 +502,13 @@ def main():
                     current_target = TARGET_SEQUENCE[target_index]
                     mode = f"SWITCH: {prev_target}->{current_target}"
                     print(f"[{elapsed:.2f}s] [COLOR] {prev_target} done, now tracking {current_target}")
+                    target_v, target_w, last_v, last_w = stop_motion(motor)
+                    time.sleep(COLOR_SWITCH_PAUSE)
+                    ok, frame = read_frame(cam)
+                    if not ok:
+                        break
+
+                    found = detect(frame)
                     target = pick(found, current_target)
 
                     if target is not None:
