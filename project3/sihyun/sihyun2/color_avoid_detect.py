@@ -8,6 +8,7 @@ import cv2
 import numpy as np
 import serial
 
+
 try:
     from picamera2 import Picamera2
     USE_PICAM = True
@@ -51,6 +52,9 @@ V_STEP = 0.04
 FOLLOW_W_STEP = 0.15
 AVOID_W_STEP = 0.20
 LOOP_DT = 0.05
+SEARCH_TIMEOUT = 3.0
+SEARCH_MAX_W = 0.45
+SEARCH_TURN_GAIN = 1.0
 
 
 # ==============================
@@ -80,7 +84,9 @@ OBSTACLE_FRONT_DEG = 90.0
 
 AVOID_BASE_V = 0.18
 AVOID_MAX_W = 0.90
-AVOID_TURN_GAIN = 1.2  # 장애물 회전 kp값
+AVOID_TURN_GAIN = 1.2
+SIDE_CLEAR_D = 0.20
+SIDE_CORRECT_MAX_DEG = 30.0
 COLOR_TO_LIDAR_DEG = 45.0
 
 GRID = np.arange(ANG_MIN, ANG_MAX + 0.5 * ANG_STEP, ANG_STEP, dtype=np.float32)
@@ -331,6 +337,14 @@ def lidar_zone_distances(ranges):
     )
 
 
+def zone_min_distance(ranges, zone):
+    values = ranges[zone]
+    measured = values[values < MAX_D]
+    if len(measured) == 0:
+        return MAX_D
+    return float(np.min(measured))
+
+
 def avoid_cmd(ranges, color_deg=None):
     safe_gaps = find_gaps(ranges >= FREE_D)
 
@@ -353,6 +367,17 @@ def avoid_cmd(ranges, color_deg=None):
         start, end = max(safe_gaps, key=lambda gap: (gap_width(gap), -abs(gap_center(gap))))
 
     target_deg = float(0.5 * (GRID[start] + GRID[end - 1]))
+    left_d = zone_min_distance(ranges, LEFT_ZONE)
+    right_d = zone_min_distance(ranges, RIGHT_ZONE)
+    left_risk = max(0.0, SIDE_CLEAR_D - left_d)
+    right_risk = max(0.0, SIDE_CLEAR_D - right_d)
+    side_correct_deg = clamp(
+        (right_risk - left_risk) / SIDE_CLEAR_D * SIDE_CORRECT_MAX_DEG,
+        -SIDE_CORRECT_MAX_DEG,
+        SIDE_CORRECT_MAX_DEG,
+    )
+    target_deg = clamp(target_deg + side_correct_deg, ANG_MIN, ANG_MAX)
+
     w = clamp(AVOID_TURN_GAIN * np.deg2rad(target_deg), -AVOID_MAX_W, AVOID_MAX_W)
     return AVOID_BASE_V, w, target_deg, len(safe_gaps)
 
@@ -383,6 +408,10 @@ def main():
     motor = None
     last_v = 0.0
     last_w = 0.0
+    last_color_deg = 0.0
+    last_color_time = 0.0
+    color_lost_during_avoid = False
+    search_start_time = None
 
     try:
         cam = open_camera()
@@ -402,6 +431,12 @@ def main():
             scan, scan_time, scan_seq = lidar.get()
             ranges = front_ranges(scan) if scan is not None else None
             lidar_dist = lidar_zone_distances(ranges)
+            has_obstacle = obstacle_detected(ranges)
+
+            if target is not None:
+                last_color_deg = color_angle_from_target(target, frame.shape[1])
+                last_color_time = time.time()
+                search_start_time = None
 
             if lidar_dist is None:
                 print(f"[{elapsed:.2f}s] [LIDAR] waiting...")
@@ -414,18 +449,11 @@ def main():
                     f"right={right_d:.2f}m({right_n})"
                 )
 
-            if target is None:
-                mode = "STOP: no color"
-                target_v = 0.0
-                target_w = 0.0
-                last_v = 0.0
-                last_w = 0.0
-                motor.stop()
-
-            elif obstacle_detected(ranges):
+            if target is not None and has_obstacle:
                 mode = "AVOID: color + obstacle"
-                color_deg = color_angle_from_target(target, frame.shape[1])
-                target_v, target_w, target_deg, gap_count = avoid_cmd(ranges, color_deg)
+                color_lost_during_avoid = False
+                search_start_time = None
+                target_v, target_w, target_deg, gap_count = avoid_cmd(ranges, last_color_deg)
 
                 print(
                     f"[{elapsed:.2f}s] [AVOID] gap={gap_count} "
@@ -434,11 +462,58 @@ def main():
                     f"w={target_w:.2f}"
                 )
 
+            elif target is None and has_obstacle and last_color_time > 0.0:
+                mode = "AVOID: lost color"
+                color_lost_during_avoid = True
+                search_start_time = None
+                target_v, target_w, target_deg, gap_count = avoid_cmd(ranges, None)
+
+                print(
+                    f"[{elapsed:.2f}s] [AVOID_LOST] gap={gap_count} "
+                    f"target={target_deg:.0f} "
+                    f"v={target_v:.2f} "
+                    f"w={target_w:.2f}"
+                )
+
+            elif target is None and color_lost_during_avoid:
+                if search_start_time is None:
+                    search_start_time = time.time()
+
+                mode = "SEARCH: last color"
+                if time.time() - search_start_time <= SEARCH_TIMEOUT:
+                    target_v = 0.0
+                    target_w = clamp(
+                        SEARCH_TURN_GAIN * np.deg2rad(last_color_deg),
+                        -SEARCH_MAX_W,
+                        SEARCH_MAX_W,
+                    )
+                else:
+                    mode = "STOP: search timeout"
+                    target_v = 0.0
+                    target_w = 0.0
+                    last_v = 0.0
+                    last_w = 0.0
+                    color_lost_during_avoid = False
+                    search_start_time = None
+                    motor.stop()
+
+            elif target is None:
+                mode = "STOP: no color"
+                target_v = 0.0
+                target_w = 0.0
+                last_v = 0.0
+                last_w = 0.0
+                color_lost_during_avoid = False
+                search_start_time = None
+                motor.stop()
+
             else:
                 mode = "FOLLOW: color only"
+                color_lost_during_avoid = False
+                search_start_time = None
                 target_v, target_w = follow_cmd(target, frame.shape[1])
 
-            if target is not None:
+            if target is not None or mode.startswith("AVOID") or mode.startswith("SEARCH"):
                 last_v = rate_limit(last_v, target_v, V_STEP)
                 w_step = AVOID_W_STEP if mode.startswith("AVOID") else FOLLOW_W_STEP
                 last_w = rate_limit(last_w, target_w, w_step)
