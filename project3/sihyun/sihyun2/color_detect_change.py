@@ -20,7 +20,7 @@ except ImportError:
 # HSV color following settings
 # ==============================
 
-TARGET = "RED"  # 따라갈 색상 이름, None이면 모든 등록 색상 중 가장 큰 물체 추적
+TARGET_SEQUENCE = ("RED", "YELLOW", "BLUE")  # Follow colors in this order.
 SHOW_WINDOW = True  # 카메라 인식 화면을 띄울지 여부
 MIN_AREA = 200  # 색상 물체로 인정할 최소 contour 면적
 BOTTOM_LOST_RATIO = 0.88  # 색상이 화면 아래 88% 지점 아래에서 사라지면 정지로 판단
@@ -249,8 +249,8 @@ def detect(frame):
     return found
 
 
-def pick(found):
-    targets = found if TARGET is None else [item for item in found if item[0] == TARGET]
+def pick(found, target_name):
+    targets = found if target_name is None else [item for item in found if item[0] == target_name]
     return max(targets, key=lambda item: item[5], default=None)
 
 
@@ -414,6 +414,8 @@ def main():
     last_color_bottom_ratio = 0.0  # 마지막 색상 박스 아래쪽 위치를 화면 높이 비율로 저장
     color_lost_during_avoid = False  # 회피 중 색상을 놓쳤는지 여부
     search_start_time = None  # 회피 후 색 재탐색을 시작한 시각
+    target_index = 0
+    current_target = TARGET_SEQUENCE[target_index]
 
     try:
         cam = open_camera()
@@ -429,7 +431,7 @@ def main():
                 break
 
             found = detect(frame)  # 현재 프레임에서 찾은 색상 물체 목록
-            target = pick(found)  # 따라갈 대상 색상 물체
+            target = pick(found, current_target)  # 따라갈 대상 색상 물체
             scan, scan_time, scan_seq = lidar.get()  # 최신 라이다 스캔 데이터
             ranges = front_ranges(scan) if scan is not None else None  # 각도별 전방 거리 배열
             lidar_dist = lidar_zone_distances(ranges)  # 좌/정면/우측 로그용 최소 거리
@@ -473,11 +475,22 @@ def main():
                 )
 
             elif color_exited_bottom:
-                mode = "STOP: color bottom"
+                if target_index + 1 < len(TARGET_SEQUENCE):
+                    prev_target = current_target
+                    target_index += 1
+                    current_target = TARGET_SEQUENCE[target_index]
+                    mode = f"SWITCH: {prev_target}->{current_target}"
+                    print(f"[{elapsed:.2f}s] [COLOR] {prev_target} done, now tracking {current_target}")
+                else:
+                    mode = "STOP: color bottom"
+
                 target_v = 0.0
                 target_w = 0.0
                 last_v = 0.0
                 last_w = 0.0
+                last_color_deg = 0.0
+                last_color_time = 0.0
+                last_color_bottom_ratio = 0.0
                 color_lost_during_avoid = False
                 search_start_time = None
                 motor.stop()
