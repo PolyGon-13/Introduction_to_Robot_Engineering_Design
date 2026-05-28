@@ -9,7 +9,6 @@ import numpy as np
 import serial
 
 
-
 try:
     from picamera2 import Picamera2
     USE_PICAM = True  # Picamera2 사용 가능 여부
@@ -68,6 +67,8 @@ ENC_COUNTS_PER_M = ENC_PPR / (2.0 * np.pi * WHEEL_R)
 POST_COLOR_FORWARD_M = 0.20  # Move forward after a color exits bottom before pause(m)
 POST_COLOR_FORWARD_TIMEOUT = 5.0  # Safety timeout for the extra forward move(s)
 ODOM_WAIT_TIMEOUT = 1.0  # Max wait for Arduino odometry before extra move(s)
+ENC_STRAIGHT_KP = 0.004  # Encoder count difference to angular correction gain
+ENC_STRAIGHT_MAX_W = 0.25  # Max angular correction during encoder forward move(rad/s)
 
 
 # ==============================
@@ -541,7 +542,9 @@ def drive_forward_by_encoder(motor, distance_m=POST_COLOR_FORWARD_M):
         if left_counts >= target_counts and right_counts >= target_counts:
             break
 
-        motor.vw(forward_v, 0.0)
+        count_err = right_counts - left_counts
+        correction_w = clamp(ENC_STRAIGHT_KP * count_err, -ENC_STRAIGHT_MAX_W, ENC_STRAIGHT_MAX_W)
+        motor.vw(forward_v, correction_w)
         time.sleep(LOOP_DT)
 
     motor.stop()
