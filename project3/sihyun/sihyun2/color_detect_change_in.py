@@ -64,7 +64,7 @@ WHEEL_R = 0.034  # Arduino encoder distance calculation wheel radius(m)
 ENC_PPR = 1012.0  # Arduino encoder counts per wheel revolution
 ENC_COUNTS_PER_M = ENC_PPR / (2.0 * np.pi * WHEEL_R)
 PRE_FORWARD_STOP_MS = 500  # Stop before encoder-based extra forward move(ms)
-POST_COLOR_FORWARD_M = 0.35  # Move forward after a color exits bottom before pause(m)
+POST_COLOR_FORWARD_M = 0.30  # Move forward after a color exits bottom before pause(m)
 
 
 # ==============================
@@ -599,7 +599,7 @@ def log_odom(elapsed, odom):
 
 
 def color_cmd(target, frame, ranges, has_obstacle, color_deg, center_ratio, elapsed):
-    color_priority = center_ratio >= COLOR_PRIORITY_CENTER_RATIO
+    color_priority = center_ratio >= COLOR_PRIORITY_CENTER_RATIO and front_is_clear(ranges)
     if has_obstacle and not color_priority:
         target_v, target_w, target_deg, gap_count = avoid_cmd(ranges, color_deg)
         log_avoid(elapsed, "AVOID", target_deg, target_v, target_w, gap_count)
