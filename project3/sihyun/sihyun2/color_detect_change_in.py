@@ -419,6 +419,13 @@ def front_is_clear(ranges):
     return float(np.min(ranges[FRONT_LOG_ZONE])) >= FREE_D
 
 
+def sides_are_clear(ranges):
+    if ranges is None:
+        return False
+
+    return zone_min_distance(ranges, LEFT_ZONE) >= SIDE_CLEAR_D and zone_min_distance(ranges, RIGHT_ZONE) >= SIDE_CLEAR_D
+
+
 def lidar_zone_distances(ranges):
     if ranges is None:
         return None
@@ -599,7 +606,7 @@ def log_odom(elapsed, odom):
 
 
 def color_cmd(target, frame, ranges, has_obstacle, color_deg, center_ratio, elapsed):
-    color_priority = center_ratio >= COLOR_PRIORITY_CENTER_RATIO and front_is_clear(ranges)
+    color_priority = center_ratio >= COLOR_PRIORITY_CENTER_RATIO and front_is_clear(ranges) and sides_are_clear(ranges)
     if has_obstacle and not color_priority:
         target_v, target_w, target_deg, gap_count = avoid_cmd(ranges, color_deg)
         log_avoid(elapsed, "AVOID", target_deg, target_v, target_w, gap_count)
