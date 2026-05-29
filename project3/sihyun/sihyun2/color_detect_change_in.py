@@ -8,7 +8,6 @@ import cv2
 import numpy as np
 import serial
 
-
 try:
     from picamera2 import Picamera2
     USE_PICAM = True  # Picamera2 사용 가능 여부
@@ -702,6 +701,8 @@ def main():
                     target_v, target_w, last_v, last_w = 0.0, 0.0, 0.0, 0.0
                     last_color_deg, last_color_time, last_color_bottom_ratio, last_color_x_err = clear_color_memory()
                     color_lost_during_avoid, search_start_time, switch_search_active = False, None, False
+                    print(f"[{elapsed:.2f}s] [COLOR] {current_target} done, mission complete")
+                    break
 
             elif color_exited_bottom:
                 color_lost_during_avoid = True
