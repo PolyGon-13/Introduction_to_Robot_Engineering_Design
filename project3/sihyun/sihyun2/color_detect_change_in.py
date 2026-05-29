@@ -20,7 +20,7 @@ SHOW_WINDOW = True
 MIN_AREA = 200
 BOTTOM_LOST_RATIO = 0.88
 COLOR_SWITCH_PAUSE = 1.0
-COLOR_PRIORITY_BOTTOM_RATIO = 0.75
+COLOR_PRIORITY_TOP_RATIO = 0.75
 COLOR_EXIT_CENTER_ERR = 0.30
 
 FOLLOW_MAX_V = 0.18
@@ -380,10 +380,12 @@ def show_frame(frame, found, mode):
 
 
 def update_color_memory(target, frame):
+    box_y = target[8][:, 1]
     return (
         color_angle_from_target(target, frame.shape),
         time.time(),
-        float(np.max(target[8][:, 1])) / frame.shape[0],
+        float(np.max(box_y)) / frame.shape[0],
+        float(np.min(box_y)) / frame.shape[0],
         x_center_error(target, frame.shape),
     )
 
@@ -456,8 +458,8 @@ def log_odom(elapsed, odom):
     print(f"[{elapsed:.2f}s] [ODOM] {msg}")
 
 
-def color_cmd(target, frame, ranges, has_obstacle, color_deg, bottom_ratio, elapsed):
-    if has_obstacle and not (bottom_ratio >= COLOR_PRIORITY_BOTTOM_RATIO and front_is_clear(ranges)):
+def color_cmd(target, frame, ranges, has_obstacle, color_deg, top_ratio, elapsed):
+    if has_obstacle and not (top_ratio >= COLOR_PRIORITY_TOP_RATIO and front_is_clear(ranges)):
         target_v, target_w, target_deg, gap_count = avoid_cmd(ranges, color_deg)
         log_avoid(elapsed, "AVOID", target_deg, target_v, target_w, gap_count)
         return "AVOID: color + obstacle", target_v, target_w
@@ -493,7 +495,7 @@ def start_enter_thread():
 def main():
     cam = lidar = motor = None
     last_v = last_w = 0.0
-    last_color_deg = last_color_time = last_color_bottom_ratio = last_color_x_err = 0.0
+    last_color_deg = last_color_time = last_color_bottom_ratio = last_color_top_ratio = last_color_x_err = 0.0
     last_odom_log_time = switch_pause_until = pending_forward_time = 0.0
     color_lost_during_avoid = switch_search_active = finish_after_pause = False
     search_start_time = pending_forward_action = forward_move = None
@@ -532,7 +534,7 @@ def main():
                     start_time = now
                     elapsed = 0.0
                     last_odom_log_time = 0.0
-                    last_color_deg = last_color_time = last_color_bottom_ratio = last_color_x_err = 0.0
+                    last_color_deg = last_color_time = last_color_bottom_ratio = last_color_top_ratio = last_color_x_err = 0.0
                     print("[INFO] motor start")
                 else:
                     if now - last_odom_log_time >= ODOM_LOG_INTERVAL:
@@ -545,7 +547,7 @@ def main():
                     continue
 
             if target is not None:
-                last_color_deg, last_color_time, last_color_bottom_ratio, last_color_x_err = update_color_memory(target, frame)
+                last_color_deg, last_color_time, last_color_bottom_ratio, last_color_top_ratio, last_color_x_err = update_color_memory(target, frame)
                 search_start_time, switch_search_active = None, False
 
             if now - last_odom_log_time >= ODOM_LOG_INTERVAL:
@@ -586,11 +588,11 @@ def main():
 
             if target is not None:
                 color_lost_during_avoid = False
-                mode, target_v, target_w = color_cmd(target, frame, ranges, has_obstacle, last_color_deg, last_color_bottom_ratio, elapsed)
+                mode, target_v, target_w = color_cmd(target, frame, ranges, has_obstacle, last_color_deg, last_color_top_ratio, elapsed)
 
             elif color_exited_center:
                 last_v = last_w = 0.0
-                last_color_deg = last_color_time = last_color_bottom_ratio = last_color_x_err = 0.0
+                last_color_deg = last_color_time = last_color_bottom_ratio = last_color_top_ratio = last_color_x_err = 0.0
                 color_lost_during_avoid, search_start_time = False, None
                 pending_forward_time = time.time() + PRE_FORWARD_STOP_SEC
                 motor.stop()
