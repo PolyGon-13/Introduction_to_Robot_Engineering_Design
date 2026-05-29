@@ -53,7 +53,7 @@ ODOM_LOG_INTERVAL = 0.5
 WHEEL_R = 0.034
 ENC_PPR = 1012.0
 ENC_COUNTS_PER_M = ENC_PPR / (2.0 * np.pi * WHEEL_R)
-PRE_FORWARD_STOP_SEC = 0.0
+PRE_FORWARD_STOP_SEC = 0.5
 POST_COLOR_FORWARD_M = 0.20
 POST_COLOR_FORWARD_TIMEOUT = 5.0
 ODOM_WAIT_TIMEOUT = 1.0
@@ -554,7 +554,6 @@ def main():
             log_lidar(elapsed, lidar_zone_distances(ranges))
 
             color_exited = target is None and last_color_time > 0.0 and last_color_bottom_ratio >= BOTTOM_LOST_RATIO
-            color_exited_center = color_exited and abs(last_color_x_err) <= COLOR_EXIT_CENTER_ERR
 
             if pending_forward_action is not None:
                 last_v = last_w = 0.0
@@ -588,7 +587,7 @@ def main():
                 color_lost_during_avoid = False
                 mode, target_v, target_w = color_cmd(target, frame, ranges, has_obstacle, last_color_deg, last_color_bottom_ratio, elapsed)
 
-            elif color_exited_center:
+            elif color_exited:
                 last_v = last_w = 0.0
                 last_color_deg = last_color_time = last_color_bottom_ratio = last_color_x_err = 0.0
                 color_lost_during_avoid, search_start_time = False, None
@@ -607,17 +606,6 @@ def main():
                     mode, target_v, target_w = "STOP: color bottom", 0.0, 0.0
                     switch_search_active = False
                     pending_forward_action = "complete"
-
-            elif color_exited:
-                color_lost_during_avoid, switch_search_active = True, False
-                if has_obstacle:
-                    search_start_time = None
-                    target_v, target_w, target_deg, gap_count = avoid_cmd(ranges, last_color_deg)
-                    log_avoid(elapsed, "AVOID_LOST", target_deg, target_v, target_w, gap_count)
-                    mode = "AVOID: lost color"
-                else:
-                    search_start_time = search_start_time or time.time()
-                    mode, target_v, target_w = search_last_cmd(last_color_deg)
 
             elif target is None and has_obstacle and last_color_time > 0.0:
                 color_lost_during_avoid, search_start_time = True, None
