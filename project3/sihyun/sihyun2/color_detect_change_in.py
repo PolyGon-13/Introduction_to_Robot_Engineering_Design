@@ -26,6 +26,8 @@ BOTTOM_LOST_RATIO = 0.88  # 색상이 화면 아래 88% 지점 아래에서 사�
 COLOR_SWITCH_PAUSE = 1.0  # 다음 색 추적 전 정지 시간(초)
 COLOR_PRIORITY_BOTTOM_RATIO = 0.75  # 색상 박스 아래쪽이 화면 4등분 중 맨 아래 구역이면 색 추적 우선
 COLOR_EXIT_CENTER_ERR = 0.30  # 이 가로 오차 안에서 아래로 사라질 때만 다음 색으로 전환
+RECT_MEMORY_MAX_AGE = 1.0  # 사각형이 깨졌을 때 기억한 중심을 사용할 최대 시간(초)
+RECT_MEMORY_MIN_POINTS = 4  # approx 꼭짓점이 이 수 이상이면 사각형에 가까운 상태로 기억
 
 FOLLOW_MAX_V = 0.18  # 색 추적 모드 최대 전진 속도
 FOLLOW_MAX_W = 0.70  # 색 추적 모드 최대 회전 속도
@@ -43,6 +45,7 @@ HSV_RANGES = {
 }  # cv2.inRange에서 바로 쓰도록 HSV 범위를 numpy 배열로 변환
 BOX_COLORS = {"RED": (0, 0, 255), "BLUE": (255, 0, 0), "YELLOW": (0, 255, 255)}  # 화면 표시용 색상(BGR)
 MORPH_KERNEL = np.ones((5, 5), np.uint8)  # 색상 마스크 잡음 제거용 커널
+RECT_CENTER_MEMORY = {}
 
 
 # ==============================
@@ -323,6 +326,27 @@ def detect(frame):
 def pick(found, target_name):
     targets = found if target_name is None else [item for item in found if item[0] == target_name]
     return max(targets, key=lambda item: item[5], default=None)
+
+
+def stabilize_target_center(target):
+    if target is None:
+        return None
+
+    name, *rest = target
+    cx, cy = target[6], target[7]
+    point_count = len(target[8])
+    now = time.time()
+
+    if point_count >= RECT_MEMORY_MIN_POINTS:
+        RECT_CENTER_MEMORY[name] = (cx, cy, now)
+        return target
+
+    memory = RECT_CENTER_MEMORY.get(name)
+    if memory is None or now - memory[2] > RECT_MEMORY_MAX_AGE:
+        return target
+
+    remembered_cx, _, _ = memory
+    return target[:6] + (remembered_cx, cy) + target[8:]
 
 
 def bottom_center_error(target, frame_shape):
@@ -644,7 +668,7 @@ def main():
                 break
 
             found = detect(frame)  # 현재 프레임에서 찾은 색상 물체 목록
-            target = pick(found, current_target)  # 따라갈 대상 색상 물체
+            target = stabilize_target_center(pick(found, current_target))  # 따라갈 대상 색상 물체
             found = [target] if target is not None else []
             scan, scan_time, scan_seq = lidar.get()  # 최신 라이다 스캔 데이터
             ranges = front_ranges(scan) if scan is not None else None  # 각도별 전방 거리 배열
@@ -682,7 +706,7 @@ def main():
                         break
 
                     found = detect(frame)
-                    target = pick(found, current_target)
+                    target = stabilize_target_center(pick(found, current_target))
                     found = [target] if target is not None else []
 
                     if target is not None:
