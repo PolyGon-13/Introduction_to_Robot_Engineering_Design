@@ -25,7 +25,7 @@ MIN_AREA = 200  # 색상 물체로 인정할 최소 contour 면적
 BOTTOM_LOST_RATIO = 0.88  # 색상이 화면 아래 88% 지점 아래에서 사라지면 정지로 판단
 COLOR_SWITCH_PAUSE = 1.0  # 다음 색 추적 전 정지 시간(초)
 COLOR_PRIORITY_CENTER_RATIO = 0.75  # 색상 중심이 화면 하단 1/4 구역에 들어오면 색 추적 우선
-COLOR_FORWARD_CENTER_RATIO = 5.0 / 6.0  # 색상 중심이 화면 하단 1/6 구역에 들어오면 20cm 전진
+COLOR_FORWARD_CENTER_RATIO = 0.90  # 색상 중심이 화면 하단 1/10 구역에 들어오면 20cm 전진
 COLOR_EXIT_CENTER_ERR = 0.30  # 이 가로 오차 안에서 아래로 사라질 때만 다음 색으로 전환
 
 FOLLOW_MAX_V = 0.18  # 색 추적 모드 최대 전진 속도
