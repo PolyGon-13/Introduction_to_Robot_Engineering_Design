@@ -479,6 +479,17 @@ def pause_or_forward(frame, found, motor, action, forward_move, finish_after_pau
     return True, None, None, finish_after_pause, time.time() + COLOR_SWITCH_PAUSE
 
 
+def start_enter_thread():
+    event = threading.Event()
+
+    def wait_enter():
+        input("Press Enter to start motor...")
+        event.set()
+
+    threading.Thread(target=wait_enter, daemon=True).start()
+    return event
+
+
 def main():
     cam = lidar = motor = None
     last_v = last_w = 0.0
@@ -486,6 +497,8 @@ def main():
     last_odom_log_time = switch_pause_until = pending_forward_time = 0.0
     color_lost_during_avoid = switch_search_active = finish_after_pause = False
     search_start_time = pending_forward_action = forward_move = None
+    start_event = None
+    started = False
     target_index = 0
     current_target = TARGET_SEQUENCE[target_index]
 
@@ -493,8 +506,7 @@ def main():
         cam, lidar, motor = open_camera(), RPLidarC1(), Motor()
         motor.stop()
         motor.reset_encoders()
-        input("Press Enter to start...")
-        motor.stop()
+        start_event = start_enter_thread()
         start_time = time.time()
 
         while True:
@@ -510,6 +522,27 @@ def main():
             ranges = front_ranges(scan) if scan is not None else None
             has_obstacle = obstacle_detected(ranges)
             now = time.time()
+
+            if not started:
+                motor.stop()
+                if start_event.is_set():
+                    started = True
+                    motor.reset_encoders()
+                    motor.stop()
+                    start_time = now
+                    elapsed = 0.0
+                    last_odom_log_time = 0.0
+                    last_color_deg = last_color_time = last_color_bottom_ratio = last_color_x_err = 0.0
+                    print("[INFO] motor start")
+                else:
+                    if now - last_odom_log_time >= ODOM_LOG_INTERVAL:
+                        log_odom(elapsed, motor.get_odom())
+                        last_odom_log_time = now
+                    log_lidar(elapsed, lidar_zone_distances(ranges))
+                    if show_frame(frame, found, "READY: press Enter"):
+                        break
+                    time.sleep(LOOP_DT)
+                    continue
 
             if target is not None:
                 last_color_deg, last_color_time, last_color_bottom_ratio, last_color_x_err = update_color_memory(target, frame)
