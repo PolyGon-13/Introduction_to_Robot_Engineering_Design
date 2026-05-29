@@ -659,7 +659,11 @@ def main():
 
             log_lidar(elapsed, lidar_dist)
 
-            color_in_forward_zone = target is not None and last_color_center_ratio >= COLOR_FORWARD_CENTER_RATIO
+            color_in_forward_zone = (
+                target is not None
+                and last_color_center_ratio >= COLOR_FORWARD_CENTER_RATIO
+                and abs(last_color_x_err) <= COLOR_EXIT_CENTER_ERR
+            )
             color_exited_bottom = target is None and last_color_time > 0.0 and last_color_center_ratio >= BOTTOM_LOST_RATIO
             if color_in_forward_zone:
                 if target_index + 1 < len(TARGET_SEQUENCE):
