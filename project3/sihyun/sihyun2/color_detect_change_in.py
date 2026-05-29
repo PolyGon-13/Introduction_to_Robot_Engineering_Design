@@ -28,6 +28,7 @@ COLOR_PRIORITY_BOTTOM_RATIO = 0.75  # 색상 박스 아래쪽이 화면 4등분 
 COLOR_EXIT_CENTER_ERR = 0.30  # 이 가로 오차 안에서 아래로 사라질 때만 다음 색으로 전환
 RECT_MEMORY_MAX_AGE = 1.0  # 사각형이 깨졌을 때 기억한 중심을 사용할 최대 시간(초)
 RECT_MEMORY_MIN_POINTS = 4  # approx 꼭짓점이 이 수 이상이면 사각형에 가까운 상태로 기억
+RECT_MEMORY_MIN_FILL = 0.62  # contour가 bounding box를 이 비율 이상 채우면 사각형으로 기억
 
 FOLLOW_MAX_V = 0.18  # 색 추적 모드 최대 전진 속도
 FOLLOW_MAX_W = 0.70  # 색 추적 모드 최대 회전 속도
@@ -43,6 +44,7 @@ HSV_RANGES = {
     name: [(np.array(lower, dtype=np.uint8), np.array(upper, dtype=np.uint8)) for lower, upper in ranges]
     for name, ranges in HSV_RANGES.items()
 }  # cv2.inRange에서 바로 쓰도록 HSV 범위를 numpy 배열로 변환
+BOX_COLORS = {"RED": (0, 0, 255), "BLUE": (255, 0, 0), "YELLOW": (0, 255, 255)}  # 화면 표시용 색상(BGR)
 BOX_COLORS = {"RED": (0, 0, 255), "BLUE": (255, 0, 0), "YELLOW": (0, 255, 255)}  # 화면 표시용 색상(BGR)
 MORPH_KERNEL = np.ones((5, 5), np.uint8)  # 색상 마스크 잡음 제거용 커널
 RECT_CENTER_MEMORY = {}
@@ -332,13 +334,16 @@ def stabilize_target_center(target):
     if target is None:
         return None
 
-    name, *rest = target
+    name = target[0]
+    x, y, w, h, area = target[1], target[2], target[3], target[4], target[5]
     cx, cy = target[6], target[7]
     point_count = len(target[8])
+    fill_ratio = area / max(1.0, float(w * h))
     now = time.time()
 
-    if point_count >= RECT_MEMORY_MIN_POINTS:
-        RECT_CENTER_MEMORY[name] = (cx, cy, now)
+    if point_count >= RECT_MEMORY_MIN_POINTS or fill_ratio >= RECT_MEMORY_MIN_FILL:
+        rect_cx, rect_cy = cv2.minAreaRect(target[9])[0]
+        RECT_CENTER_MEMORY[name] = (float(rect_cx), float(rect_cy), now)
         return target
 
     memory = RECT_CENTER_MEMORY.get(name)
