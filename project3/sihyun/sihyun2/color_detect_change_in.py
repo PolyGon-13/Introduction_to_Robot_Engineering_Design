@@ -101,7 +101,7 @@ COLOR_TO_LIDAR_DEG = 45.0  # 카메라 화면 좌우 끝을 라이다 각도로 
 
 GRID = np.arange(ANG_MIN, ANG_MAX + 0.5 * ANG_STEP, ANG_STEP, dtype=np.float32)  # 회피 계산용 각도 배열
 LEFT_ZONE = (GRID >= 10.0) & (GRID <= 80.0)  # 왼쪽 장애물 거리 확인 구역
-FRONT_LOG_ZONE = (GRID >= -10.0) & (GRID <= 10.0)  # 정면 장애물 확인 구역
+FRONT_LOG_ZONE = (GRID >= -30.0) & (GRID <= 30.0)  # 정면 장애물 확인 구역
 RIGHT_ZONE = (GRID >= -80.0) & (GRID <= -10.0)  # 오른쪽 장애물 거리 확인 구역
 OBSTACLE_ZONE = (GRID >= -OBSTACLE_FRONT_DEG) & (GRID <= OBSTACLE_FRONT_DEG)  # 장애물 있음/없음 판단 구역
 MIN_GAP_BINS = max(1, int(np.ceil(MIN_GAP_DEG / ANG_STEP)))  # 최소 gap 각도를 배열 칸 수로 변환한 값
