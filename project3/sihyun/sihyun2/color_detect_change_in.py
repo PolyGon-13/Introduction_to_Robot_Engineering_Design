@@ -23,7 +23,7 @@ TARGET_SEQUENCE = ("RED", "YELLOW", "BLUE")  # Follow colors in this order.
 SHOW_WINDOW = True  # 카메라 인식 화면을 띄울지 여부
 MIN_AREA = 200  # 색상 물체로 인정할 최소 contour 면적
 BOTTOM_LOST_RATIO = 0.88  # 색상이 화면 아래 88% 지점 아래에서 사라지면 정지로 판단
-COLOR_SWITCH_PAUSE = 0.0  # 다음 색 추적 전 정지 시간(초)
+COLOR_SWITCH_PAUSE = 1.0  # 다음 색 추적 전 정지 시간(초)
 COLOR_PRIORITY_BOTTOM_RATIO = 0.75  # 색상 박스 아래쪽이 화면 4등분 중 맨 아래 구역이면 색 추적 우선
 COLOR_EXIT_CENTER_ERR = 0.30  # 이 가로 오차 안에서 아래로 사라질 때만 다음 색으로 전환
 
@@ -632,6 +632,7 @@ def main():
     pending_forward_action = None
     pending_forward_time = 0.0
     forward_move = None
+    finish_after_pause = False
     switch_pause_until = 0.0
     target_index = 0
     current_target = TARGET_SEQUENCE[target_index]
@@ -689,8 +690,7 @@ def main():
                         forward_move = None
 
                         if pending_forward_action == "complete":
-                            print(f"[{elapsed:.2f}s] [COLOR] {current_target} done, mission complete")
-                            break
+                            finish_after_pause = True
 
                         pending_forward_action = None
                         switch_pause_until = time.time() + COLOR_SWITCH_PAUSE
@@ -711,6 +711,10 @@ def main():
 
                 time.sleep(LOOP_DT)
                 continue
+
+            if finish_after_pause:
+                print(f"[{elapsed:.2f}s] [COLOR] {current_target} done, mission complete")
+                break
 
             if target is not None:
                 color_lost_during_avoid = False
