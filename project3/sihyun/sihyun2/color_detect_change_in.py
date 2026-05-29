@@ -24,11 +24,8 @@ SHOW_WINDOW = True  # 카메라 인식 화면을 띄울지 여부
 MIN_AREA = 200  # 색상 물체로 인정할 최소 contour 면적
 BOTTOM_LOST_RATIO = 0.88  # 색상이 화면 아래 88% 지점 아래에서 사라지면 정지로 판단
 COLOR_SWITCH_PAUSE = 1.0  # 다음 색 추적 전 정지 시간(초)
-COLOR_PRIORITY_BOTTOM_RATIO = 0.75  # 색상 박스 아래쪽이 화면 4등분 중 맨 아래 구역이면 색 추적 우선
+COLOR_FORWARD_CENTER_RATIO = 0.75  # 색상 중심이 화면 하단 1/4 구역에 들어오면 20cm 전진
 COLOR_EXIT_CENTER_ERR = 0.30  # 이 가로 오차 안에서 아래로 사라질 때만 다음 색으로 전환
-RECT_MEMORY_MAX_AGE = 1.0  # 사각형이 깨졌을 때 기억한 중심을 사용할 최대 시간(초)
-RECT_MEMORY_MIN_POINTS = 4  # approx 꼭짓점이 이 수 이상이면 사각형에 가까운 상태로 기억
-RECT_MEMORY_MIN_FILL = 0.62  # contour가 bounding box를 이 비율 이상 채우면 사각형으로 기억
 
 FOLLOW_MAX_V = 0.18  # 색 추적 모드 최대 전진 속도
 FOLLOW_MAX_W = 0.70  # 색 추적 모드 최대 회전 속도
@@ -45,9 +42,7 @@ HSV_RANGES = {
     for name, ranges in HSV_RANGES.items()
 }  # cv2.inRange에서 바로 쓰도록 HSV 범위를 numpy 배열로 변환
 BOX_COLORS = {"RED": (0, 0, 255), "BLUE": (255, 0, 0), "YELLOW": (0, 255, 255)}  # 화면 표시용 색상(BGR)
-BOX_COLORS = {"RED": (0, 0, 255), "BLUE": (255, 0, 0), "YELLOW": (0, 255, 255)}  # 화면 표시용 색상(BGR)
 MORPH_KERNEL = np.ones((5, 5), np.uint8)  # 색상 마스크 잡음 제거용 커널
-RECT_CENTER_MEMORY = {}
 
 
 # ==============================
@@ -330,30 +325,6 @@ def pick(found, target_name):
     return max(targets, key=lambda item: item[5], default=None)
 
 
-def stabilize_target_center(target):
-    if target is None:
-        return None
-
-    name = target[0]
-    x, y, w, h, area = target[1], target[2], target[3], target[4], target[5]
-    cx, cy = target[6], target[7]
-    point_count = len(target[8])
-    fill_ratio = area / max(1.0, float(w * h))
-    now = time.time()
-
-    if point_count >= RECT_MEMORY_MIN_POINTS or fill_ratio >= RECT_MEMORY_MIN_FILL:
-        rect_cx, rect_cy = cv2.minAreaRect(target[9])[0]
-        RECT_CENTER_MEMORY[name] = (float(rect_cx), float(rect_cy), now)
-        return target
-
-    memory = RECT_CENTER_MEMORY.get(name)
-    if memory is None or now - memory[2] > RECT_MEMORY_MAX_AGE:
-        return target
-
-    remembered_cx, _, _ = memory
-    return target[:6] + (remembered_cx, cy) + target[8:]
-
-
 def bottom_center_error(target, frame_shape):
     height, width = frame_shape[:2]
     cx, cy = target[6], target[7]
@@ -525,9 +496,8 @@ def draw(frame, found, mode):
 
 def update_color_memory(target, frame):
     last_color_deg = color_angle_from_target(target, frame.shape)
-    box = target[8]
-    bottom_ratio = float(np.max(box[:, 1])) / frame.shape[0]
-    return last_color_deg, time.time(), bottom_ratio, x_center_error(target, frame.shape)
+    center_ratio = float(target[7]) / frame.shape[0]
+    return last_color_deg, time.time(), center_ratio, x_center_error(target, frame.shape)
 
 
 def clear_color_memory():
@@ -631,9 +601,8 @@ def log_odom(elapsed, odom):
     print(f"[{elapsed:.2f}s] [ODOM] left={enc_l} right={enc_r} arduino_ms={arduino_ms}")
 
 
-def color_cmd(target, frame, ranges, has_obstacle, color_deg, bottom_ratio, elapsed):
-    priority = bottom_ratio >= COLOR_PRIORITY_BOTTOM_RATIO and front_is_clear(ranges)
-    if has_obstacle and not priority:
+def color_cmd(target, frame, ranges, has_obstacle, color_deg, elapsed):
+    if has_obstacle:
         target_v, target_w, target_deg, gap_count = avoid_cmd(ranges, color_deg)
         log_avoid(elapsed, "AVOID", target_deg, target_v, target_w, gap_count)
         return "AVOID: color + obstacle", target_v, target_w
@@ -650,7 +619,7 @@ def search_last_cmd(last_color_deg):
 def main():
     cam = lidar = motor = None
     last_v = last_w = 0.0
-    last_color_deg = last_color_time = last_color_bottom_ratio = last_color_x_err = 0.0
+    last_color_deg = last_color_time = last_color_center_ratio = last_color_x_err = 0.0
     last_odom_log_time = 0.0
     color_lost_during_avoid = False
     search_start_time = None
@@ -673,7 +642,7 @@ def main():
                 break
 
             found = detect(frame)  # 현재 프레임에서 찾은 색상 물체 목록
-            target = stabilize_target_center(pick(found, current_target))  # 따라갈 대상 색상 물체
+            target = pick(found, current_target)  # 따라갈 대상 색상 물체
             found = [target] if target is not None else []
             scan, scan_time, scan_seq = lidar.get()  # 최신 라이다 스캔 데이터
             ranges = front_ranges(scan) if scan is not None else None  # 각도별 전방 거리 배열
@@ -681,7 +650,7 @@ def main():
             has_obstacle = obstacle_detected(ranges)  # 장애물 감지 여부
 
             if target is not None:
-                last_color_deg, last_color_time, last_color_bottom_ratio, last_color_x_err = update_color_memory(target, frame)
+                last_color_deg, last_color_time, last_color_center_ratio, last_color_x_err = update_color_memory(target, frame)
                 search_start_time, switch_search_active = None, False
 
             if time.time() - last_odom_log_time >= ODOM_LOG_INTERVAL:
@@ -690,13 +659,9 @@ def main():
 
             log_lidar(elapsed, lidar_dist)
 
-            color_exited_bottom = target is None and last_color_time > 0.0 and last_color_bottom_ratio >= BOTTOM_LOST_RATIO
-            color_exited_bottom_center = color_exited_bottom and abs(last_color_x_err) <= COLOR_EXIT_CENTER_ERR
-            if target is not None:
-                color_lost_during_avoid = False
-                mode, target_v, target_w = color_cmd(target, frame, ranges, has_obstacle, last_color_deg, last_color_bottom_ratio, elapsed)
-
-            elif color_exited_bottom_center:
+            color_in_forward_zone = target is not None and last_color_center_ratio >= COLOR_FORWARD_CENTER_RATIO
+            color_exited_bottom = target is None and last_color_time > 0.0 and last_color_center_ratio >= BOTTOM_LOST_RATIO
+            if color_in_forward_zone:
                 if target_index + 1 < len(TARGET_SEQUENCE):
                     prev_target = current_target
                     target_index += 1
@@ -711,27 +676,31 @@ def main():
                         break
 
                     found = detect(frame)
-                    target = stabilize_target_center(pick(found, current_target))
+                    target = pick(found, current_target)
                     found = [target] if target is not None else []
 
                     if target is not None:
-                        last_color_deg, last_color_time, last_color_bottom_ratio, last_color_x_err = update_color_memory(target, frame)
+                        last_color_deg, last_color_time, last_color_center_ratio, last_color_x_err = update_color_memory(target, frame)
                         color_lost_during_avoid = False
                         search_start_time = None
-                        mode, target_v, target_w = color_cmd(target, frame, ranges, has_obstacle, last_color_deg, last_color_bottom_ratio, elapsed)
+                        mode, target_v, target_w = color_cmd(target, frame, ranges, has_obstacle, last_color_deg, elapsed)
                     else:
                         mode, target_v, target_w = search_next_cmd()
-                        last_color_deg, last_color_time, last_color_bottom_ratio, last_color_x_err = clear_color_memory()
+                        last_color_deg, last_color_time, last_color_center_ratio, last_color_x_err = clear_color_memory()
                         color_lost_during_avoid, search_start_time = False, None
                         switch_search_active = True
                 else:
                     mode = "STOP: color bottom"
                     drive_forward_by_encoder(motor)
                     target_v, target_w, last_v, last_w = 0.0, 0.0, 0.0, 0.0
-                    last_color_deg, last_color_time, last_color_bottom_ratio, last_color_x_err = clear_color_memory()
+                    last_color_deg, last_color_time, last_color_center_ratio, last_color_x_err = clear_color_memory()
                     color_lost_during_avoid, search_start_time, switch_search_active = False, None, False
                     print(f"[{elapsed:.2f}s] [COLOR] {current_target} done, mission complete")
                     break
+
+            elif target is not None:
+                color_lost_during_avoid = False
+                mode, target_v, target_w = color_cmd(target, frame, ranges, has_obstacle, last_color_deg, elapsed)
 
             elif color_exited_bottom:
                 color_lost_during_avoid = True
