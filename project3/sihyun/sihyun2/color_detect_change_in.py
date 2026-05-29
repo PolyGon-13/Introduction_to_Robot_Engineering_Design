@@ -64,7 +64,7 @@ WHEEL_R = 0.034  # Arduino encoder distance calculation wheel radius(m)
 ENC_PPR = 1012.0  # Arduino encoder counts per wheel revolution
 ENC_COUNTS_PER_M = ENC_PPR / (2.0 * np.pi * WHEEL_R)
 PRE_FORWARD_STOP_MS = 500  # Stop before encoder-based extra forward move(ms)
-POST_COLOR_FORWARD_M = 0.30  # Move forward after a color exits bottom before pause(m)
+POST_COLOR_FORWARD_M = 0.35  # Move forward after a color exits bottom before pause(m)
 
 
 # ==============================
