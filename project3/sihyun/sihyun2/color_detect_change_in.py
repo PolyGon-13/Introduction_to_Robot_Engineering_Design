@@ -24,7 +24,8 @@ SHOW_WINDOW = True  # 카메라 인식 화면을 띄울지 여부
 MIN_AREA = 200  # 색상 물체로 인정할 최소 contour 면적
 BOTTOM_LOST_RATIO = 0.88  # 색상이 화면 아래 88% 지점 아래에서 사라지면 정지로 판단
 COLOR_SWITCH_PAUSE = 1.0  # 다음 색 추적 전 정지 시간(초)
-COLOR_FORWARD_CENTER_RATIO = 0.75  # 색상 중심이 화면 하단 1/4 구역에 들어오면 20cm 전진
+COLOR_PRIORITY_CENTER_RATIO = 0.75  # 색상 중심이 화면 하단 1/4 구역에 들어오면 색 추적 우선
+COLOR_FORWARD_CENTER_RATIO = 5.0 / 6.0  # 색상 중심이 화면 하단 1/6 구역에 들어오면 20cm 전진
 COLOR_EXIT_CENTER_ERR = 0.30  # 이 가로 오차 안에서 아래로 사라질 때만 다음 색으로 전환
 
 FOLLOW_MAX_V = 0.18  # 색 추적 모드 최대 전진 속도
@@ -601,8 +602,9 @@ def log_odom(elapsed, odom):
     print(f"[{elapsed:.2f}s] [ODOM] left={enc_l} right={enc_r} arduino_ms={arduino_ms}")
 
 
-def color_cmd(target, frame, ranges, has_obstacle, color_deg, elapsed):
-    if has_obstacle:
+def color_cmd(target, frame, ranges, has_obstacle, color_deg, center_ratio, elapsed):
+    color_priority = center_ratio >= COLOR_PRIORITY_CENTER_RATIO
+    if has_obstacle and not color_priority:
         target_v, target_w, target_deg, gap_count = avoid_cmd(ranges, color_deg)
         log_avoid(elapsed, "AVOID", target_deg, target_v, target_w, gap_count)
         return "AVOID: color + obstacle", target_v, target_w
@@ -687,7 +689,9 @@ def main():
                         last_color_deg, last_color_time, last_color_center_ratio, last_color_x_err = update_color_memory(target, frame)
                         color_lost_during_avoid = False
                         search_start_time = None
-                        mode, target_v, target_w = color_cmd(target, frame, ranges, has_obstacle, last_color_deg, elapsed)
+                        mode, target_v, target_w = color_cmd(
+                            target, frame, ranges, has_obstacle, last_color_deg, last_color_center_ratio, elapsed
+                        )
                     else:
                         mode, target_v, target_w = search_next_cmd()
                         last_color_deg, last_color_time, last_color_center_ratio, last_color_x_err = clear_color_memory()
@@ -704,7 +708,9 @@ def main():
 
             elif target is not None:
                 color_lost_during_avoid = False
-                mode, target_v, target_w = color_cmd(target, frame, ranges, has_obstacle, last_color_deg, elapsed)
+                mode, target_v, target_w = color_cmd(
+                    target, frame, ranges, has_obstacle, last_color_deg, last_color_center_ratio, elapsed
+                )
 
             elif color_exited_bottom:
                 color_lost_during_avoid = True
