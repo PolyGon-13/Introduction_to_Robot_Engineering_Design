@@ -23,7 +23,7 @@ TARGET_SEQUENCE = ("RED", "YELLOW", "BLUE")  # Follow colors in this order.
 SHOW_WINDOW = True  # 카메라 인식 화면을 띄울지 여부
 MIN_AREA = 200  # 색상 물체로 인정할 최소 contour 면적
 BOTTOM_LOST_RATIO = 0.88  # 색상이 화면 아래 88% 지점 아래에서 사라지면 정지로 판단
-COLOR_SWITCH_PAUSE = 1.0  # 다음 색 추적 전 정지 시간(초)
+COLOR_SWITCH_PAUSE = 0.0  # 다음 색 추적 전 정지 시간(초)
 COLOR_PRIORITY_BOTTOM_RATIO = 0.75  # 색상 박스 아래쪽이 화면 4등분 중 맨 아래 구역이면 색 추적 우선
 COLOR_EXIT_CENTER_ERR = 0.30  # 이 가로 오차 안에서 아래로 사라질 때만 다음 색으로 전환
 
@@ -62,7 +62,7 @@ ODOM_LOG_INTERVAL = 0.5  # 엔코더 누적값 로그 출력 주기(초)
 WHEEL_R = 0.034  # Arduino encoder distance calculation wheel radius(m)
 ENC_PPR = 1012.0  # Arduino encoder counts per wheel revolution
 ENC_COUNTS_PER_M = ENC_PPR / (2.0 * np.pi * WHEEL_R)
-PRE_FORWARD_STOP_SEC = 0.5  # Stop before encoder-based extra forward move(s)
+PRE_FORWARD_STOP_SEC = 0.0  # Stop before encoder-based extra forward move(s)
 POST_COLOR_FORWARD_M = 0.20  # Move forward after a color exits bottom before pause(m)
 POST_COLOR_FORWARD_TIMEOUT = 5.0  # Safety timeout for the extra forward move(s)
 ODOM_WAIT_TIMEOUT = 1.0  # Max wait for Arduino odometry before extra move(s)
@@ -513,59 +513,64 @@ def avoid_lost_cmd(elapsed, ranges, color_deg):
     return "AVOID: lost color", target_v, target_w
 
 
-def drive_forward_by_encoder(motor, distance_m=POST_COLOR_FORWARD_M):
-    motor.stop()
+class EncoderForwardMove:
+    def __init__(self, motor, distance_m=POST_COLOR_FORWARD_M):
+        self.motor = motor
+        self.distance_m = distance_m
+        self.start_l = 0
+        self.start_r = 0
+        self.left_counts = 0.0
+        self.right_counts = 0.0
+        self.target_counts = abs(distance_m) * ENC_COUNTS_PER_M
+        self.forward_v = abs(FOLLOW_MAX_V) if distance_m >= 0.0 else -abs(FOLLOW_MAX_V)
+        timeout = abs(distance_m / max(abs(FOLLOW_MAX_V), 0.01)) * 2.0
+        self.timeout = max(POST_COLOR_FORWARD_TIMEOUT, timeout)
+        self.wait_deadline = time.time() + ODOM_WAIT_TIMEOUT
+        self.deadline = 0.0
+        self.started = False
 
-    start_odom = None
-    wait_start = time.time()
+    def update(self):
+        if not self.started:
+            odom = self.motor.get_odom()
+            if odom[3] == 0.0:
+                self.motor.stop()
+                if time.time() > self.wait_deadline:
+                    print("[ODOM] no encoder data, skip extra forward move")
+                    return True, False
+                return False, None
 
-    while time.time() - wait_start <= ODOM_WAIT_TIMEOUT:
-        odom = motor.get_odom()
-        if odom[3] != 0.0:
-            start_odom = odom
-            break
-        time.sleep(LOOP_DT)
+            self.start_l, self.start_r, _, _ = odom
+            self.deadline = time.time() + self.timeout
+            self.started = True
+            print(f"[ODOM] move {self.distance_m:.2f}m target_counts={self.target_counts:.0f}")
 
-    if start_odom is None:
-        print("[ODOM] no encoder data, skip extra forward move")
-        motor.stop()
-        return False
-
-    start_l, start_r, _, _ = start_odom
-    target_counts = abs(distance_m) * ENC_COUNTS_PER_M
-    forward_v = abs(FOLLOW_MAX_V) if distance_m >= 0.0 else -abs(FOLLOW_MAX_V)
-    timeout = max(POST_COLOR_FORWARD_TIMEOUT, abs(distance_m / max(abs(FOLLOW_MAX_V), 0.01)) * 2.0)
-    deadline = time.time() + timeout
-
-    print(f"[ODOM] move {distance_m:.2f}m target_counts={target_counts:.0f}")
-
-    left_counts = right_counts = 0.0
-    while time.time() <= deadline:
-        enc_l, enc_r, _, odom_time = motor.get_odom()
+        enc_l, enc_r, _, odom_time = self.motor.get_odom()
         if odom_time == 0.0 or time.time() - odom_time > 0.5:
-            motor.stop()
+            self.motor.stop()
             print("[ODOM] encoder data timeout during extra forward move")
-            return False
+            return True, False
 
-        left_counts = abs(enc_l - start_l)
-        right_counts = abs(enc_r - start_r)
-        if left_counts >= target_counts and right_counts >= target_counts:
-            break
+        self.left_counts = abs(enc_l - self.start_l)
+        self.right_counts = abs(enc_r - self.start_r)
+        ok = self.left_counts >= self.target_counts and self.right_counts >= self.target_counts
 
-        motor.vw(forward_v, 0.0)
-        time.sleep(LOOP_DT)
+        if ok or time.time() > self.deadline:
+            self.motor.stop()
+            self._log_result(ok)
+            return True, ok
 
-    motor.stop()
-    left_m = left_counts / ENC_COUNTS_PER_M
-    right_m = right_counts / ENC_COUNTS_PER_M
-    ok = left_counts >= target_counts and right_counts >= target_counts
-    status = "done" if ok else "timeout"
-    print(
-        f"[ODOM] extra forward {status}: "
-        f"left={left_m:.2f}m({left_counts:.0f}) "
-        f"right={right_m:.2f}m({right_counts:.0f})"
-    )
-    return ok
+        self.motor.vw(self.forward_v, 0.0)
+        return False, None
+
+    def _log_result(self, ok):
+        left_m = self.left_counts / ENC_COUNTS_PER_M
+        right_m = self.right_counts / ENC_COUNTS_PER_M
+        status = "done" if ok else "timeout"
+        print(
+            f"[ODOM] extra forward {status}: "
+            f"left={left_m:.2f}m({self.left_counts:.0f}) "
+            f"right={right_m:.2f}m({self.right_counts:.0f})"
+        )
 
 
 def log_lidar(elapsed, lidar_dist):
@@ -626,6 +631,7 @@ def main():
     switch_search_active = False
     pending_forward_action = None
     pending_forward_time = 0.0
+    forward_move = None
     switch_pause_until = 0.0
     target_index = 0
     current_target = TARGET_SEQUENCE[target_index]
@@ -667,20 +673,27 @@ def main():
             now = time.time()
 
             if pending_forward_action is not None:
-                mode = "PAUSE: before forward"
-                target_v, target_w = 0.0, 0.0
-                motor.stop()
+                last_v, last_w = 0.0, 0.0
 
-                if now >= pending_forward_time:
-                    drive_forward_by_encoder(motor)
-                    last_v, last_w = 0.0, 0.0
+                if now < pending_forward_time:
+                    mode = "PAUSE: before forward"
+                    motor.stop()
+                else:
+                    mode = "FORWARD: encoder"
+                    if forward_move is None:
+                        forward_move = EncoderForwardMove(motor)
 
-                    if pending_forward_action == "complete":
-                        print(f"[{elapsed:.2f}s] [COLOR] {current_target} done, mission complete")
-                        break
+                    done, _ = forward_move.update()
 
-                    pending_forward_action = None
-                    switch_pause_until = time.time() + COLOR_SWITCH_PAUSE
+                    if done:
+                        forward_move = None
+
+                        if pending_forward_action == "complete":
+                            print(f"[{elapsed:.2f}s] [COLOR] {current_target} done, mission complete")
+                            break
+
+                        pending_forward_action = None
+                        switch_pause_until = time.time() + COLOR_SWITCH_PAUSE
 
                 if show_frame(frame, found, mode):
                     break
