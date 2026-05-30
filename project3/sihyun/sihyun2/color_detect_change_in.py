@@ -441,6 +441,9 @@ def zone_min_distance(ranges, zone):
 
 
 def avoid_cmd(ranges, color_deg=None):
+    if ranges is None:
+        return 0.0, 0.0, 0.0, 0
+
     safe_gaps = find_gaps(ranges >= FREE_D)  # 안전 거리 이상 비어 있는 gap 목록
 
     if not safe_gaps:
