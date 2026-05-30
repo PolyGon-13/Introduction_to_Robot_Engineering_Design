@@ -9,7 +9,6 @@ import cv2
 import numpy as np
 import serial
 
-
 try:
     from picamera2 import Picamera2
     USE_PICAM = True  # Picamera2 사용 가능 여부
@@ -512,11 +511,6 @@ def clear_color_memory():
     return 0.0, 0.0, 0.0, 0.0
 
 
-def stop_motion(motor):
-    motor.stop()
-    return 0.0, 0.0, 0.0, 0.0
-
-
 def search_next_cmd():
     return "SEARCH: next color", 0.0, SWITCH_SEARCH_W
 
@@ -633,6 +627,12 @@ def search_last_cmd(last_color_deg):
     return "SEARCH: last color direction", 0.0, w
 
 
+def avoid_mode(mode, tag, ranges, color_deg, elapsed):
+    target_v, target_w, target_deg, gap_count = avoid_cmd(ranges, color_deg)
+    log_avoid(elapsed, tag, target_deg, target_v, target_w, gap_count)
+    return mode, target_v, target_w
+
+
 def main():
     cam = lidar = motor = None
     last_v = last_w = 0.0
@@ -677,9 +677,7 @@ def main():
 
             if target is not None:
                 last_color_deg, last_color_time, last_color_center_ratio, last_color_x_err = update_color_memory(target, frame)
-                search_start_time, switch_search_active = None, False
-                search_failed_avoid_active = False
-                switch_search_start_odom = None
+                search_start_time, switch_search_active, search_failed_avoid_active, switch_search_start_odom = None, False, False, None
 
             if time.time() - last_odom_log_time >= ODOM_LOG_INTERVAL:
                 log_odom(elapsed, motor.get_odom())
@@ -723,8 +721,7 @@ def main():
                     else:
                         mode, target_v, target_w = search_next_cmd()
                         last_color_deg, last_color_time, last_color_center_ratio, last_color_x_err = clear_color_memory()
-                        color_lost_during_avoid, search_start_time = False, None
-                        switch_search_active = True
+                        color_lost_during_avoid, search_start_time, switch_search_active = False, None, True
                         switch_search_start_odom = get_turn_start_odom(motor)
                 else:
                     mode = "STOP: color bottom"
@@ -732,8 +729,7 @@ def main():
                     target_v, target_w, last_v, last_w = 0.0, 0.0, 0.0, 0.0
                     last_color_deg, last_color_time, last_color_center_ratio, last_color_x_err = clear_color_memory()
                     color_lost_during_avoid, search_start_time, switch_search_active = False, None, False
-                    search_failed_avoid_active = False
-                    switch_search_start_odom = None
+                    search_failed_avoid_active, switch_search_start_odom = False, None
                     print(f"[{elapsed:.2f}s] [COLOR] {current_target} done, mission complete")
                     break
 
@@ -745,38 +741,30 @@ def main():
                 )
 
             elif target is None and search_failed_avoid_active:
-                mode = "AVOID: search failed"
-                target_v, target_w, target_deg, gap_count = avoid_cmd(ranges, last_color_deg if last_color_time > 0.0 else None)
-                log_avoid(elapsed, "AVOID_SEARCH", target_deg, target_v, target_w, gap_count)
+                mode, target_v, target_w = avoid_mode("AVOID: search failed", "AVOID_SEARCH", ranges, last_color_deg if last_color_time > 0.0 else None, elapsed)
 
             elif color_exited_bottom:
                 color_lost_during_avoid = True
                 switch_search_active = False
                 if has_obstacle:
-                    mode = "AVOID: lost color"
                     search_start_time = None
-                    target_v, target_w, target_deg, gap_count = avoid_cmd(ranges, last_color_deg)
-                    log_avoid(elapsed, "AVOID_LOST", target_deg, target_v, target_w, gap_count)
+                    mode, target_v, target_w = avoid_mode("AVOID: lost color", "AVOID_LOST", ranges, last_color_deg, elapsed)
                 else:
                     if search_start_time is None:
                         search_start_time = time.time()
                     mode, target_v, target_w = search_last_cmd(last_color_deg)
 
             elif target is None and has_obstacle and last_color_time > 0.0:
-                mode = "AVOID: lost color"
                 color_lost_during_avoid = True
                 search_start_time = None
-                target_v, target_w, target_deg, gap_count = avoid_cmd(ranges, last_color_deg)
-                log_avoid(elapsed, "AVOID_LOST", target_deg, target_v, target_w, gap_count)
+                mode, target_v, target_w = avoid_mode("AVOID: lost color", "AVOID_LOST", ranges, last_color_deg, elapsed)
 
             elif target is None and switch_search_active:
                 if switch_search_start_odom is None:
                     switch_search_start_odom = get_turn_start_odom(motor)
 
                 if completed_one_encoder_turn(motor, switch_search_start_odom):
-                    mode = "AVOID: search failed"
-                    target_v, target_w, target_deg, gap_count = avoid_cmd(ranges, last_color_deg if last_color_time > 0.0 else None)
-                    log_avoid(elapsed, "AVOID_SEARCH", target_deg, target_v, target_w, gap_count)
+                    mode, target_v, target_w = avoid_mode("AVOID: search failed", "AVOID_SEARCH", ranges, last_color_deg if last_color_time > 0.0 else None, elapsed)
                     color_lost_during_avoid, switch_search_active = True, False
                     search_failed_avoid_active = True
                     search_start_time = None
@@ -797,9 +785,7 @@ def main():
                     mode, target_v, target_w = search_last_cmd(last_color_deg)
                     color_lost_during_avoid, switch_search_active = True, False
                 else:
-                    mode = "AVOID: no initial color"
-                    target_v, target_w, target_deg, gap_count = avoid_cmd(ranges, None)
-                    log_avoid(elapsed, "AVOID_INITIAL", target_deg, target_v, target_w, gap_count)
+                    mode, target_v, target_w = avoid_mode("AVOID: no initial color", "AVOID_INITIAL", ranges, None, elapsed)
                     color_lost_during_avoid, switch_search_active = True, False
                     search_failed_avoid_active = True
                     switch_search_start_odom = None
