@@ -64,7 +64,7 @@ WHEEL_R = 0.034  # Arduino encoder distance calculation wheel radius(m)
 ENC_PPR = 1012.0  # Arduino encoder counts per wheel revolution
 ENC_COUNTS_PER_M = ENC_PPR / (2.0 * np.pi * WHEEL_R)
 PRE_FORWARD_STOP_MS = 500  # Stop before encoder-based extra forward move(ms)
-POST_COLOR_FORWARD_M = 0.20  # Move forward after a color exits bottom before pause(m)
+POST_COLOR_FORWARD_M = 0.28  # Move forward after a color exits bottom before pause(m)
 TURN_360_WHEEL_BASE_M = 0.18  # Distance between left/right wheels for encoder-based 360 turn(m)
 TURN_360_COUNTS = np.pi * TURN_360_WHEEL_BASE_M * ENC_COUNTS_PER_M
 
@@ -793,9 +793,12 @@ def main():
                     mode, target_v, target_w = search_last_cmd(last_color_deg)
                     color_lost_during_avoid, switch_search_active = True, False
                 else:
-                    mode, target_v, target_w = search_next_cmd()
-                    color_lost_during_avoid, switch_search_active = False, True
-                    switch_search_start_odom = get_turn_start_odom(motor)
+                    mode = "AVOID: no initial color"
+                    target_v, target_w, target_deg, gap_count = avoid_cmd(ranges, None)
+                    log_avoid(elapsed, "AVOID_INITIAL", target_deg, target_v, target_w, gap_count)
+                    color_lost_during_avoid, switch_search_active = True, False
+                    search_failed_avoid_active = True
+                    switch_search_start_odom = None
 
             if motor_enabled.is_set() and (target is not None or mode.startswith("AVOID") or mode.startswith("SEARCH")):
                 last_v = rate_limit(last_v, target_v, V_STEP)
