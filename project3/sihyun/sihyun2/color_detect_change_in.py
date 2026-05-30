@@ -90,7 +90,7 @@ MAX_D = 2.5  # 사용할 최대 거리(m)
 ANG_MIN = -90.0  # 회피 계산에 사용할 최소 각도(오른쪽)
 ANG_MAX = 90.0  # 회피 계산에 사용할 최대 각도(왼쪽)
 ANG_STEP = 1.0  # 라이다 거리 배열의 각도 간격(도)
-FREE_D = 0.40  # 이 거리 이상이면 빈 공간으로 판단(m)
+FREE_D = 0.30  # 이 거리 이상이면 빈 공간으로 판단(m)
 MIN_GAP_DEG = 8.0  # 통과 가능한 gap으로 인정할 최소 각도 폭(도)
 OBSTACLE_FRONT_DEG = 90.0  # 장애물 감지에 사용할 전방 각도 범위(좌우)
 
@@ -457,7 +457,9 @@ def avoid_cmd(ranges, color_deg=None):
         start, end = gap  # gap의 시작/끝 배열 인덱스
         return 0.5 * (GRID[start] + GRID[end - 1])
 
-    if color_deg is not None:
+    front_blocked = float(np.min(ranges[FRONT_LOG_ZONE])) < FREE_D  # 정면이 안전 거리보다 가까이 막혔는지 여부
+
+    if color_deg is not None and len(safe_gaps) >= 2 and not front_blocked:
         start, end = min(safe_gaps, key=lambda gap: abs(norm_deg(gap_center(gap) - color_deg)))
     else:
         start, end = max(safe_gaps, key=lambda gap: (gap_width(gap), -abs(gap_center(gap))))
