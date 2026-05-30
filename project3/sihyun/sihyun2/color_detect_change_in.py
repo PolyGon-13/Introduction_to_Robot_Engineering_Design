@@ -9,7 +9,6 @@ import cv2
 import numpy as np
 import serial
 
-
 try:
     from picamera2 import Picamera2
     USE_PICAM = True  # Picamera2 사용 가능 여부
@@ -29,7 +28,7 @@ COLOR_SWITCH_PAUSE_MS = 1000  # 다음 색 추적 전 정지 시간(ms)
 COLOR_FORWARD_CENTER_RATIO = 0.95  # 색상 중심이 화면 하단 1/20 구역에 들어오면 전진
 COLOR_EXIT_CENTER_ERR = 0.30  # 이 가로 오차 안에서 아래로 사라질 때만 다음 색으로 전환
 
-FOLLOW_MAX_V = 0.18  # 색 추적 모드 최대 전진 속도
+FOLLOW_MAX_V = 0.25  # 색 추적 모드 최대 전진 속도
 FOLLOW_MAX_W = 0.70  # 색 추적 모드 최대 회전 속도
 FOLLOW_KP = 0.85  # 색 중심 오차를 회전 속도로 바꾸는 비례 계수
 DEADBAND = 0.08  # 화면 중심 근처 오차를 0으로 처리하는 범위
