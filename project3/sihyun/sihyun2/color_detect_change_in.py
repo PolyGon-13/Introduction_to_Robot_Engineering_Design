@@ -97,7 +97,7 @@ OBSTACLE_FRONT_DEG = 90.0  # 장애물 감지에 사용할 전방 각도 범위(
 AVOID_BASE_V = 0.18  # 장애물 회피 모드 전진 속도
 AVOID_MAX_W = 0.90  # 장애물 회피 모드 최대 회전 속도
 AVOID_TURN_GAIN = 1.2  # 회피 목표 각도를 회전 속도로 바꾸는 비례 계수
-SIDE_CLEAR_D = 0.15  # 좌우 장애물 거리 보정을 시작하는 기준 거리(m)
+SIDE_CLEAR_D = 0.20  # 좌우 장애물 거리 보정을 시작하는 기준 거리(m)
 SIDE_CORRECT_MAX_DEG = 30.0  # 좌우 장애물 거리로 보정할 수 있는 최대 각도(도)
 COLOR_TO_LIDAR_DEG = 45.0  # 카메라 화면 좌우 끝을 라이다 각도로 환산할 최대 각도(도)
 
