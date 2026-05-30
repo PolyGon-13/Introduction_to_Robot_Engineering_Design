@@ -4,6 +4,7 @@
 import threading
 import time
 
+
 import cv2
 import numpy as np
 import serial
@@ -63,7 +64,9 @@ WHEEL_R = 0.034  # Arduino encoder distance calculation wheel radius(m)
 ENC_PPR = 1012.0  # Arduino encoder counts per wheel revolution
 ENC_COUNTS_PER_M = ENC_PPR / (2.0 * np.pi * WHEEL_R)
 PRE_FORWARD_STOP_MS = 500  # Stop before encoder-based extra forward move(ms)
-POST_COLOR_FORWARD_M = 0.30  # Move forward after a color exits bottom before pause(m)
+POST_COLOR_FORWARD_M = 0.20  # Move forward after a color exits bottom before pause(m)
+TURN_360_WHEEL_BASE_M = 0.18  # Distance between left/right wheels for encoder-based 360 turn(m)
+TURN_360_COUNTS = np.pi * TURN_360_WHEEL_BASE_M * ENC_COUNTS_PER_M
 
 
 # ==============================
@@ -514,6 +517,27 @@ def search_next_cmd():
     return "SEARCH: next color", 0.0, SWITCH_SEARCH_W
 
 
+def get_turn_start_odom(motor):
+    enc_l, enc_r, _, odom_time = motor.get_odom()
+    if odom_time == 0.0:
+        return None
+    return enc_l, enc_r
+
+
+def completed_one_encoder_turn(motor, start_odom):
+    if start_odom is None:
+        return False
+
+    enc_l, enc_r, _, odom_time = motor.get_odom()
+    if odom_time == 0.0 or time.time() - odom_time > 0.5:
+        return False
+
+    start_l, start_r = start_odom
+    left_counts = abs(enc_l - start_l)
+    right_counts = abs(enc_r - start_r)
+    return 0.5 * (left_counts + right_counts) >= TURN_360_COUNTS
+
+
 def drive_forward_by_encoder(motor, distance_m=POST_COLOR_FORWARD_M):
     motor.stop()
     wait_ms(PRE_FORWARD_STOP_MS)
@@ -611,8 +635,10 @@ def main():
     last_color_deg = last_color_time = last_color_center_ratio = last_color_x_err = 0.0
     last_odom_log_time = 0.0
     color_lost_during_avoid = False
+    search_failed_avoid_active = False
     search_start_time = None
     switch_search_active = False
+    switch_search_start_odom = None
     target_index = 0
     current_target = TARGET_SEQUENCE[target_index]
 
@@ -648,6 +674,8 @@ def main():
             if target is not None:
                 last_color_deg, last_color_time, last_color_center_ratio, last_color_x_err = update_color_memory(target, frame)
                 search_start_time, switch_search_active = None, False
+                search_failed_avoid_active = False
+                switch_search_start_odom = None
 
             if time.time() - last_odom_log_time >= ODOM_LOG_INTERVAL:
                 log_odom(elapsed, motor.get_odom())
@@ -683,6 +711,7 @@ def main():
                     if target is not None:
                         last_color_deg, last_color_time, last_color_center_ratio, last_color_x_err = update_color_memory(target, frame)
                         color_lost_during_avoid = False
+                        search_failed_avoid_active = False
                         search_start_time = None
                         mode, target_v, target_w = color_cmd(
                             target, frame, ranges, has_obstacle, last_color_deg, last_color_center_ratio, elapsed
@@ -692,20 +721,29 @@ def main():
                         last_color_deg, last_color_time, last_color_center_ratio, last_color_x_err = clear_color_memory()
                         color_lost_during_avoid, search_start_time = False, None
                         switch_search_active = True
+                        switch_search_start_odom = get_turn_start_odom(motor)
                 else:
                     mode = "STOP: color bottom"
                     drive_forward_by_encoder(motor)
                     target_v, target_w, last_v, last_w = 0.0, 0.0, 0.0, 0.0
                     last_color_deg, last_color_time, last_color_center_ratio, last_color_x_err = clear_color_memory()
                     color_lost_during_avoid, search_start_time, switch_search_active = False, None, False
+                    search_failed_avoid_active = False
+                    switch_search_start_odom = None
                     print(f"[{elapsed:.2f}s] [COLOR] {current_target} done, mission complete")
                     break
 
             elif target is not None:
                 color_lost_during_avoid = False
+                search_failed_avoid_active = False
                 mode, target_v, target_w = color_cmd(
                     target, frame, ranges, has_obstacle, last_color_deg, last_color_center_ratio, elapsed
                 )
+
+            elif target is None and search_failed_avoid_active:
+                mode = "AVOID: search failed"
+                target_v, target_w, target_deg, gap_count = avoid_cmd(ranges, last_color_deg if last_color_time > 0.0 else None)
+                log_avoid(elapsed, "AVOID_SEARCH", target_deg, target_v, target_w, gap_count)
 
             elif color_exited_bottom:
                 color_lost_during_avoid = True
@@ -728,7 +766,19 @@ def main():
                 log_avoid(elapsed, "AVOID_LOST", target_deg, target_v, target_w, gap_count)
 
             elif target is None and switch_search_active:
-                mode, target_v, target_w = search_next_cmd()
+                if switch_search_start_odom is None:
+                    switch_search_start_odom = get_turn_start_odom(motor)
+
+                if completed_one_encoder_turn(motor, switch_search_start_odom):
+                    mode = "AVOID: search failed"
+                    target_v, target_w, target_deg, gap_count = avoid_cmd(ranges, last_color_deg if last_color_time > 0.0 else None)
+                    log_avoid(elapsed, "AVOID_SEARCH", target_deg, target_v, target_w, gap_count)
+                    color_lost_during_avoid, switch_search_active = True, False
+                    search_failed_avoid_active = True
+                    search_start_time = None
+                    switch_search_start_odom = None
+                else:
+                    mode, target_v, target_w = search_next_cmd()
 
             elif target is None and color_lost_during_avoid:
                 if search_start_time is None:
@@ -745,6 +795,7 @@ def main():
                 else:
                     mode, target_v, target_w = search_next_cmd()
                     color_lost_during_avoid, switch_search_active = False, True
+                    switch_search_start_odom = get_turn_start_odom(motor)
 
             if motor_enabled.is_set() and (target is not None or mode.startswith("AVOID") or mode.startswith("SEARCH")):
                 last_v = rate_limit(last_v, target_v, V_STEP)
