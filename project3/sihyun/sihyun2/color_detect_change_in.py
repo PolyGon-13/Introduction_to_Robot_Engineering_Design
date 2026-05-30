@@ -457,9 +457,7 @@ def avoid_cmd(ranges, color_deg=None):
         start, end = gap  # gap의 시작/끝 배열 인덱스
         return 0.5 * (GRID[start] + GRID[end - 1])
 
-    front_blocked = float(np.min(ranges[FRONT_LOG_ZONE])) < FREE_D  # 정면이 안전 거리보다 가까이 막혔는지 여부
-
-    if color_deg is not None and len(safe_gaps) >= 2 and not front_blocked:
+    if color_deg is not None:
         start, end = min(safe_gaps, key=lambda gap: abs(norm_deg(gap_center(gap) - color_deg)))
     else:
         start, end = max(safe_gaps, key=lambda gap: (gap_width(gap), -abs(gap_center(gap))))
