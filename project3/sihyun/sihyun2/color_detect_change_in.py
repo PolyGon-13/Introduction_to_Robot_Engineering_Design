@@ -623,6 +623,13 @@ def main():
         motor = Motor()
         motor.stop()
         motor.reset_encoders()
+        motor_enabled = threading.Event()
+
+        def wait_for_motor_start():
+            input("[READY] Press Enter to enable motor...")
+            motor_enabled.set()
+
+        threading.Thread(target=wait_for_motor_start, daemon=True).start()
         start_time = time.time()  # 로그 출력용 시작 시각
 
         while True:
@@ -650,7 +657,8 @@ def main():
             log_lidar(elapsed, lidar_dist)
 
             color_in_forward_zone = (
-                target is not None
+                motor_enabled.is_set()
+                and target is not None
                 and last_color_center_ratio >= COLOR_FORWARD_CENTER_RATIO
                 and abs(last_color_x_err) <= COLOR_EXIT_CENTER_ERR
             )
@@ -739,11 +747,14 @@ def main():
                     mode, target_v, target_w = search_next_cmd()
                     color_lost_during_avoid, switch_search_active = False, True
 
-            if target is not None or mode.startswith("AVOID") or mode.startswith("SEARCH"):
+            if motor_enabled.is_set() and (target is not None or mode.startswith("AVOID") or mode.startswith("SEARCH")):
                 last_v = rate_limit(last_v, target_v, V_STEP)
                 w_step = AVOID_W_STEP if mode.startswith("AVOID") else FOLLOW_W_STEP
                 last_w = rate_limit(last_w, target_w, w_step)
                 motor.vw(last_v, last_w)
+            elif not motor_enabled.is_set():
+                last_v, last_w = 0.0, 0.0
+                motor.stop()
 
             if SHOW_WINDOW:
                 draw(frame, found, mode)
