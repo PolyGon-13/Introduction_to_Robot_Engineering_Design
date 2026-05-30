@@ -603,7 +603,7 @@ def color_cmd(target, frame, ranges, has_obstacle, color_deg, center_ratio, elap
 
 def search_last_cmd(last_color_deg):
     w = clamp(SEARCH_TURN_GAIN * np.deg2rad(last_color_deg), -SEARCH_MAX_W, SEARCH_MAX_W)
-    return "SEARCH: last color direction", FOLLOW_MAX_V, w
+    return "SEARCH: last color direction", 0.0, w
 
 
 def main():
