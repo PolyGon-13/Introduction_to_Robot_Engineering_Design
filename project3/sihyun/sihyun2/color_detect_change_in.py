@@ -9,6 +9,7 @@ import cv2
 import numpy as np
 import serial
 
+
 try:
     from picamera2 import Picamera2
     USE_PICAM = True  # Picamera2 사용 가능 여부
