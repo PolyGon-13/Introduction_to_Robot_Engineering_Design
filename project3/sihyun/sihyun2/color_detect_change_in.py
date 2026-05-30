@@ -23,7 +23,6 @@ except ImportError:
 TARGET_SEQUENCE = ("RED", "YELLOW", "BLUE")  # Follow colors in this order.
 SHOW_WINDOW = True  # 카메라 인식 화면을 띄울지 여부
 MIN_AREA = 200  # 색상 물체로 인정할 최소 contour 면적
-BOTTOM_LOST_RATIO = 0.88  # 색상이 화면 아래 88% 지점 아래에서 사라지면 정지로 판단
 COLOR_SWITCH_PAUSE_MS = 1000  # 다음 색 추적 전 정지 시간(ms)
 COLOR_FORWARD_CENTER_RATIO = 0.95  # 색상 중심이 화면 하단 1/20 구역에 들어오면 전진
 COLOR_EXIT_CENTER_ERR = 0.30  # 이 가로 오차 안에서 아래로 사라질 때만 다음 색으로 전환
@@ -662,7 +661,7 @@ def main():
                 and last_color_center_ratio >= COLOR_FORWARD_CENTER_RATIO
                 and abs(last_color_x_err) <= COLOR_EXIT_CENTER_ERR
             )
-            color_exited_bottom = target is None and last_color_time > 0.0 and last_color_center_ratio >= BOTTOM_LOST_RATIO
+            color_exited_bottom = target is None and last_color_time > 0.0
             if color_in_forward_zone:
                 if target_index + 1 < len(TARGET_SEQUENCE):
                     prev_target = current_target
