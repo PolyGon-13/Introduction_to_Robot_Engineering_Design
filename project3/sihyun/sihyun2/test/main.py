@@ -69,6 +69,7 @@ PRE_FORWARD_STOP_MS = 500  # Stop before encoder-based extra forward move(ms)
 POST_COLOR_FORWARD_M = 0.0  # Move forward after a color exits bottom before pause(m)
 TURN_360_WHEEL_BASE_M = 0.18  # Distance between left/right wheels for encoder-based 360 turn(m)
 TURN_360_COUNTS = np.pi * TURN_360_WHEEL_BASE_M * ENC_COUNTS_PER_M
+AVOID_STOP_D = 0.15  # Stop avoid forward speed when a front obstacle is this close(m)
 
 
 def clamp(value, low, high):
@@ -183,6 +184,24 @@ def obstacle_in_zone(ranges, zone):
     return float(np.min(ranges[zone])) < FREE_D
 
 
+def front_obstacle_distance(ranges):
+    if ranges is None:
+        return FREE_D
+
+    return float(np.min(ranges[FRONT_LOG_ZONE]))
+
+
+def scale_avoid_speed_for_front_obstacle(target_v, ranges):
+    front_d = front_obstacle_distance(ranges)
+    if front_d <= AVOID_STOP_D:
+        return 0.0
+    if front_d >= FREE_D:
+        return target_v
+
+    scale = (front_d - AVOID_STOP_D) / (FREE_D - AVOID_STOP_D)
+    return target_v * clamp(scale, 0.0, 1.0)
+
+
 def lost_color_obstacle_passed(ranges, last_color_deg):
     if last_color_deg >= 0.0:
         color_side_zone = LEFT_ZONE
@@ -292,6 +311,7 @@ def log_odom(elapsed, odom):
 def color_cmd(target, frame, ranges, has_obstacle, color_deg, center_ratio, elapsed):
     if has_obstacle:
         target_v, target_w, target_deg, gap_count = avoid_cmd(ranges, color_deg, DRIVE_V)
+        target_v = scale_avoid_speed_for_front_obstacle(target_v, ranges)
         log_avoid(elapsed, "AVOID", target_deg, target_v, target_w, gap_count)
         return "AVOID: color + obstacle", target_v, target_w
 
@@ -306,6 +326,7 @@ def search_last_cmd(last_color_deg):
 
 def avoid_mode(mode, tag, ranges, color_deg, elapsed):
     target_v, target_w, target_deg, gap_count = avoid_cmd(ranges, color_deg, DRIVE_V)
+    target_v = scale_avoid_speed_for_front_obstacle(target_v, ranges)
     log_avoid(elapsed, tag, target_deg, target_v, target_w, gap_count)
     return mode, target_v, target_w
 
