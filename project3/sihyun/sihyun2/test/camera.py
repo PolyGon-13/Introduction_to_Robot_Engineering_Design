@@ -132,6 +132,7 @@ def x_center_error(target, frame_shape):
     return clamp((cx - width / 2) / (width / 2), -1.0, 1.0)
 
 
+
 def follow_cmd(target, frame_shape, max_v=FOLLOW_MAX_V):
     if target is None:
         return 0.0, 0.0
