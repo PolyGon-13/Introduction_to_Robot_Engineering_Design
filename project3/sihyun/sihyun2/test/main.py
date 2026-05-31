@@ -15,7 +15,6 @@ from camera import (
     draw,
     follow_cmd,
     open_camera,
-    pinhole_ground_distance_to_target,
     pick,
     read_frame,
     x_center_error,
@@ -63,7 +62,7 @@ WHEEL_R = 0.034  # Arduino encoder distance calculation wheel radius(m)
 ENC_PPR = 1012.0  # Arduino encoder counts per wheel revolution
 ENC_COUNTS_PER_M = ENC_PPR / (2.0 * np.pi * WHEEL_R)
 PRE_FORWARD_STOP_MS = 500  # Stop before encoder-based extra forward move(ms)
-POST_COLOR_FORWARD_M = 0.28  # Fallback forward distance if camera distance cannot be measured(m)
+POST_COLOR_FORWARD_M = 0.28  # Move forward after a color exits bottom before pause(m)
 TURN_360_WHEEL_BASE_M = 0.18  # Distance between left/right wheels for encoder-based 360 turn(m)
 TURN_360_COUNTS = np.pi * TURN_360_WHEEL_BASE_M * ENC_COUNTS_PER_M
 
@@ -194,10 +193,9 @@ def completed_one_encoder_turn(motor, start_odom):
     return 0.5 * (left_counts + right_counts) >= TURN_360_COUNTS
 
 
-def drive_forward_by_encoder(motor, distance_m=POST_COLOR_FORWARD_M, pre_stop=True):
-    if pre_stop:
-        motor.stop()
-        wait_ms(PRE_FORWARD_STOP_MS)
+def drive_forward_by_encoder(motor, distance_m=POST_COLOR_FORWARD_M):
+    motor.stop()
+    wait_ms(PRE_FORWARD_STOP_MS)
 
     while True:
         odom = motor.get_odom()
@@ -237,26 +235,6 @@ def drive_forward_by_encoder(motor, distance_m=POST_COLOR_FORWARD_M, pre_stop=Tr
         f"right={right_m:.2f}m({right_counts:.0f})"
     )
     return ok
-
-
-def measure_color_forward_distance(cam, color_name, motor=None, fallback_m=POST_COLOR_FORWARD_M):
-    if motor is not None:
-        motor.stop()
-        wait_ms(PRE_FORWARD_STOP_MS)
-
-    ok, frame = read_frame(cam)
-    if not ok:
-        print(f"[CAMERA] distance frame read failed, fallback={fallback_m:.2f}m")
-        return fallback_m, None, None
-
-    target = pick(detect(frame), color_name)
-    distance_m = pinhole_ground_distance_to_target(target, frame.shape)
-    if distance_m is None:
-        print(f"[CAMERA] {color_name} distance unavailable, fallback={fallback_m:.2f}m")
-        return fallback_m, frame, target
-
-    print(f"[CAMERA] {color_name} pinhole forward distance={distance_m:.2f}m")
-    return distance_m, frame, target
 
 
 def log_lidar(elapsed, lidar_dist):
@@ -378,8 +356,7 @@ def main():
                     current_target = TARGET_SEQUENCE[target_index]
                     mode = f"SWITCH: {prev_target}->{current_target}"
                     print(f"[{elapsed:.2f}s] [COLOR] {prev_target} done, now tracking {current_target}")
-                    forward_m, _, _ = measure_color_forward_distance(cam, prev_target, motor)
-                    drive_forward_by_encoder(motor, forward_m, pre_stop=False)
+                    drive_forward_by_encoder(motor)
                     target_v, target_w, last_v, last_w = 0.0, 0.0, 0.0, 0.0
                     wait_ms(COLOR_SWITCH_PAUSE_MS)
                     ok, frame = read_frame(cam)
@@ -405,8 +382,7 @@ def main():
                         switch_search_start_odom = get_turn_start_odom(motor)
                 else:
                     mode = "STOP: color bottom"
-                    forward_m, _, _ = measure_color_forward_distance(cam, current_target, motor)
-                    drive_forward_by_encoder(motor, forward_m, pre_stop=False)
+                    drive_forward_by_encoder(motor)
                     target_v, target_w, last_v, last_w = 0.0, 0.0, 0.0, 0.0
                     last_color_deg, last_color_time, last_color_center_ratio, last_color_x_err = clear_color_memory()
                     color_lost_during_avoid, search_start_time, switch_search_active = False, None, False
