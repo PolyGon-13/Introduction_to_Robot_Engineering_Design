@@ -1,10 +1,10 @@
-
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
 import time
 
 import cv2
+import numpy as np
 
 from camera import (
     BOX_COLORS,
@@ -12,13 +12,40 @@ from camera import (
     detect,
     open_camera,
     pick,
-    pinhole_ground_distance_to_target,
     read_frame,
 )
 
 
 TARGET_COLOR = "RED"
 LOG_INTERVAL_S = 0.2
+
+CAMERA_HEIGHT_M = 0.625
+CAMERA_PITCH_DOWN_DEG = 45.0
+CAMERA_VERTICAL_FOV_DEG = 48.8
+CAMERA_ROBOT_FORWARD_OFFSET_M = 0.0
+MIN_GROUND_DISTANCE_M = 0.02
+MAX_GROUND_DISTANCE_M = 1.50
+
+
+def clamp(value, low, high):
+    return float(max(low, min(value, high)))
+
+
+def pinhole_ground_distance_to_target(target, frame_shape):
+    if target is None:
+        return None
+
+    height = frame_shape[0]
+    cy = float(target[7])
+    fy = (height / 2.0) / np.tan(np.deg2rad(CAMERA_VERTICAL_FOV_DEG) / 2.0)
+    ray_down_deg = CAMERA_PITCH_DOWN_DEG + np.rad2deg(np.arctan2(cy - height / 2.0, fy))
+
+    if ray_down_deg <= 0.0:
+        return None
+
+    distance_m = CAMERA_HEIGHT_M / np.tan(np.deg2rad(ray_down_deg))
+    distance_m -= CAMERA_ROBOT_FORWARD_OFFSET_M
+    return clamp(distance_m, MIN_GROUND_DISTANCE_M, MAX_GROUND_DISTANCE_M)
 
 
 def draw_distance(frame, target, distance_m):
