@@ -65,7 +65,6 @@ ODOM_LOG_INTERVAL = 0.5  # 엔코더 누적값 로그 출력 주기(초)
 WHEEL_R = 0.034  # Arduino encoder distance calculation wheel radius(m)
 ENC_PPR = 1012.0  # Arduino encoder counts per wheel revolution
 ENC_COUNTS_PER_M = ENC_PPR / (2.0 * np.pi * WHEEL_R)
-PRE_FORWARD_STOP_MS = 500  # Stop before encoder-based extra forward move(ms)
 POST_COLOR_FORWARD_M = 0.0  # Move forward after a color exits bottom before pause(m)
 TURN_360_WHEEL_BASE_M = 0.18  # Distance between left/right wheels for encoder-based 360 turn(m)
 TURN_360_COUNTS = np.pi * TURN_360_WHEEL_BASE_M * ENC_COUNTS_PER_M
@@ -233,9 +232,6 @@ def completed_one_encoder_turn(motor, start_odom):
 
 
 def drive_forward_by_encoder(motor, distance_m=POST_COLOR_FORWARD_M):
-    motor.stop()
-    wait_ms(PRE_FORWARD_STOP_MS)
-
     while True:
         odom = motor.get_odom()
         if odom[3] != 0.0:
