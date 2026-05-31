@@ -25,9 +25,7 @@ from lidar import (
     COLOR_TO_LIDAR_DEG,
     FREE_D,
     FRONT_LOG_ZONE,
-    LEFT_ZONE,
     RPLidarC1,
-    RIGHT_ZONE,
     avoid_cmd,
     front_ranges,
     lidar_zone_distances,
@@ -181,15 +179,6 @@ def obstacle_in_zone(ranges, zone):
         return False
 
     return float(np.min(ranges[zone])) < FREE_D
-
-
-def lost_color_obstacle_passed(ranges, last_color_deg):
-    if last_color_deg >= 0.0:
-        color_side_zone = LEFT_ZONE
-    else:
-        color_side_zone = RIGHT_ZONE
-
-    return not obstacle_in_zone(ranges, FRONT_LOG_ZONE | color_side_zone)
 
 
 def get_turn_start_odom(motor):
@@ -423,7 +412,7 @@ def main():
             elif color_exited_bottom:
                 color_lost_during_avoid = True
                 switch_search_active = False
-                if not lost_color_obstacle_passed(ranges, last_color_deg):
+                if obstacle_in_zone(ranges, FRONT_LOG_ZONE):
                     search_start_time = None
                     mode, target_v, target_w = avoid_mode("AVOID: lost color", "AVOID_LOST", ranges, last_color_deg, elapsed)
                 else:
@@ -431,7 +420,7 @@ def main():
                         search_start_time = time.time()
                     mode, target_v, target_w = search_last_cmd(last_color_deg)
 
-            elif target is None and last_color_time > 0.0 and not lost_color_obstacle_passed(ranges, last_color_deg):
+            elif target is None and last_color_time > 0.0 and obstacle_in_zone(ranges, FRONT_LOG_ZONE):
                 color_lost_during_avoid = True
                 search_start_time = None
                 mode, target_v, target_w = avoid_mode("AVOID: lost color", "AVOID_LOST", ranges, last_color_deg, elapsed)
