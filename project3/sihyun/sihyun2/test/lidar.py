@@ -8,6 +8,7 @@ import numpy as np
 import serial
 
 
+
 LIDAR_PORT = "/dev/ttyUSB0"
 LIDAR_BAUD = 460800
 
@@ -219,15 +220,12 @@ def avoid_cmd(ranges, color_deg=None, base_v=AVOID_BASE_V):
 
     front_blocked = float(np.min(ranges[FRONT_LOG_ZONE])) < FREE_D
 
-    if color_deg is not None and not front_blocked:
+    if color_deg is not None and len(safe_gaps) >= 2 and not front_blocked:
         start, end = min(safe_gaps, key=lambda gap: abs(norm_deg(gap_center(gap) - color_deg)))
     else:
         start, end = max(safe_gaps, key=lambda gap: (gap_width(gap), -abs(gap_center(gap))))
 
-    if color_deg is not None and not front_blocked:
-        target_deg = clamp(color_deg, float(GRID[start]), float(GRID[end - 1]))
-    else:
-        target_deg = float(0.5 * (GRID[start] + GRID[end - 1]))
+    target_deg = float(0.5 * (GRID[start] + GRID[end - 1]))
     left_d = zone_min_distance(ranges, LEFT_ZONE)
     right_d = zone_min_distance(ranges, RIGHT_ZONE)
     left_risk = max(0.0, SIDE_CLEAR_D - left_d)
