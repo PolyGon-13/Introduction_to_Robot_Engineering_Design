@@ -28,6 +28,7 @@ from lidar import (
     LEFT_ZONE,
     RPLidarC1,
     RIGHT_ZONE,
+    SIDE_CLEAR_D,
     avoid_cmd,
     front_ranges,
     lidar_zone_distances,
@@ -176,11 +177,11 @@ def search_next_cmd():
     return "SEARCH: next color", 0.0, SWITCH_SEARCH_W
 
 
-def obstacle_in_zone(ranges, zone):
+def obstacle_in_zone(ranges, zone, clear_d=FREE_D):
     if ranges is None:
         return False
 
-    return float(np.min(ranges[zone])) < FREE_D
+    return float(np.min(ranges[zone])) < clear_d
 
 
 def front_obstacle_distance(ranges):
@@ -207,7 +208,9 @@ def lost_color_obstacle_passed(ranges, last_color_deg):
     else:
         color_side_zone = LEFT_ZONE
 
-    return not obstacle_in_zone(ranges, FRONT_LOG_ZONE | color_side_zone)
+    front_clear = not obstacle_in_zone(ranges, FRONT_LOG_ZONE, FREE_D)
+    side_clear = not obstacle_in_zone(ranges, color_side_zone, SIDE_CLEAR_D)
+    return front_clear and side_clear
 
 
 def get_turn_start_odom(motor):
