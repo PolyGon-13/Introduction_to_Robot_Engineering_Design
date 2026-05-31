@@ -25,9 +25,7 @@ from lidar import (
     COLOR_TO_LIDAR_DEG,
     FREE_D,
     FRONT_LOG_ZONE,
-    LEFT_ZONE,
     RPLidarC1,
-    RIGHT_ZONE,
     avoid_cmd,
     front_ranges,
     lidar_zone_distances,
@@ -203,12 +201,7 @@ def scale_avoid_speed_for_front_obstacle(target_v, ranges):
 
 
 def lost_color_obstacle_passed(ranges, last_color_deg):
-    if last_color_deg >= 0.0:
-        color_side_zone = LEFT_ZONE
-    else:
-        color_side_zone = RIGHT_ZONE
-
-    return not obstacle_in_zone(ranges, FRONT_LOG_ZONE | color_side_zone)
+    return not obstacle_in_zone(ranges, FRONT_LOG_ZONE)
 
 
 def get_turn_start_odom(motor):
