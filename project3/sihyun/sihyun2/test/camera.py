@@ -31,6 +31,15 @@ HSV_RANGES = {
 BOX_COLORS = {"RED": (0, 0, 255), "BLUE": (255, 0, 0), "YELLOW": (0, 255, 255)}
 MORPH_KERNEL = np.ones((5, 5), np.uint8)
 
+# Pinhole ground-distance calibration.
+# Adjust these values to match the robot's camera mount.
+CAMERA_HEIGHT_M = 0.625
+CAMERA_PITCH_DOWN_DEG = 45.0
+CAMERA_VERTICAL_FOV_DEG = 48.8
+CAMERA_ROBOT_FORWARD_OFFSET_M = 0.0
+MIN_GROUND_DISTANCE_M = 0.02
+MAX_GROUND_DISTANCE_M = 1.50
+
 
 def clamp(value, low, high):
     return float(max(low, min(value, high)))
@@ -130,6 +139,23 @@ def x_center_error(target, frame_shape):
     _, width = frame_shape[:2]
     cx = target[6]
     return clamp((cx - width / 2) / (width / 2), -1.0, 1.0)
+
+
+def pinhole_ground_distance_to_target(target, frame_shape):
+    if target is None:
+        return None
+
+    height = frame_shape[0]
+    cy = float(target[7])
+    fy = (height / 2.0) / np.tan(np.deg2rad(CAMERA_VERTICAL_FOV_DEG) / 2.0)
+    ray_down_deg = CAMERA_PITCH_DOWN_DEG + np.rad2deg(np.arctan2(cy - height / 2.0, fy))
+
+    if ray_down_deg <= 0.0:
+        return None
+
+    distance_m = CAMERA_HEIGHT_M / np.tan(np.deg2rad(ray_down_deg))
+    distance_m -= CAMERA_ROBOT_FORWARD_OFFSET_M
+    return clamp(distance_m, MIN_GROUND_DISTANCE_M, MAX_GROUND_DISTANCE_M)
 
 
 def follow_cmd(target, frame_shape, max_v=FOLLOW_MAX_V):
