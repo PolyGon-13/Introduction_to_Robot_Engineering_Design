@@ -200,7 +200,7 @@ def zone_min_distance(ranges, zone):
     return float(np.min(measured))
 
 
-def avoid_cmd(ranges, color_deg=None):
+def avoid_cmd(ranges, color_deg=None, base_v=AVOID_BASE_V):
     if ranges is None:
         return 0.0, 0.0, 0.0, 0
 
@@ -237,4 +237,4 @@ def avoid_cmd(ranges, color_deg=None):
     target_deg = clamp(target_deg + side_correct_deg, ANG_MIN, ANG_MAX)
 
     w = clamp(AVOID_TURN_GAIN * np.deg2rad(target_deg), -AVOID_MAX_W, AVOID_MAX_W)
-    return AVOID_BASE_V, w, target_deg, len(safe_gaps)
+    return base_v, w, target_deg, len(safe_gaps)
