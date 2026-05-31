@@ -132,14 +132,14 @@ def x_center_error(target, frame_shape):
     return clamp((cx - width / 2) / (width / 2), -1.0, 1.0)
 
 
-def follow_cmd(target, frame_shape):
+def follow_cmd(target, frame_shape, max_v=FOLLOW_MAX_V):
     if target is None:
         return 0.0, 0.0
 
     err = bottom_center_error(target, frame_shape)
     err = 0.0 if abs(err) < DEADBAND else err
 
-    v = FOLLOW_MAX_V * (1.0 - 0.45 * min(1.0, abs(err)))
+    v = max_v * (1.0 - 0.45 * min(1.0, abs(err)))
     w = clamp(-FOLLOW_KP * err, -FOLLOW_MAX_W, FOLLOW_MAX_W)
     return v, w
 
