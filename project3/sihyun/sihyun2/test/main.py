@@ -9,7 +9,6 @@ import numpy as np
 import serial
 
 from camera import (
-    FOLLOW_MAX_V,
     bottom_center_error,
     close_camera,
     detect,
@@ -50,6 +49,7 @@ COLOR_EXIT_CENTER_ERR = 0.30  # 이 가로 오차 안에서 아래로 사라질 
 
 ARDU_PORT = "/dev/ttyS0"  # 아두이노 모터 제어 시리얼 포트
 ARDU_BAUD = 9600  # 아두이노 시리얼 통신 속도
+DRIVE_V = 0.25  # 색 추적, 장애물 회피, 색 완료 후 추가 전진에 공통으로 쓰는 전진 속도
 V_STEP = 0.04  # 전진 속도 명령의 루프당 최대 변화량
 FOLLOW_W_STEP = 0.15  # 색 추적 모드 회전 속도 명령의 루프당 최대 변화량
 AVOID_W_STEP = 0.20  # 장애물 회피 모드 회전 속도 명령의 루프당 최대 변화량
@@ -205,7 +205,7 @@ def drive_forward_by_encoder(motor, distance_m=POST_COLOR_FORWARD_M):
 
     start_l, start_r, _, _ = odom
     target_counts = abs(distance_m) * ENC_COUNTS_PER_M
-    forward_v = abs(FOLLOW_MAX_V) if distance_m >= 0.0 else -abs(FOLLOW_MAX_V)
+    forward_v = abs(DRIVE_V) if distance_m >= 0.0 else -abs(DRIVE_V)
 
     print(f"[ODOM] move {distance_m:.2f}m target_counts={target_counts:.0f}")
 
@@ -271,11 +271,11 @@ def log_odom(elapsed, odom):
 
 def color_cmd(target, frame, ranges, has_obstacle, color_deg, center_ratio, elapsed):
     if has_obstacle:
-        target_v, target_w, target_deg, gap_count = avoid_cmd(ranges, color_deg)
+        target_v, target_w, target_deg, gap_count = avoid_cmd(ranges, color_deg, DRIVE_V)
         log_avoid(elapsed, "AVOID", target_deg, target_v, target_w, gap_count)
         return "AVOID: color + obstacle", target_v, target_w
 
-    target_v, target_w = follow_cmd(target, frame.shape)
+    target_v, target_w = follow_cmd(target, frame.shape, DRIVE_V)
     return "FOLLOW: color only", target_v, target_w
 
 
@@ -285,7 +285,7 @@ def search_last_cmd(last_color_deg):
 
 
 def avoid_mode(mode, tag, ranges, color_deg, elapsed):
-    target_v, target_w, target_deg, gap_count = avoid_cmd(ranges, color_deg)
+    target_v, target_w, target_deg, gap_count = avoid_cmd(ranges, color_deg, DRIVE_V)
     log_avoid(elapsed, tag, target_deg, target_v, target_w, gap_count)
     return mode, target_v, target_w
 
