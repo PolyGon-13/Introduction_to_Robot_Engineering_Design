@@ -20,7 +20,7 @@ DEADBAND = 0.08
 CAMERA_ROTATION = cv2.ROTATE_90_COUNTERCLOCKWISE
 
 HSV_RANGES = {
-    "RED": [([0, 100, 120], [5, 255, 255]), ([165, 80, 120], [179, 255, 255])],
+    "RED": [([0, 160, 120], [5, 255, 255]), ([165, 160, 120], [179, 255, 255])],
     "BLUE": [([104, 90, 90], [116, 255, 230])],
     "YELLOW": [([19, 130, 170], [25, 255, 255])],
 }
@@ -130,7 +130,6 @@ def x_center_error(target, frame_shape):
     _, width = frame_shape[:2]
     cx = target[6]
     return clamp((cx - width / 2) / (width / 2), -1.0, 1.0)
-
 
 
 def follow_cmd(target, frame_shape, max_v=FOLLOW_MAX_V):
