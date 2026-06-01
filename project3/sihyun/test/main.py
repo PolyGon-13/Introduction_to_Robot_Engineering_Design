@@ -76,11 +76,6 @@ POST_COLOR_FORWARD_M = 0.05  # Move forward after a color exits bottom before pa
 TURN_360_WHEEL_BASE_M = 0.18  # Distance between left/right wheels for encoder-based 360 turn(m)
 TURN_360_COUNTS = np.pi * TURN_360_WHEEL_BASE_M * ENC_COUNTS_PER_M
 AVOID_STOP_D = 0.15  # Stop avoid forward speed when a front obstacle is this close(m)
-CAMERA_LIDAR_HEIGHT_DIFF_M = 0.45  # Camera is 45cm higher than the lidar.
-COLOR_TARGET_REAL_HEIGHT_M = 0.625  # Real color target height for camera distance estimate(m).
-CAMERA_FOCAL_PX = 625.0  # Tune with red_distance_tracker calibration if needed.
-COLOR_OBSTACLE_DISTANCE_TOL_M = 0.20  # Reject color if camera/lidar distances are close(m).
-COLOR_LIDAR_SAMPLE_DEG = 4  # Sample lidar readings around the color direction(+/- deg).
 
 
 def clamp(value, low, high):
@@ -200,69 +195,6 @@ def front_obstacle_distance(ranges):
         return FREE_D
 
     return float(np.min(ranges[FRONT_LOG_ZONE]))
-
-
-def camera_distance_to_target(target):
-    if target is None:
-        return None
-
-    box_h = float(target[4])
-    if box_h <= 0.0:
-        return None
-
-    return COLOR_TARGET_REAL_HEIGHT_M * CAMERA_FOCAL_PX / box_h
-
-
-def lidar_distance_at_deg(ranges, target_deg):
-    if ranges is None or target_deg is None:
-        return None
-
-    center = int(round(clamp(target_deg, ANG_MIN, ANG_MAX) - ANG_MIN))
-    radius = int(max(0, COLOR_LIDAR_SAMPLE_DEG))
-    start = max(0, center - radius)
-    end = min(len(ranges), center + radius + 1)
-    if start >= end:
-        return None
-
-    window = ranges[start:end]
-    valid = window[np.isfinite(window)]
-    valid = valid[valid < FREE_D]
-    if valid.size == 0:
-        return None
-
-    return float(np.min(valid))
-
-
-def color_matches_lidar_obstacle(target, frame, ranges):
-    camera_d = camera_distance_to_target(target)
-    if camera_d is None or camera_d <= CAMERA_LIDAR_HEIGHT_DIFF_M:
-        return False
-
-    target_deg = color_angle_from_target(target, frame.shape)
-    lidar_d = lidar_distance_at_deg(ranges, target_deg)
-    if lidar_d is None:
-        return False
-
-    camera_horizontal_d = float(
-        np.sqrt(camera_d * camera_d - CAMERA_LIDAR_HEIGHT_DIFF_M * CAMERA_LIDAR_HEIGHT_DIFF_M)
-    )
-    return abs(camera_horizontal_d - lidar_d) <= COLOR_OBSTACLE_DISTANCE_TOL_M
-
-
-def filter_obstacle_colors(found, frame, ranges, target_name):
-    filtered = []
-    for item in found:
-        if target_name is not None and item[0] != target_name:
-            filtered.append(item)
-            continue
-
-        if color_matches_lidar_obstacle(item, frame, ranges):
-            print(f"[COLOR] ignore {item[0]}: camera distance matches lidar obstacle")
-            continue
-
-        filtered.append(item)
-
-    return filtered
 
 
 def scale_avoid_speed_for_front_obstacle(target_v, ranges):
@@ -438,14 +370,13 @@ def main():
             if not ok:
                 break
 
+            found = detect(frame)  # 현재 프레임에서 찾은 색상 물체 목록
+            target = pick(found, current_target)  # 따라갈 대상 색상 물체
+            found = [target] if target is not None else []
             scan, scan_time, scan_seq = lidar.get()  # 최신 라이다 스캔 데이터
             ranges = front_ranges(scan) if scan is not None else None  # 각도별 전방 거리 배열
             lidar_dist = lidar_zone_distances(ranges)  # 좌/정면/우측 로그용 최소 거리
             has_obstacle = obstacle_detected(ranges)  # 장애물 감지 여부
-            found = detect(frame)  # 현재 프레임에서 찾은 색상 물체 목록
-            found = filter_obstacle_colors(found, frame, ranges, current_target)
-            target = pick(found, current_target)  # 따라갈 대상 색상 물체
-            found = [target] if target is not None else []
 
             if target is not None:
                 last_color_deg, last_color_time, last_color_center_ratio, last_color_x_err = update_color_memory(target, frame)
@@ -478,7 +409,7 @@ def main():
                     if not ok:
                         break
 
-                    found = filter_obstacle_colors(detect(frame), frame, ranges, current_target)
+                    found = detect(frame)
                     target = pick(found, current_target)
                     found = [target] if target is not None else []
 
