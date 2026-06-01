@@ -12,7 +12,7 @@ if str(THIS_DIR) not in sys.path:
     sys.path.insert(0, str(THIS_DIR))
 
 from camera import close_camera, detect, open_camera, read_frame
-from lidar import ANG_MAX, ANG_MIN, COLOR_TO_LIDAR_DEG, FREE_D, RPLidarC1, front_ranges
+from lidar import ANG_MAX, ANG_MIN, COLOR_TO_LIDAR_DEG, MAX_D, RPLidarC1, front_ranges
 
 
 TARGET_COLOR = "BLUE"
@@ -21,7 +21,6 @@ COLOR_TARGET_REAL_HEIGHT_M = 0.625
 CAMERA_FOCAL_PX = 625.0
 COLOR_OBSTACLE_DISTANCE_TOL_M = 0.40
 COLOR_LIDAR_SAMPLE_DEG = 12
-LIDAR_OBSTACLE_D_M = FREE_D
 
 
 def clamp(value, low, high):
@@ -63,7 +62,7 @@ def lidar_distance_at_deg(ranges, target_deg):
 
     window = ranges[start:end]
     valid = window[np.isfinite(window)]
-    valid = valid[valid < FREE_D]
+    valid = valid[valid < MAX_D]
     if valid.size == 0:
         return None
 
@@ -83,14 +82,11 @@ def classify_color_target(target, frame_shape, ranges):
     target_deg = color_angle_from_target(target, frame_shape)
     lidar_d = lidar_distance_at_deg(ranges, target_deg)
 
-    if lidar_d is None:
-        return "UNKNOWN", camera_d, horizontal_d, lidar_d, target_deg
-
-    if lidar_d <= LIDAR_OBSTACLE_D_M:
-        return "OBSTACLE_COLOR", camera_d, horizontal_d, lidar_d, target_deg
-
     if horizontal_d is None:
         return "UNKNOWN", camera_d, horizontal_d, lidar_d, target_deg
+
+    if lidar_d is None:
+        return "TRACK_COLOR", camera_d, horizontal_d, lidar_d, target_deg
 
     if abs(horizontal_d - lidar_d) <= COLOR_OBSTACLE_DISTANCE_TOL_M:
         return "OBSTACLE_COLOR", camera_d, horizontal_d, lidar_d, target_deg
