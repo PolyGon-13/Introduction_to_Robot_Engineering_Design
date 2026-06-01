@@ -29,8 +29,11 @@ CAMERA_FOCAL_PX = 625.0
 CAM_LIDAR_YAW_OFFSET_DEG = 0.0
 # 카메라 +x(오른쪽) 가 라이다 각도의 어느 부호인지. lidar.py 규약(오른쪽=음수)에 맞춤.
 CAM_AZIMUTH_SIGN = -1.0
-# blob 폭에 더해줄 각도 여유(도). 카메라-라이다 정렬 오차 흡수.
-AZIMUTH_MARGIN_DEG = 4.0
+# blob 방위각 주변에서 라이다를 살펴볼 윈도우 반폭(도).
+# 좁게 둬야 한 화면에 다른 파란 장애물/영역이 같이 있어도 그쪽 라이다 반사를 끌어오지 않는다.
+# (정렬 오차를 흡수할 정도만. 장애물이 통째로 안 잡히면 폭을 넓히지 말고
+#  CAM_LIDAR_YAW_OFFSET_DEG / CAM_AZIMUTH_SIGN 정렬부터 맞출 것.)
+LIDAR_WINDOW_HALF_DEG = 5.0
 
 # 핵심 임계: blob 방위각에서 라이다 최소거리가 이 값보다 가까우면 "높이 있는 장애물"로 본다.
 # (바닥 영역은 라이다 반사가 없어 None 이 되므로 자동으로 FLOOR 로 분류된다.)
@@ -55,13 +58,6 @@ def blob_lidar_angle_deg(target, frame_shape):
     azimuth = np.degrees(np.arctan2(dx, CAMERA_FOCAL_PX))
     lidar_deg = CAM_LIDAR_YAW_OFFSET_DEG + CAM_AZIMUTH_SIGN * azimuth
     return clamp(lidar_deg, ANG_MIN, ANG_MAX)
-
-
-def blob_half_window_deg(target):
-    """blob 의 각도 폭 절반 + 정렬 여유. 라이다를 살펴볼 방위각 윈도우 반폭."""
-    box_w = float(target[3])
-    half_from_blob = np.degrees(np.arctan2(box_w / 2.0, CAMERA_FOCAL_PX))
-    return float(half_from_blob + AZIMUTH_MARGIN_DEG)
 
 
 def lidar_min_in_window(ranges, center_deg, half_width_deg):
@@ -110,8 +106,9 @@ def classify_blue_target(target, frame_shape, ranges):
       - d_cam   : box 높이 기반 카메라 추정거리(m) 또는 None (보조 표시용)
     """
     lidar_deg = blob_lidar_angle_deg(target, frame_shape)
-    half_window = blob_half_window_deg(target)
-    d_lidar = lidar_min_in_window(ranges, lidar_deg, half_window)
+    # blob 폭이 아니라 '좁은 고정 윈도우'로 본다. (폭에 비례시키면 크게 찍힌 바닥 영역의
+    # 윈도우가 옆 장애물 각도까지 덮어, 그 장애물 반사 때문에 바닥까지 OBSTACLE 로 오분류됨.)
+    d_lidar = lidar_min_in_window(ranges, lidar_deg, LIDAR_WINDOW_HALF_DEG)
     d_cam = camera_distance_to_target(target)
 
     # 라이다 존재 기반 판정: 그 방위각에 근거리 반사가 있으면 높이 있는 장애물.
