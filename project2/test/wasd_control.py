@@ -21,7 +21,7 @@ ARDU_PORT = "/dev/ttyS0"
 ARDU_BAUD = 9600
 
 # 전진/후진 속도
-LINEAR_V = 0.3
+LINEAR_V = 0.5
 
 # 회전 각속도
 ANGULAR_W = 0.9
