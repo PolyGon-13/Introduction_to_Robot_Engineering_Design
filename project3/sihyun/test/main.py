@@ -8,32 +8,60 @@ import time
 import numpy as np
 import serial
 
-from project3.sihyun.test.camera import (
-    bottom_center_error,
-    close_camera,
-    detect,
-    draw,
-    follow_cmd,
-    open_camera,
-    pick,
-    read_frame,
-    x_center_error,
-)
-from project3.sihyun.test.lidar import (
-    ANG_MAX,
-    ANG_MIN,
-    COLOR_TO_LIDAR_DEG,
-    FREE_D,
-    FRONT_LOG_ZONE,
-    LEFT_ZONE,
-    RPLidarC1,
-    RIGHT_ZONE,
-    SIDE_CLEAR_D,
-    avoid_cmd,
-    front_ranges,
-    lidar_zone_distances,
-    obstacle_detected,
-)
+if __package__:
+    from .camera import (
+        bottom_center_error,
+        close_camera,
+        detect,
+        draw,
+        follow_cmd,
+        open_camera,
+        pick,
+        read_frame,
+        x_center_error,
+    )
+    from .lidar import (
+        ANG_MAX,
+        ANG_MIN,
+        COLOR_TO_LIDAR_DEG,
+        FREE_D,
+        FRONT_LOG_ZONE,
+        LEFT_ZONE,
+        RPLidarC1,
+        RIGHT_ZONE,
+        SIDE_CLEAR_D,
+        avoid_cmd,
+        front_ranges,
+        lidar_zone_distances,
+        obstacle_detected,
+    )
+else:
+    from camera import (
+        bottom_center_error,
+        close_camera,
+        detect,
+        draw,
+        follow_cmd,
+        open_camera,
+        pick,
+        read_frame,
+        x_center_error,
+    )
+    from lidar import (
+        ANG_MAX,
+        ANG_MIN,
+        COLOR_TO_LIDAR_DEG,
+        FREE_D,
+        FRONT_LOG_ZONE,
+        LEFT_ZONE,
+        RPLidarC1,
+        RIGHT_ZONE,
+        SIDE_CLEAR_D,
+        avoid_cmd,
+        front_ranges,
+        lidar_zone_distances,
+        obstacle_detected,
+    )
 
 
 
