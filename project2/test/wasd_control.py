@@ -21,10 +21,10 @@ ARDU_PORT = "/dev/ttyS0"
 ARDU_BAUD = 9600
 
 # 전진/후진 속도
-LINEAR_V = 0.18
+LINEAR_V = 0.5
 
 # 회전 각속도
-ANGULAR_W = 0.55
+ANGULAR_W = 0.9
 
 # 키 입력이 끊겼을 때 자동 정지까지 걸리는 시간
 # 키를 꾹 누르고 있으면 계속 움직이고, 손을 떼면 자동 정지
