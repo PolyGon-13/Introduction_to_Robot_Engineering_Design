@@ -1,19 +1,5 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-Run this on the Raspberry Pi and view the camera from an SSH-connected laptop.
-
-Examples:
-  python3 project3/test/raspi_camera_stream.py
-  python3 project3/test/raspi_camera_stream.py --port 8080 --no-flip-horizontal --no-flip-vertical
-
-Laptop browser:
-  http://<raspberry-pi-ip>:8000/
-
-SSH tunnel alternative:
-  ssh -L 8000:localhost:8000 pi@<raspberry-pi-ip>
-  http://localhost:8000/
-"""
 
 import argparse
 import html
