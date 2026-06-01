@@ -33,6 +33,7 @@ OBSTACLE_FRONT_DEG = 90.0
 AVOID_BASE_V = 0.18
 AVOID_MAX_W = 1.0
 AVOID_TURN_GAIN = 1.5
+AVOID_TURN_SIGN = -1.0
 SIDE_CLEAR_D = 0.30
 SIDE_CORRECT_MAX_DEG = 30.0
 COLOR_TO_LIDAR_DEG = 45.0
@@ -237,5 +238,5 @@ def avoid_cmd(ranges, color_deg=None, base_v=AVOID_BASE_V):
     )
     target_deg = clamp(target_deg + side_correct_deg, ANG_MIN, ANG_MAX)
 
-    w = clamp(AVOID_TURN_GAIN * np.deg2rad(target_deg), -AVOID_MAX_W, AVOID_MAX_W)
+    w = clamp(AVOID_TURN_SIGN * AVOID_TURN_GAIN * np.deg2rad(target_deg), -AVOID_MAX_W, AVOID_MAX_W)
     return base_v, w, target_deg, len(safe_gaps)
