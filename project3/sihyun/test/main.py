@@ -3,10 +3,16 @@
 
 import threading
 import time
+import sys
+from pathlib import Path
 
 
 import numpy as np
 import serial
+
+THIS_DIR = Path(__file__).resolve().parent
+if str(THIS_DIR) not in sys.path:
+    sys.path.insert(0, str(THIS_DIR))
 
 from camera import (
     bottom_center_error,
@@ -34,6 +40,8 @@ from lidar import (
     lidar_zone_distances,
     obstacle_detected,
 )
+
+
 
 # ==============================
 # HSV color following settings
@@ -64,7 +72,7 @@ ODOM_LOG_INTERVAL = 0.5  # 엔코더 누적값 로그 출력 주기(초)
 WHEEL_R = 0.034  # Arduino encoder distance calculation wheel radius(m)
 ENC_PPR = 1012.0  # Arduino encoder counts per wheel revolution
 ENC_COUNTS_PER_M = ENC_PPR / (2.0 * np.pi * WHEEL_R)
-POST_COLOR_FORWARD_M = 0.0  # Move forward after a color exits bottom before pause(m)
+POST_COLOR_FORWARD_M = 0.05  # Move forward after a color exits bottom before pause(m)
 TURN_360_WHEEL_BASE_M = 0.18  # Distance between left/right wheels for encoder-based 360 turn(m)
 TURN_360_COUNTS = np.pi * TURN_360_WHEEL_BASE_M * ENC_COUNTS_PER_M
 AVOID_STOP_D = 0.15  # Stop avoid forward speed when a front obstacle is this close(m)
