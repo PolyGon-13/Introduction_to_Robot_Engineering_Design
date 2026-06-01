@@ -19,8 +19,9 @@ TARGET_COLOR = "BLUE"
 CAMERA_LIDAR_HEIGHT_DIFF_M = 0.45
 COLOR_TARGET_REAL_HEIGHT_M = 0.625
 CAMERA_FOCAL_PX = 625.0
-COLOR_OBSTACLE_DISTANCE_TOL_M = 0.20
-COLOR_LIDAR_SAMPLE_DEG = 4
+COLOR_OBSTACLE_DISTANCE_TOL_M = 0.40
+COLOR_LIDAR_SAMPLE_DEG = 12
+LIDAR_OBSTACLE_D_M = FREE_D
 
 
 def clamp(value, low, high):
@@ -82,8 +83,14 @@ def classify_color_target(target, frame_shape, ranges):
     target_deg = color_angle_from_target(target, frame_shape)
     lidar_d = lidar_distance_at_deg(ranges, target_deg)
 
-    if horizontal_d is None or lidar_d is None:
-        return "TRACK_COLOR", camera_d, horizontal_d, lidar_d, target_deg
+    if lidar_d is None:
+        return "UNKNOWN", camera_d, horizontal_d, lidar_d, target_deg
+
+    if lidar_d <= LIDAR_OBSTACLE_D_M:
+        return "OBSTACLE_COLOR", camera_d, horizontal_d, lidar_d, target_deg
+
+    if horizontal_d is None:
+        return "UNKNOWN", camera_d, horizontal_d, lidar_d, target_deg
 
     if abs(horizontal_d - lidar_d) <= COLOR_OBSTACLE_DISTANCE_TOL_M:
         return "OBSTACLE_COLOR", camera_d, horizontal_d, lidar_d, target_deg
@@ -97,7 +104,12 @@ def draw_blue_classification(frame, found, ranges):
     for target in blue_targets:
         _, x, y, w, h, area, cx, cy, box, cnt = target
         label, camera_d, horizontal_d, lidar_d, target_deg = classify_color_target(target, frame.shape, ranges)
-        color = (0, 0, 255) if label == "OBSTACLE_COLOR" else (255, 0, 0)
+        if label == "OBSTACLE_COLOR":
+            color = (0, 0, 255)
+        elif label == "UNKNOWN":
+            color = (0, 255, 255)
+        else:
+            color = (255, 0, 0)
 
         cv2.drawContours(frame, [cnt], -1, color, 2)
         cv2.polylines(frame, [box], True, color, 2)
