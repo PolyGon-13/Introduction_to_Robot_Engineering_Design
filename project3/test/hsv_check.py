@@ -264,7 +264,7 @@ def draw_overlay(frame, regions, args):
             2,
             cv2.LINE_AA,
         )
-
+    
     info = (
         f"edge={args.edge_threshold} minS={args.min_saturation} "
         f"minV={args.min_value} minArea={args.min_area}"
