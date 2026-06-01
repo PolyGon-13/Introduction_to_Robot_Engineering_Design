@@ -6,7 +6,7 @@ import time
 import cv2
 import numpy as np
 
-from camera import (
+from project3.sihyun.test.camera import (
     BOX_COLORS,
     close_camera,
     detect,

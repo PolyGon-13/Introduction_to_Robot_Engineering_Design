@@ -8,7 +8,7 @@ import time
 import numpy as np
 import serial
 
-from camera import (
+from project3.sihyun.test.camera import (
     bottom_center_error,
     close_camera,
     detect,
@@ -19,7 +19,7 @@ from camera import (
     read_frame,
     x_center_error,
 )
-from lidar import (
+from project3.sihyun.test.lidar import (
     ANG_MAX,
     ANG_MIN,
     COLOR_TO_LIDAR_DEG,
