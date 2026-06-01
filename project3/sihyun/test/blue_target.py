@@ -19,25 +19,19 @@ TARGET_COLOR = "BLUE"
 CAMERA_LIDAR_HEIGHT_DIFF_M = 0.45
 COLOR_TARGET_REAL_HEIGHT_M = 0.625
 CAMERA_FOCAL_PX = 625.0
-COLOR_OBSTACLE_DISTANCE_TOL_M = 0.40
-COLOR_LIDAR_SAMPLE_DEG = 12
 
 
 def clamp(value, low, high):
     return float(max(low, min(value, high)))
 
 
-def bottom_center_error(target, frame_shape):
+def color_angle_from_target(target, frame_shape):
     height, width = frame_shape[:2]
     cx, cy = target[6], target[7]
     dx = cx - width / 2
     dy = max(1.0, height - cy)
     angle = np.arctan2(dx, dy)
-    return clamp(angle / (np.pi / 2), -1.0, 1.0)
-
-
-def color_angle_from_target(target, frame_shape):
-    err = bottom_center_error(target, frame_shape)
+    err = clamp(angle / (np.pi / 2), -1.0, 1.0)
     return clamp(-err * COLOR_TO_LIDAR_DEG, ANG_MIN, ANG_MAX)
 
 
@@ -46,52 +40,37 @@ def camera_distance_to_target(target):
     if box_h <= 0.0:
         return None
 
-    return COLOR_TARGET_REAL_HEIGHT_M * CAMERA_FOCAL_PX / box_h
-
-
-def lidar_distance_at_deg(ranges, target_deg):
-    if ranges is None or target_deg is None:
-        return None
-
-    center = int(round(clamp(target_deg, ANG_MIN, ANG_MAX) - ANG_MIN))
-    radius = int(max(0, COLOR_LIDAR_SAMPLE_DEG))
-    start = max(0, center - radius)
-    end = min(len(ranges), center + radius + 1)
-    if start >= end:
-        return None
-
-    window = ranges[start:end]
-    valid = window[np.isfinite(window)]
-    valid = valid[valid < MAX_D]
-    if valid.size == 0:
-        return None
-
-    return float(np.min(valid))
-
-
-def camera_horizontal_distance(camera_d):
-    if camera_d is None or camera_d <= CAMERA_LIDAR_HEIGHT_DIFF_M:
+    camera_d = COLOR_TARGET_REAL_HEIGHT_M * CAMERA_FOCAL_PX / box_h
+    if camera_d <= CAMERA_LIDAR_HEIGHT_DIFF_M:
         return None
 
     return float(np.sqrt(camera_d * camera_d - CAMERA_LIDAR_HEIGHT_DIFF_M * CAMERA_LIDAR_HEIGHT_DIFF_M))
 
 
+def lidar_distance_at_target(ranges, target_deg):
+    if ranges is None:
+        return None
+
+    index = int(round(clamp(target_deg, ANG_MIN, ANG_MAX) - ANG_MIN))
+    if index < 0 or index >= len(ranges):
+        return None
+
+    lidar_d = float(ranges[index])
+    if not np.isfinite(lidar_d) or lidar_d >= MAX_D:
+        return None
+
+    return lidar_d
+
+
 def classify_color_target(target, frame_shape, ranges):
     camera_d = camera_distance_to_target(target)
-    horizontal_d = camera_horizontal_distance(camera_d)
     target_deg = color_angle_from_target(target, frame_shape)
-    lidar_d = lidar_distance_at_deg(ranges, target_deg)
+    lidar_d = lidar_distance_at_target(ranges, target_deg)
 
-    if horizontal_d is None:
-        return "UNKNOWN", camera_d, horizontal_d, lidar_d, target_deg
+    if camera_d is not None and lidar_d is not None and abs(camera_d - lidar_d) <= 0.25:
+        return "OBSTACLE_COLOR", camera_d, lidar_d, target_deg
 
-    if lidar_d is None:
-        return "TRACK_COLOR", camera_d, horizontal_d, lidar_d, target_deg
-
-    if abs(horizontal_d - lidar_d) <= COLOR_OBSTACLE_DISTANCE_TOL_M:
-        return "OBSTACLE_COLOR", camera_d, horizontal_d, lidar_d, target_deg
-
-    return "TRACK_COLOR", camera_d, horizontal_d, lidar_d, target_deg
+    return "TRACK_COLOR", camera_d, lidar_d, target_deg
 
 
 def draw_blue_classification(frame, found, ranges):
@@ -99,36 +78,21 @@ def draw_blue_classification(frame, found, ranges):
 
     for target in blue_targets:
         _, x, y, w, h, area, cx, cy, box, cnt = target
-        label, camera_d, horizontal_d, lidar_d, target_deg = classify_color_target(target, frame.shape, ranges)
-        if label == "OBSTACLE_COLOR":
-            color = (0, 0, 255)
-        elif label == "UNKNOWN":
-            color = (0, 255, 255)
-        else:
-            color = (255, 0, 0)
+        label, camera_d, lidar_d, target_deg = classify_color_target(target, frame.shape, ranges)
+        color = (0, 0, 255) if label == "OBSTACLE_COLOR" else (255, 0, 0)
 
         cv2.drawContours(frame, [cnt], -1, color, 2)
         cv2.polylines(frame, [box], True, color, 2)
         cv2.circle(frame, (int(round(cx)), int(round(cy))), 5, color, -1)
 
         camera_text = "--" if camera_d is None else f"{camera_d:.2f}m"
-        horizontal_text = "--" if horizontal_d is None else f"{horizontal_d:.2f}m"
         lidar_text = "--" if lidar_d is None else f"{lidar_d:.2f}m"
-        text = f"{label} cam={camera_text} horiz={horizontal_text} lidar={lidar_text} deg={target_deg:.0f} area={area}"
-
-        cv2.putText(
-            frame,
-            text,
-            (x, max(24, y - 8)),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.5,
-            color,
-            2,
-        )
+        text = f"{label} cam={camera_text} lidar={lidar_text} deg={target_deg:.0f} area={area}"
+        cv2.putText(frame, text, (x, max(24, y - 8)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
 
     cv2.putText(
         frame,
-        "BLUE distance check: q to quit",
+        "BLUE camera-lidar check: q to quit",
         (10, 30),
         cv2.FONT_HERSHEY_SIMPLEX,
         0.8,
