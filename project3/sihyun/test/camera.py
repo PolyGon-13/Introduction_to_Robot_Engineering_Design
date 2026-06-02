@@ -12,7 +12,7 @@ except ImportError:
     USE_PICAM = False
 
 
-MIN_AREA = 200
+MIN_AREA = 1000
 FOLLOW_MAX_V = 0.25
 FOLLOW_MAX_W = 1.0
 FOLLOW_KP = 1.5
