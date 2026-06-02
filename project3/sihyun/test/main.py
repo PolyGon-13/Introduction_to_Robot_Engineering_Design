@@ -190,12 +190,14 @@ def obstacle_in_zone(ranges, zone, clear_d=FREE_D):
     return float(np.min(ranges[zone])) < clear_d
 
 
-def color_side_clear(ranges, color_deg, clear_d=FREE_D):
+def color_path_clear(ranges, color_deg, clear_d=FREE_D):
     if ranges is None:
         return False
 
     color_side_zone = RIGHT_ZONE if color_deg >= 0.0 else LEFT_ZONE
-    return not obstacle_in_zone(ranges, color_side_zone, clear_d)
+    front_clear = not obstacle_in_zone(ranges, FRONT_LOG_ZONE, clear_d)
+    side_clear = not obstacle_in_zone(ranges, color_side_zone, clear_d)
+    return front_clear and side_clear
 
 
 def front_obstacle_distance(ranges):
@@ -323,9 +325,9 @@ def log_odom(elapsed, odom):
 
 def color_cmd(target, frame, ranges, has_obstacle, color_deg, center_ratio, elapsed):
     if has_obstacle:
-        if color_side_clear(ranges, color_deg):
+        if color_path_clear(ranges, color_deg):
             target_v, target_w = follow_cmd(target, frame.shape, DRIVE_V)
-            return "FOLLOW: color side clear", target_v, target_w
+            return "FOLLOW: color path clear", target_v, target_w
 
         target_v, target_w, target_deg, gap_count = avoid_cmd(ranges, color_deg, DRIVE_V)
         target_v = scale_avoid_speed_for_front_obstacle(target_v, ranges)
