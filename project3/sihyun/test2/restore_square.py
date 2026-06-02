@@ -4,6 +4,7 @@
 import argparse
 import math
 import time
+from pathlib import Path
 
 import cv2
 import numpy as np
@@ -21,6 +22,8 @@ from lidar import FREE_D, GRID, RPLidarC1, front_ranges
 
 
 TARGET_NAMES = ("RED", "YELLOW", "BLUE")
+THIS_DIR = Path(__file__).resolve().parent
+DEFAULT_HOMOGRAPHY_FILE = THIS_DIR / "restore_square_homography.npz"
 
 CALIB_WIDTH = 640.0
 CALIB_HEIGHT = 480.0
@@ -45,8 +48,12 @@ LIDAR_GUIDE_HALF_DEG = 12.0
 LIDAR_MAX_AGE_S = 0.5
 MIN_RESTORE_SHIFT_M = 0.03
 PRINT_INTERVAL_S = 0.5
-GROUND_FORWARD_SCALE = 0.375
-GROUND_SIDE_SCALE = 0.75
+GROUND_FORWARD_SCALE = 1.0
+GROUND_SIDE_SCALE = 1.0
+CALIB_X_NEAR_M = 0.30
+CALIB_X_FAR_M = 0.60
+CALIB_Y_LEFT_M = -0.15
+CALIB_Y_RIGHT_M = 0.15
 
 SELECTED_COLOR = (255, 255, 255)
 CANDIDATE_COLOR = (120, 120, 120)
@@ -128,7 +135,18 @@ def raw_to_display_points(points, frame_shape):
 
 
 class GroundProjector:
-    def __init__(self, height_m, pitch_down_deg, fx, fy, cx, cy, forward_scale=1.0, side_scale=1.0):
+    def __init__(
+        self,
+        height_m,
+        pitch_down_deg,
+        fx,
+        fy,
+        cx,
+        cy,
+        forward_scale=1.0,
+        side_scale=1.0,
+        homography=None,
+    ):
         self.height_m = float(height_m)
         self.fx = float(fx)
         self.fy = float(fy)
@@ -136,6 +154,12 @@ class GroundProjector:
         self.cy = float(cy)
         self.forward_scale = float(forward_scale)
         self.side_scale = float(side_scale)
+        self.homography = None
+        self.inverse_homography = None
+
+        if homography is not None:
+            self.homography = np.asarray(homography, dtype=np.float32)
+            self.inverse_homography = np.linalg.inv(self.homography).astype(np.float32)
 
         theta = math.radians(pitch_down_deg)
         self.cam_right = np.array([0.0, 1.0, 0.0], dtype=np.float32)
@@ -144,6 +168,11 @@ class GroundProjector:
 
     def raw_pixels_to_ground(self, raw_points):
         pts = np.asarray(raw_points, dtype=np.float32).reshape(-1, 2)
+
+        if self.homography is not None:
+            mapped = cv2.perspectiveTransform(pts.reshape(-1, 1, 2), self.homography)
+            return mapped.reshape(-1, 2).astype(np.float32)
+
         x_cam = (pts[:, 0] - self.cx) / self.fx
         y_cam = (pts[:, 1] - self.cy) / self.fy
 
@@ -165,6 +194,11 @@ class GroundProjector:
 
     def ground_to_raw_pixels(self, ground_points):
         pts = np.asarray(ground_points, dtype=np.float32).reshape(-1, 2)
+
+        if self.inverse_homography is not None:
+            mapped = cv2.perspectiveTransform(pts.reshape(-1, 1, 2), self.inverse_homography)
+            return mapped.reshape(-1, 2).astype(np.float32)
+
         unscaled = pts.copy()
         unscaled[:, 0] /= max(self.forward_scale, 1.0e-6)
         unscaled[:, 1] /= max(self.side_scale, 1.0e-6)
@@ -185,6 +219,123 @@ class GroundProjector:
         raw[valid, 0] = self.fx * x_cam[valid] / z_cam[valid] + self.cx
         raw[valid, 1] = self.fy * y_cam[valid] / z_cam[valid] + self.cy
         return raw
+
+
+def homography_path(args):
+    return Path(args.homography_file).expanduser()
+
+
+def calibration_ground_points(args):
+    return np.array(
+        [
+            [args.calib_x_near, args.calib_y_left],
+            [args.calib_x_near, args.calib_y_right],
+            [args.calib_x_far, args.calib_y_right],
+            [args.calib_x_far, args.calib_y_left],
+        ],
+        dtype=np.float32,
+    )
+
+
+def load_homography(path):
+    data = np.load(str(path))
+    return np.asarray(data["homography"], dtype=np.float32)
+
+
+def save_homography(path, homography, raw_points, display_points, ground_points):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    np.savez(
+        str(path),
+        homography=np.asarray(homography, dtype=np.float32),
+        raw_points=np.asarray(raw_points, dtype=np.float32),
+        display_points=np.asarray(display_points, dtype=np.float32),
+        ground_points=np.asarray(ground_points, dtype=np.float32),
+    )
+
+
+def draw_calibration_overlay(frame, clicked, ground_points):
+    labels = ("near-left", "near-right", "far-right", "far-left")
+    view = frame.copy()
+
+    for idx, point in enumerate(clicked):
+        x, y = int(round(point[0])), int(round(point[1]))
+        cv2.circle(view, (x, y), 5, (0, 255, 0), -1)
+        cv2.putText(
+            view,
+            str(idx + 1),
+            (x + 8, y - 8),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            (0, 255, 0),
+            2,
+        )
+
+    next_idx = min(len(clicked), len(labels) - 1)
+    next_xy = ground_points[next_idx]
+    lines = [
+        "Click 4 floor calibration points.",
+        f"Next: {labels[next_idx]} x={next_xy[0]:.2f}m y={next_xy[1]:.2f}m",
+        "Order: near-left, near-right, far-right, far-left",
+        "r: reset, q: cancel",
+    ]
+
+    for idx, text in enumerate(lines):
+        cv2.putText(
+            view,
+            text,
+            (10, 28 + 24 * idx),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.58,
+            (255, 255, 255),
+            2,
+        )
+
+    return view
+
+
+def calibrate_homography(cam, args):
+    ok, frame = read_frame(cam)
+
+    if not ok:
+        raise RuntimeError("[CALIB] camera frame read failed")
+
+    clicked = []
+    ground_points = calibration_ground_points(args)
+    window_name = "restore_square calibration"
+
+    def on_mouse(event, x, y, flags, param):
+        if event == cv2.EVENT_LBUTTONDOWN and len(clicked) < 4:
+            clicked.append((float(x), float(y)))
+
+    cv2.namedWindow(window_name)
+    cv2.setMouseCallback(window_name, on_mouse)
+
+    while len(clicked) < 4:
+        cv2.imshow(window_name, draw_calibration_overlay(frame, clicked, ground_points))
+        key = cv2.waitKey(20) & 0xFF
+
+        if key == ord("q"):
+            cv2.destroyWindow(window_name)
+            raise RuntimeError("[CALIB] homography calibration cancelled")
+
+        if key == ord("r"):
+            clicked.clear()
+
+    cv2.imshow(window_name, draw_calibration_overlay(frame, clicked, ground_points))
+    cv2.waitKey(300)
+    cv2.destroyWindow(window_name)
+
+    display_points = np.asarray(clicked, dtype=np.float32)
+    raw_points = display_to_raw_points(display_points, frame.shape)
+    homography, _ = cv2.findHomography(raw_points, ground_points, 0)
+
+    if homography is None:
+        raise RuntimeError("[CALIB] findHomography failed")
+
+    path = homography_path(args)
+    save_homography(path, homography, raw_points, display_points, ground_points)
+    print(f"[CALIB] saved homography: {path}")
+    return np.asarray(homography, dtype=np.float32)
 
 
 def contour_points(target):
@@ -701,6 +852,13 @@ def parse_args():
     )
     parser.add_argument("--target", choices=TARGET_NAMES, default="RED")
     parser.add_argument("--square-size", type=float, default=SQUARE_SIZE_M)
+    parser.add_argument("--homography-file", default=str(DEFAULT_HOMOGRAPHY_FILE))
+    parser.add_argument("--calibrate", action="store_true")
+    parser.add_argument("--no-homography", action="store_true")
+    parser.add_argument("--calib-x-near", type=float, default=CALIB_X_NEAR_M)
+    parser.add_argument("--calib-x-far", type=float, default=CALIB_X_FAR_M)
+    parser.add_argument("--calib-y-left", type=float, default=CALIB_Y_LEFT_M)
+    parser.add_argument("--calib-y-right", type=float, default=CALIB_Y_RIGHT_M)
     parser.add_argument("--height", type=float, default=CAMERA_HEIGHT_M)
     parser.add_argument("--pitch-down", type=float, default=PITCH_DOWN_DEG)
     parser.add_argument("--fx", type=float, default=CALIB_FX)
@@ -748,9 +906,22 @@ def main():
     cam = lidar = None
     previous_center = None
     last_size_print = 0.0
+    homography = None
 
     try:
         cam = open_camera()
+
+        if not args.no_homography:
+            path = homography_path(args)
+
+            if args.calibrate or not path.exists():
+                print(f"[CALIB] homography file not found or recalibration requested: {path}")
+                homography = calibrate_homography(cam, args)
+            else:
+                homography = load_homography(path)
+                print(f"[CALIB] loaded homography: {path}")
+        else:
+            print("[CALIB] homography disabled; using pinhole fallback")
 
         if not args.no_lidar:
             lidar = RPLidarC1()
@@ -771,6 +942,7 @@ def main():
                 cy,
                 args.ground_forward_scale,
                 args.ground_side_scale,
+                homography,
             )
             ranges = None
             lidar_status = "LIDAR off" if args.no_lidar else "LIDAR waiting"
