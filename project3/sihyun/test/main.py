@@ -49,9 +49,9 @@ from lidar import (
 
 TARGET_SEQUENCE = ("RED", "YELLOW", "BLUE")  # Follow colors in this order.
 SHOW_WINDOW = True  # 카메라 인식 화면을 띄울지 여부
-BOTTOM_LOST_RATIO = 0.88  # 색상이 화면 아래 88% 지점 아래에서 사라지면 정지로 판단
+BOTTOM_LOST_RATIO = 0.90  # 색상이 화면 아래 1/10 지점 아래에서 사라지면 정지로 판단
 COLOR_SWITCH_PAUSE_MS = 1000  # 다음 색 추적 전 정지 시간(ms)
-COLOR_FORWARD_CENTER_RATIO = 0.93  # 색상 중심이 화면 하단 1/20 구역에 들어오면 전진
+COLOR_FORWARD_CENTER_RATIO = 0.95  # 색상 중심이 화면 하단 1/20 구역에 들어오면 전진
 COLOR_EXIT_CENTER_ERR = 0.15  # 이 가로 오차 안에서 아래로 사라질 때만 다음 색으로 전환
 
 # ==============================
@@ -406,6 +406,7 @@ def main():
                 and last_color_center_ratio >= COLOR_FORWARD_CENTER_RATIO
                 and abs(last_color_x_err) <= COLOR_EXIT_CENTER_ERR
             )
+            color_in_bottom_zone = target is not None and last_color_center_ratio >= BOTTOM_LOST_RATIO
             color_exited_bottom = target is None and last_color_time > 0.0 and last_color_center_ratio >= BOTTOM_LOST_RATIO
             if color_in_forward_zone:
                 if target_index + 1 < len(TARGET_SEQUENCE):
@@ -433,9 +434,13 @@ def main():
                         last_color_deg, last_color_time, last_color_center_ratio, last_color_x_err = update_color_memory(target, frame)
                         color_lost_during_avoid = False
                         search_failed_avoid_active = False
-                        mode, target_v, target_w = color_cmd(
-                            target, frame, ranges, has_obstacle, last_color_deg, elapsed
-                        )
+                        if last_color_center_ratio >= BOTTOM_LOST_RATIO:
+                            target_v, target_w = follow_cmd(target, frame.shape, DRIVE_V)
+                            mode = "FOLLOW: bottom color"
+                        else:
+                            mode, target_v, target_w = color_cmd(
+                                target, frame, ranges, has_obstacle, last_color_deg, elapsed
+                            )
                     else:
                         mode, target_v, target_w = search_next_cmd()
                         last_color_deg, last_color_time, last_color_center_ratio, last_color_x_err = clear_color_memory()
@@ -454,9 +459,13 @@ def main():
             elif target is not None:
                 color_lost_during_avoid = False
                 search_failed_avoid_active = False
-                mode, target_v, target_w = color_cmd(
-                    target, frame, ranges, has_obstacle, last_color_deg, elapsed
-                )
+                if color_in_bottom_zone:
+                    target_v, target_w = follow_cmd(target, frame.shape, DRIVE_V)
+                    mode = "FOLLOW: bottom color"
+                else:
+                    mode, target_v, target_w = color_cmd(
+                        target, frame, ranges, has_obstacle, last_color_deg, elapsed
+                    )
 
             elif target is None and search_failed_avoid_active:
                 mode, target_v, target_w = avoid_mode("AVOID: search failed", "AVOID_SEARCH", ranges, last_color_deg if last_color_time > 0.0 else None, elapsed)
