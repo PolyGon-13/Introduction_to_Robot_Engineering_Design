@@ -37,11 +37,14 @@ MIN_GROUND_POINTS = 3
 MIN_GROUND_SPAN_M = 0.04
 MAX_GROUND_SPAN_M = 0.45
 COMPLETE_FILL_RATIO = 0.65
+COMPLETE_SIZE_MIN_RATIO = 0.70
+COMPLETE_SIZE_MAX_RATIO = 1.45
 MAX_PROJECTED_AREA_RATIO = 2.0
 CENTER_MARGIN_RATIO = 0.15
 LIDAR_GUIDE_HALF_DEG = 12.0
 LIDAR_MAX_AGE_S = 0.5
 MIN_RESTORE_SHIFT_M = 0.03
+PRINT_INTERVAL_S = 0.5
 
 SELECTED_COLOR = (255, 255, 255)
 CANDIDATE_COLOR = (120, 120, 120)
@@ -267,6 +270,69 @@ def contour_fill_ratio(target):
     return float(target[5]) / rect_area
 
 
+def ground_polygon_dimensions(points):
+    pts = np.asarray(points, dtype=np.float32).reshape(-1, 1, 2)
+
+    if len(pts) < 3:
+        return None
+
+    rect = cv2.minAreaRect(pts)
+    width, height = rect[1]
+    dims = sorted((float(width), float(height)))
+
+    if dims[0] <= 1.0e-6 or dims[1] <= 1.0e-6:
+        return None
+
+    return dims[0], dims[1]
+
+
+def target_display_polygon(target):
+    contour = target[9]
+    approx = cv2.approxPolyDP(contour, 0.03 * cv2.arcLength(contour, True), True)
+
+    if len(approx) == 4:
+        return approx.reshape(-1, 2).astype(np.float32)
+
+    rect = cv2.minAreaRect(contour)
+    return cv2.boxPoints(rect).astype(np.float32)
+
+
+def target_size_measurement(frame, target, projector):
+    display_polygon = target_display_polygon(target)
+    raw_polygon = display_to_raw_points(display_polygon, frame.shape)
+    ground_polygon = projector.raw_pixels_to_ground(raw_polygon)
+    dimensions = ground_polygon_dimensions(ground_polygon)
+    ground_area = polygon_area(ground_polygon) if dimensions is not None else None
+
+    return {
+        "display_polygon": display_polygon,
+        "pixel_area": int(target[5]),
+        "bbox_w": int(target[3]),
+        "bbox_h": int(target[4]),
+        "fill_ratio": contour_fill_ratio(target),
+        "ground_size": dimensions,
+        "ground_area": ground_area,
+    }
+
+
+def format_size_log(name, measurement, status):
+    if measurement["ground_size"] is None:
+        ground_text = "ground=unknown"
+    else:
+        short_m, long_m = measurement["ground_size"]
+        area_m2 = measurement["ground_area"]
+        ground_text = f"ground={short_m:.3f}x{long_m:.3f}m area={area_m2:.4f}m2"
+
+    return (
+        f"[SIZE] {name} "
+        f"pixels={measurement['pixel_area']}px "
+        f"bbox={measurement['bbox_w']}x{measurement['bbox_h']}px "
+        f"fill={measurement['fill_ratio']:.2f} "
+        f"{ground_text} "
+        f"status={status}"
+    )
+
+
 def diagonal_center(points):
     pts = np.asarray(points, dtype=np.float32).reshape(-1, 2)
 
@@ -284,19 +350,28 @@ def diagonal_center(points):
 
 
 def complete_observed_candidate(frame, target, projector, args):
-    fill_ratio = contour_fill_ratio(target)
+    measurement = target_size_measurement(frame, target, projector)
+    fill_ratio = measurement["fill_ratio"]
 
     if fill_ratio < args.complete_fill_ratio:
         return None
 
-    contour = target[9]
-    approx = cv2.approxPolyDP(contour, 0.03 * cv2.arcLength(contour, True), True)
+    display_polygon = measurement["display_polygon"]
+    dimensions = measurement["ground_size"]
 
-    if len(approx) == 4:
-        display_polygon = approx.reshape(-1, 2).astype(np.float32)
-    else:
-        rect = cv2.minAreaRect(contour)
-        display_polygon = cv2.boxPoints(rect).astype(np.float32)
+    if dimensions is None:
+        return None
+
+    short_m, long_m = dimensions
+    expected = args.square_size
+
+    if (
+        short_m < expected * args.complete_size_min_ratio
+        or long_m < expected * args.complete_size_min_ratio
+        or short_m > expected * args.complete_size_max_ratio
+        or long_m > expected * args.complete_size_max_ratio
+    ):
+        return None
 
     display_center = diagonal_center(display_polygon)
     raw_center = display_to_raw_points(display_center[None, :], frame.shape)
@@ -310,6 +385,7 @@ def complete_observed_candidate(frame, target, projector, args):
         "display_polygon": display_polygon,
         "display_center": display_center.astype(np.float32),
         "center": ground_center[0],
+        "ground_size": (short_m, long_m),
     }
 
 
@@ -535,7 +611,8 @@ def restore_target(frame, target, projector, ranges, args, previous_center):
     observed = complete_observed_candidate(frame, target, projector, args)
 
     if observed is not None:
-        return observed, [], "observed full"
+        short_m, long_m = observed["ground_size"]
+        return observed, [], f"observed full {short_m:.2f}x{long_m:.2f}m"
 
     pts_display = contour_points(target)
     raw_points = display_to_raw_points(pts_display, frame.shape)
@@ -614,6 +691,8 @@ def parse_args():
     parser.add_argument("--min-ground-span", type=float, default=MIN_GROUND_SPAN_M)
     parser.add_argument("--max-ground-span", type=float, default=MAX_GROUND_SPAN_M)
     parser.add_argument("--complete-fill-ratio", type=float, default=COMPLETE_FILL_RATIO)
+    parser.add_argument("--complete-size-min-ratio", type=float, default=COMPLETE_SIZE_MIN_RATIO)
+    parser.add_argument("--complete-size-max-ratio", type=float, default=COMPLETE_SIZE_MAX_RATIO)
     parser.add_argument("--max-projected-area-ratio", type=float, default=MAX_PROJECTED_AREA_RATIO)
     parser.add_argument("--center-margin", type=float, default=CENTER_MARGIN_RATIO)
     parser.add_argument("--lidar-obstacle-d", type=float, default=FREE_D)
@@ -621,6 +700,7 @@ def parse_args():
     parser.add_argument("--lidar-max-age", type=float, default=LIDAR_MAX_AGE_S)
     parser.add_argument("--min-restore-shift", type=float, default=MIN_RESTORE_SHIFT_M)
     parser.add_argument("--no-lidar", action="store_true")
+    parser.add_argument("--print-interval", type=float, default=PRINT_INTERVAL_S)
     parser.add_argument("--smooth", type=float, default=0.65)
     parser.add_argument("--show-candidates", action="store_true")
     return parser.parse_args()
@@ -635,9 +715,13 @@ def main():
     args = parse_args()
     args.smooth = clamp(args.smooth, 0.0, 0.95)
     args.complete_fill_ratio = clamp(args.complete_fill_ratio, 0.1, 0.95)
+    args.complete_size_min_ratio = clamp(args.complete_size_min_ratio, 0.1, 1.0)
+    args.complete_size_max_ratio = max(args.complete_size_max_ratio, args.complete_size_min_ratio)
     args.center_margin = clamp(args.center_margin, 0.0, 1.0)
+    args.print_interval = max(0.0, args.print_interval)
     cam = lidar = None
     previous_center = None
+    last_size_print = 0.0
 
     try:
         cam = open_camera()
@@ -684,6 +768,13 @@ def main():
                     previous_center = None
 
                 draw_target(frame, target, selected, candidates, projector, status, args)
+
+                now = time.time()
+
+                if args.print_interval == 0.0 or now - last_size_print >= args.print_interval:
+                    measurement = target_size_measurement(frame, target, projector)
+                    print(format_size_log(target[0], measurement, status))
+                    last_size_print = now
 
             cv2.putText(
                 frame,
