@@ -3,6 +3,7 @@
 
 import argparse
 import math
+import time
 
 import cv2
 import numpy as np
@@ -16,6 +17,7 @@ from camera import (
     pick,
     read_frame,
 )
+from lidar import FREE_D, GRID, RPLidarC1, front_ranges
 
 
 TARGET_NAMES = ("RED", "YELLOW", "BLUE")
@@ -30,8 +32,16 @@ CALIB_CY = 240.0
 CAMERA_HEIGHT_M = 0.65
 PITCH_DOWN_DEG = 45.0
 SQUARE_SIZE_M = 0.30
-MIN_AREA = 200
+MIN_AREA = 1000
 MIN_GROUND_POINTS = 3
+MIN_GROUND_SPAN_M = 0.04
+MAX_GROUND_SPAN_M = 0.45
+COMPLETE_FILL_RATIO = 0.65
+MAX_PROJECTED_AREA_RATIO = 2.0
+CENTER_MARGIN_RATIO = 0.15
+LIDAR_GUIDE_HALF_DEG = 12.0
+LIDAR_MAX_AGE_S = 0.5
+MIN_RESTORE_SHIFT_M = 0.03
 
 SELECTED_COLOR = (255, 255, 255)
 CANDIDATE_COLOR = (120, 120, 120)
@@ -237,6 +247,140 @@ def make_square(a_min, a_max, b_min, b_max, e1, e2):
     return {"corners": corners.astype(np.float32), "center": center.astype(np.float32)}
 
 
+def polygon_area(points):
+    pts = np.asarray(points, dtype=np.float32).reshape(-1, 1, 2)
+
+    if len(pts) < 3:
+        return 0.0
+
+    return abs(float(cv2.contourArea(pts)))
+
+
+def contour_fill_ratio(target):
+    rect = cv2.minAreaRect(target[9])
+    width, height = rect[1]
+    rect_area = float(width * height)
+
+    if rect_area <= 1.0:
+        return 0.0
+
+    return float(target[5]) / rect_area
+
+
+def diagonal_center(points):
+    pts = np.asarray(points, dtype=np.float32).reshape(-1, 2)
+
+    if len(pts) != 4:
+        return np.mean(pts, axis=0)
+
+    a = np.column_stack((pts[2] - pts[0], pts[1] - pts[3]))
+    b = pts[1] - pts[0]
+
+    try:
+        t, _ = np.linalg.solve(a, b)
+        return pts[0] + t * (pts[2] - pts[0])
+    except np.linalg.LinAlgError:
+        return np.mean(pts, axis=0)
+
+
+def complete_observed_candidate(frame, target, projector, args):
+    fill_ratio = contour_fill_ratio(target)
+
+    if fill_ratio < args.complete_fill_ratio:
+        return None
+
+    contour = target[9]
+    approx = cv2.approxPolyDP(contour, 0.03 * cv2.arcLength(contour, True), True)
+
+    if len(approx) == 4:
+        display_polygon = approx.reshape(-1, 2).astype(np.float32)
+    else:
+        rect = cv2.minAreaRect(contour)
+        display_polygon = cv2.boxPoints(rect).astype(np.float32)
+
+    display_center = diagonal_center(display_polygon)
+    raw_center = display_to_raw_points(display_center[None, :], frame.shape)
+    ground_center = projector.raw_pixels_to_ground(raw_center)
+
+    if len(ground_center) == 0:
+        return None
+
+    return {
+        "kind": "image",
+        "display_polygon": display_polygon,
+        "display_center": display_center.astype(np.float32),
+        "center": ground_center[0],
+    }
+
+
+def ground_shape_is_plausible(ground_points, args):
+    x_span = float(np.max(ground_points[:, 0]) - np.min(ground_points[:, 0]))
+    y_span = float(np.max(ground_points[:, 1]) - np.min(ground_points[:, 1]))
+    max_span = max(x_span, y_span)
+
+    return args.min_ground_span <= max_span <= args.max_ground_span
+
+
+def ground_bearing_deg(point):
+    x, y = float(point[0]), float(point[1])
+
+    if x <= 1.0e-6:
+        return None
+
+    return clamp(math.degrees(math.atan2(y, x)), float(GRID[0]), float(GRID[-1]))
+
+
+def lidar_min_distance_at(ranges, angle_deg, half_deg):
+    if ranges is None or angle_deg is None:
+        return None
+
+    zone = np.abs(GRID - float(angle_deg)) <= float(half_deg)
+
+    if not np.any(zone):
+        return None
+
+    values = ranges[zone]
+
+    if len(values) == 0:
+        return None
+
+    return float(np.min(values))
+
+
+def add_lidar_support(candidate, ranges, observed_center, args):
+    restore_shift = float(np.linalg.norm(candidate["center"] - observed_center))
+
+    if restore_shift < args.min_restore_shift:
+        return None
+
+    angle_deg = ground_bearing_deg(candidate["center"])
+    obstacle_d = lidar_min_distance_at(ranges, angle_deg, args.lidar_half_deg)
+
+    if obstacle_d is None or obstacle_d > args.lidar_obstacle_d:
+        return None
+
+    supported = dict(candidate)
+    supported["lidar_angle"] = angle_deg
+    supported["lidar_distance"] = obstacle_d
+    supported["lidar_score"] = (
+        (args.lidar_obstacle_d - obstacle_d) / max(args.lidar_obstacle_d, 1.0e-6)
+        + 0.25 * min(1.0, restore_shift / args.square_size)
+    )
+    return supported
+
+
+def filter_lidar_supported_candidates(candidates, ranges, observed_center, args):
+    supported = []
+
+    for candidate in candidates:
+        item = add_lidar_support(candidate, ranges, observed_center, args)
+
+        if item is not None:
+            supported.append(item)
+
+    return supported
+
+
 def restore_square_candidates(ground_points, square_size):
     if len(ground_points) < MIN_GROUND_POINTS:
         return []
@@ -264,18 +408,28 @@ def choose_candidate(candidates, previous_center, observed_center):
         return None
 
     if previous_center is not None:
-        return min(candidates, key=lambda item: float(np.linalg.norm(item["center"] - previous_center)))
+        return min(
+            candidates,
+            key=lambda item: (
+                float(np.linalg.norm(item["center"] - previous_center)),
+                -float(item.get("lidar_score", 0.0)),
+            ),
+        )
 
-    return min(
+    return max(
         candidates,
         key=lambda item: (
-            abs(float(item["center"][1])),
-            abs(float(item["center"][0] - observed_center[0])),
+            float(item.get("lidar_score", 0.0)),
+            -abs(float(item["center"][1])),
+            -abs(float(item["center"][0] - observed_center[0])),
         ),
     )
 
 
 def project_candidate(candidate, projector, frame_shape):
+    if candidate.get("kind") == "image":
+        return np.rint(candidate["display_polygon"]).astype(np.int32)
+
     raw = projector.ground_to_raw_pixels(candidate["corners"])
     display = raw_to_display_points(raw, frame_shape)
 
@@ -285,16 +439,74 @@ def project_candidate(candidate, projector, frame_shape):
     return np.rint(display).astype(np.int32)
 
 
+def candidate_display_center(candidate, projector, frame_shape):
+    if candidate.get("kind") == "image":
+        return candidate["display_center"]
+
+    raw_center = projector.ground_to_raw_pixels(candidate["center"][None, :])
+    center = raw_to_display_points(raw_center, frame_shape)[0]
+
+    if np.isnan(center).any():
+        return None
+
+    return center
+
+
+def center_inside_frame_margin(center, frame_shape, margin_ratio):
+    height, width = frame_shape[:2]
+    margin_x = width * margin_ratio
+    margin_y = height * margin_ratio
+
+    return (
+        -margin_x <= center[0] <= width + margin_x
+        and -margin_y <= center[1] <= height + margin_y
+    )
+
+
+def candidate_is_plausible(candidate, projector, frame_shape, target_area, args):
+    polygon = project_candidate(candidate, projector, frame_shape)
+
+    if polygon is None:
+        return False
+
+    projected_area = polygon_area(polygon)
+    frame_area = float(frame_shape[0] * frame_shape[1])
+
+    if projected_area < 0.8 * target_area:
+        return False
+
+    if projected_area > args.max_projected_area_ratio * frame_area:
+        return False
+
+    center = candidate_display_center(candidate, projector, frame_shape)
+
+    if center is None:
+        return False
+
+    return center_inside_frame_margin(center, frame_shape, args.center_margin)
+
+
+def filter_plausible_candidates(candidates, projector, frame_shape, target_area, args):
+    return [
+        candidate
+        for candidate in candidates
+        if candidate_is_plausible(candidate, projector, frame_shape, target_area, args)
+    ]
+
+
 def filtered_candidate(candidate, previous_center, alpha):
     if previous_center is None:
         return candidate
 
+    if candidate.get("kind") == "image":
+        return candidate
+
     center = alpha * previous_center + (1.0 - alpha) * candidate["center"]
     shift = center - candidate["center"]
-    return {
-        "center": center.astype(np.float32),
-        "corners": (candidate["corners"] + shift[None, :]).astype(np.float32),
-    }
+    filtered = dict(candidate)
+    filtered["center"] = center.astype(np.float32)
+    filtered["corners"] = (candidate["corners"] + shift[None, :]).astype(np.float32)
+    return filtered
 
 
 def draw_cross(frame, point, color):
@@ -311,16 +523,20 @@ def draw_candidate(frame, candidate, projector, color, thickness):
 
     cv2.polylines(frame, [polygon], True, color, thickness)
 
-    raw_center = projector.ground_to_raw_pixels(candidate["center"][None, :])
-    center = raw_to_display_points(raw_center, frame.shape)[0]
+    center = candidate_display_center(candidate, projector, frame.shape)
 
-    if not np.isnan(center).any():
+    if center is not None:
         draw_cross(frame, center, CENTER_COLOR)
 
     return True
 
 
-def restore_target(frame, target, projector, args, previous_center):
+def restore_target(frame, target, projector, ranges, args, previous_center):
+    observed = complete_observed_candidate(frame, target, projector, args)
+
+    if observed is not None:
+        return observed, [], "observed full"
+
     pts_display = contour_points(target)
     raw_points = display_to_raw_points(pts_display, frame.shape)
     ground_points = projector.raw_pixels_to_ground(raw_points)
@@ -328,15 +544,30 @@ def restore_target(frame, target, projector, args, previous_center):
     if len(ground_points) < MIN_GROUND_POINTS:
         return None, [], "few ground points"
 
+    if not ground_shape_is_plausible(ground_points, args):
+        return None, [], "implausible span"
+
     candidates = restore_square_candidates(ground_points, args.square_size)
+    candidates = filter_plausible_candidates(candidates, projector, frame.shape, target[5], args)
 
     if not candidates:
-        return None, [], "no square candidate"
+        return None, [], "no plausible square"
 
     observed_center = np.mean(ground_points, axis=0)
-    selected = choose_candidate(candidates, previous_center, observed_center)
+    if ranges is None:
+        return None, candidates, "waiting lidar"
+
+    supported = filter_lidar_supported_candidates(candidates, ranges, observed_center, args)
+
+    if not supported:
+        return None, candidates, "no lidar obstacle"
+
+    selected = choose_candidate(supported, previous_center, observed_center)
     selected = filtered_candidate(selected, previous_center, args.smooth)
-    return selected, candidates, "restored"
+    lidar_angle = selected.get("lidar_angle")
+    lidar_distance = selected.get("lidar_distance")
+    status = f"lidar restored {lidar_angle:.0f}deg {lidar_distance:.2f}m"
+    return selected, candidates, status
 
 
 def draw_target(frame, target, selected, candidates, projector, status, args):
@@ -369,7 +600,7 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description="Draw a restored 30 cm square from a partial HSV color region."
     )
-    parser.add_argument("--target", choices=("ALL",) + TARGET_NAMES, default="ALL")
+    parser.add_argument("--target", choices=TARGET_NAMES, default="RED")
     parser.add_argument("--square-size", type=float, default=SQUARE_SIZE_M)
     parser.add_argument("--height", type=float, default=CAMERA_HEIGHT_M)
     parser.add_argument("--pitch-down", type=float, default=PITCH_DOWN_DEG)
@@ -380,36 +611,39 @@ def parse_args():
     parser.add_argument("--calib-width", type=float, default=CALIB_WIDTH)
     parser.add_argument("--calib-height", type=float, default=CALIB_HEIGHT)
     parser.add_argument("--min-area", type=int, default=MIN_AREA)
+    parser.add_argument("--min-ground-span", type=float, default=MIN_GROUND_SPAN_M)
+    parser.add_argument("--max-ground-span", type=float, default=MAX_GROUND_SPAN_M)
+    parser.add_argument("--complete-fill-ratio", type=float, default=COMPLETE_FILL_RATIO)
+    parser.add_argument("--max-projected-area-ratio", type=float, default=MAX_PROJECTED_AREA_RATIO)
+    parser.add_argument("--center-margin", type=float, default=CENTER_MARGIN_RATIO)
+    parser.add_argument("--lidar-obstacle-d", type=float, default=FREE_D)
+    parser.add_argument("--lidar-half-deg", type=float, default=LIDAR_GUIDE_HALF_DEG)
+    parser.add_argument("--lidar-max-age", type=float, default=LIDAR_MAX_AGE_S)
+    parser.add_argument("--min-restore-shift", type=float, default=MIN_RESTORE_SHIFT_M)
+    parser.add_argument("--no-lidar", action="store_true")
     parser.add_argument("--smooth", type=float, default=0.65)
     parser.add_argument("--show-candidates", action="store_true")
     return parser.parse_args()
 
 
-def selected_targets(found, target_name, min_area):
+def selected_target(found, target_name, min_area):
     found = [item for item in found if item[5] >= min_area]
-
-    if target_name != "ALL":
-        target = pick(found, target_name)
-        return [] if target is None else [target]
-
-    targets = []
-    for name in TARGET_NAMES:
-        target = pick(found, name)
-
-        if target is not None:
-            targets.append(target)
-
-    return targets
+    return pick(found, target_name)
 
 
 def main():
     args = parse_args()
     args.smooth = clamp(args.smooth, 0.0, 0.95)
-    cam = None
-    previous_centers = {}
+    args.complete_fill_ratio = clamp(args.complete_fill_ratio, 0.1, 0.95)
+    args.center_margin = clamp(args.center_margin, 0.0, 1.0)
+    cam = lidar = None
+    previous_center = None
 
     try:
         cam = open_camera()
+
+        if not args.no_lidar:
+            lidar = RPLidarC1()
 
         while True:
             ok, frame = read_frame(cam)
@@ -419,27 +653,41 @@ def main():
 
             fx, fy, cx, cy = scaled_intrinsics(frame.shape, args)
             projector = GroundProjector(args.height, args.pitch_down, fx, fy, cx, cy)
-            targets = selected_targets(detect(frame), args.target, args.min_area)
-            active_names = set()
+            ranges = None
+            lidar_status = "LIDAR off" if args.no_lidar else "LIDAR waiting"
 
-            for target in targets:
-                name = target[0]
-                previous = previous_centers.get(name)
-                selected, candidates, status = restore_target(frame, target, projector, args, previous)
+            if lidar is not None:
+                scan, scan_time, scan_seq = lidar.get()
+
+                if scan is not None:
+                    scan_age = time.time() - scan_time
+
+                    if scan_age <= args.lidar_max_age:
+                        ranges = front_ranges(scan)
+                        lidar_status = f"LIDAR seq={scan_seq}"
+                    else:
+                        lidar_status = f"LIDAR stale {scan_age:.1f}s"
+
+            target = selected_target(detect(frame), args.target, args.min_area)
+
+            if target is None:
+                previous_center = None
+                status = f"{args.target}: not found"
+            else:
+                selected, candidates, status = restore_target(
+                    frame, target, projector, ranges, args, previous_center
+                )
 
                 if selected is not None:
-                    previous_centers[name] = selected["center"]
-                    active_names.add(name)
+                    previous_center = selected["center"]
+                else:
+                    previous_center = None
 
                 draw_target(frame, target, selected, candidates, projector, status, args)
 
-            for name in list(previous_centers):
-                if name not in active_names:
-                    previous_centers.pop(name, None)
-
             cv2.putText(
                 frame,
-                "q: quit",
+                f"target={args.target} {status} {lidar_status} q: quit",
                 (10, 30),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.8,
@@ -452,6 +700,9 @@ def main():
                 break
 
     finally:
+        if lidar is not None:
+            lidar.close()
+
         close_camera(cam)
 
 
