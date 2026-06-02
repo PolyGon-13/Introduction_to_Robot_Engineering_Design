@@ -233,7 +233,7 @@ def avoid_cmd(ranges, color_deg=None, base_v=AVOID_BASE_V):
     left_risk = max(0.0, SIDE_CLEAR_D - left_d)
     right_risk = max(0.0, SIDE_CLEAR_D - right_d)
     side_correct_deg = clamp(
-        (right_risk - left_risk) / SIDE_CLEAR_D * SIDE_CORRECT_MAX_DEG,
+        (left_risk - right_risk) / SIDE_CLEAR_D * SIDE_CORRECT_MAX_DEG,
         -SIDE_CORRECT_MAX_DEG,
         SIDE_CORRECT_MAX_DEG,
     )
