@@ -45,6 +45,8 @@ LIDAR_GUIDE_HALF_DEG = 12.0
 LIDAR_MAX_AGE_S = 0.5
 MIN_RESTORE_SHIFT_M = 0.03
 PRINT_INTERVAL_S = 0.5
+GROUND_FORWARD_SCALE = 0.375
+GROUND_SIDE_SCALE = 0.75
 
 SELECTED_COLOR = (255, 255, 255)
 CANDIDATE_COLOR = (120, 120, 120)
@@ -126,12 +128,14 @@ def raw_to_display_points(points, frame_shape):
 
 
 class GroundProjector:
-    def __init__(self, height_m, pitch_down_deg, fx, fy, cx, cy):
+    def __init__(self, height_m, pitch_down_deg, fx, fy, cx, cy, forward_scale=1.0, side_scale=1.0):
         self.height_m = float(height_m)
         self.fx = float(fx)
         self.fy = float(fy)
         self.cx = float(cx)
         self.cy = float(cy)
+        self.forward_scale = float(forward_scale)
+        self.side_scale = float(side_scale)
 
         theta = math.radians(pitch_down_deg)
         self.cam_right = np.array([0.0, 1.0, 0.0], dtype=np.float32)
@@ -155,14 +159,19 @@ class GroundProjector:
 
         scale = self.height_m / rays[valid, 2]
         ground = rays[valid, :2] * scale[:, None]
+        ground[:, 0] *= self.forward_scale
+        ground[:, 1] *= self.side_scale
         return ground.astype(np.float32)
 
     def ground_to_raw_pixels(self, ground_points):
         pts = np.asarray(ground_points, dtype=np.float32).reshape(-1, 2)
+        unscaled = pts.copy()
+        unscaled[:, 0] /= max(self.forward_scale, 1.0e-6)
+        unscaled[:, 1] /= max(self.side_scale, 1.0e-6)
         vecs = np.column_stack(
             (
-                pts[:, 0],
-                pts[:, 1],
+                unscaled[:, 0],
+                unscaled[:, 1],
                 np.full(len(pts), self.height_m, dtype=np.float32),
             )
         )
@@ -303,6 +312,13 @@ def target_size_measurement(frame, target, projector):
     ground_polygon = projector.raw_pixels_to_ground(raw_polygon)
     dimensions = ground_polygon_dimensions(ground_polygon)
     ground_area = polygon_area(ground_polygon) if dimensions is not None else None
+    ground_span = None
+
+    if len(ground_polygon) > 0:
+        ground_span = (
+            float(np.max(ground_polygon[:, 0]) - np.min(ground_polygon[:, 0])),
+            float(np.max(ground_polygon[:, 1]) - np.min(ground_polygon[:, 1])),
+        )
 
     return {
         "display_polygon": display_polygon,
@@ -311,6 +327,7 @@ def target_size_measurement(frame, target, projector):
         "bbox_h": int(target[4]),
         "fill_ratio": contour_fill_ratio(target),
         "ground_size": dimensions,
+        "ground_span": ground_span,
         "ground_area": ground_area,
     }
 
@@ -321,7 +338,12 @@ def format_size_log(name, measurement, status):
     else:
         short_m, long_m = measurement["ground_size"]
         area_m2 = measurement["ground_area"]
-        ground_text = f"ground={short_m:.3f}x{long_m:.3f}m area={area_m2:.4f}m2"
+        span_x, span_y = measurement["ground_span"]
+        ground_text = (
+            f"ground={short_m:.3f}x{long_m:.3f}m "
+            f"span_x={span_x:.3f}m span_y={span_y:.3f}m "
+            f"area={area_m2:.4f}m2"
+        )
 
     return (
         f"[SIZE] {name} "
@@ -701,6 +723,8 @@ def parse_args():
     parser.add_argument("--min-restore-shift", type=float, default=MIN_RESTORE_SHIFT_M)
     parser.add_argument("--no-lidar", action="store_true")
     parser.add_argument("--print-interval", type=float, default=PRINT_INTERVAL_S)
+    parser.add_argument("--ground-forward-scale", type=float, default=GROUND_FORWARD_SCALE)
+    parser.add_argument("--ground-side-scale", type=float, default=GROUND_SIDE_SCALE)
     parser.add_argument("--smooth", type=float, default=0.65)
     parser.add_argument("--show-candidates", action="store_true")
     return parser.parse_args()
@@ -719,6 +743,8 @@ def main():
     args.complete_size_max_ratio = max(args.complete_size_max_ratio, args.complete_size_min_ratio)
     args.center_margin = clamp(args.center_margin, 0.0, 1.0)
     args.print_interval = max(0.0, args.print_interval)
+    args.ground_forward_scale = max(args.ground_forward_scale, 1.0e-6)
+    args.ground_side_scale = max(args.ground_side_scale, 1.0e-6)
     cam = lidar = None
     previous_center = None
     last_size_print = 0.0
@@ -736,7 +762,16 @@ def main():
                 break
 
             fx, fy, cx, cy = scaled_intrinsics(frame.shape, args)
-            projector = GroundProjector(args.height, args.pitch_down, fx, fy, cx, cy)
+            projector = GroundProjector(
+                args.height,
+                args.pitch_down,
+                fx,
+                fy,
+                cx,
+                cy,
+                args.ground_forward_scale,
+                args.ground_side_scale,
+            )
             ranges = None
             lidar_status = "LIDAR off" if args.no_lidar else "LIDAR waiting"
 
