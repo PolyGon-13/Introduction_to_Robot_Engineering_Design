@@ -62,11 +62,10 @@ ARDU_PORT = "/dev/ttyS0"  # 아두이노 모터 제어 시리얼 포트
 ARDU_BAUD = 9600  # 아두이노 시리얼 통신 속도
 DRIVE_V = 0.25  # 색 추적, 장애물 회피, 색 완료 후 추가 전진에 공통으로 쓰는 전진 속도
 V_STEP = 0.04  # 전진 속도 명령의 루프당 최대 변화량
-FOLLOW_W_STEP = 0.15  # 색 추적 모드 회전 속도 명령의 루프당 최대 변화량
+FOLLOW_W_STEP = 0.25  # 색 추적 모드 회전 속도 명령의 루프당 최대 변화량
 AVOID_W_STEP = 0.20  # 장애물 회피 모드 회전 속도 명령의 루프당 최대 변화량
 LOOP_DT = 0.05  # 메인 루프 대기 시간(초)
 SEARCH_MAX_W = 1.0  # 색 재탐색 모드 최대 회전 속도
-SEARCH_TURN_GAIN = 1.0  # 마지막 색 방향을 회전 속도로 바꾸는 비례 계수
 SWITCH_SEARCH_W = 1.0  # 다음 색이 안 보일 때 제자리 탐색 회전 속도
 ODOM_LOG_INTERVAL = 0.5  # 엔코더 누적값 로그 출력 주기(초)
 WHEEL_R = 0.034  # Arduino encoder distance calculation wheel radius(m)
@@ -323,7 +322,7 @@ def log_odom(elapsed, odom):
     print(f"[{elapsed:.2f}s] [ODOM] left={enc_l} right={enc_r} arduino_ms={arduino_ms}")
 
 
-def color_cmd(target, frame, ranges, has_obstacle, color_deg, center_ratio, elapsed):
+def color_cmd(target, frame, ranges, has_obstacle, color_deg, elapsed):
     if has_obstacle:
         if color_path_clear(ranges, color_deg):
             target_v, target_w = follow_cmd(target, frame.shape, DRIVE_V)
@@ -357,7 +356,6 @@ def main():
     last_odom_log_time = 0.0
     color_lost_during_avoid = False
     search_failed_avoid_active = False
-    search_start_time = None
     switch_search_active = False
     switch_search_start_odom = None
     target_index = 0
@@ -387,14 +385,14 @@ def main():
             found = detect(frame)  # 현재 프레임에서 찾은 색상 물체 목록
             target = pick(found, current_target)  # 따라갈 대상 색상 물체
             found = [target] if target is not None else []
-            scan, scan_time, scan_seq = lidar.get()  # 최신 라이다 스캔 데이터
+            scan, _, _ = lidar.get()  # 최신 라이다 스캔 데이터
             ranges = front_ranges(scan) if scan is not None else None  # 각도별 전방 거리 배열
             lidar_dist = lidar_zone_distances(ranges)  # 좌/정면/우측 로그용 최소 거리
             has_obstacle = obstacle_detected(ranges)  # 장애물 감지 여부
 
             if target is not None:
                 last_color_deg, last_color_time, last_color_center_ratio, last_color_x_err = update_color_memory(target, frame)
-                search_start_time, switch_search_active, search_failed_avoid_active, switch_search_start_odom = None, False, False, None
+                switch_search_active, search_failed_avoid_active, switch_search_start_odom = False, False, None
 
             if time.time() - last_odom_log_time >= ODOM_LOG_INTERVAL:
                 log_odom(elapsed, motor.get_odom())
@@ -419,7 +417,7 @@ def main():
                     drive_forward_by_encoder(motor)
                     target_v, target_w, last_v, last_w = 0.0, 0.0, 0.0, 0.0
                     wait_ms(COLOR_SWITCH_PAUSE_MS)
-                    scan, scan_time, scan_seq = lidar.get()
+                    scan, _, _ = lidar.get()
                     ranges = front_ranges(scan) if scan is not None else None
                     lidar_dist = lidar_zone_distances(ranges)
                     has_obstacle = obstacle_detected(ranges)
@@ -435,21 +433,20 @@ def main():
                         last_color_deg, last_color_time, last_color_center_ratio, last_color_x_err = update_color_memory(target, frame)
                         color_lost_during_avoid = False
                         search_failed_avoid_active = False
-                        search_start_time = None
                         mode, target_v, target_w = color_cmd(
-                            target, frame, ranges, has_obstacle, last_color_deg, last_color_center_ratio, elapsed
+                            target, frame, ranges, has_obstacle, last_color_deg, elapsed
                         )
                     else:
                         mode, target_v, target_w = search_next_cmd()
                         last_color_deg, last_color_time, last_color_center_ratio, last_color_x_err = clear_color_memory()
-                        color_lost_during_avoid, search_start_time, switch_search_active = False, None, True
+                        color_lost_during_avoid, switch_search_active = False, True
                         switch_search_start_odom = get_turn_start_odom(motor)
                 else:
                     mode = "STOP: color bottom"
                     drive_forward_by_encoder(motor)
                     target_v, target_w, last_v, last_w = 0.0, 0.0, 0.0, 0.0
                     last_color_deg, last_color_time, last_color_center_ratio, last_color_x_err = clear_color_memory()
-                    color_lost_during_avoid, search_start_time, switch_search_active = False, None, False
+                    color_lost_during_avoid, switch_search_active = False, False
                     search_failed_avoid_active, switch_search_start_odom = False, None
                     print(f"[{elapsed:.2f}s] [COLOR] {current_target} done, mission complete")
                     break
@@ -458,7 +455,7 @@ def main():
                 color_lost_during_avoid = False
                 search_failed_avoid_active = False
                 mode, target_v, target_w = color_cmd(
-                    target, frame, ranges, has_obstacle, last_color_deg, last_color_center_ratio, elapsed
+                    target, frame, ranges, has_obstacle, last_color_deg, elapsed
                 )
 
             elif target is None and search_failed_avoid_active:
@@ -468,16 +465,12 @@ def main():
                 color_lost_during_avoid = True
                 switch_search_active = False
                 if not lost_color_obstacle_passed(ranges, last_color_deg):
-                    search_start_time = None
                     mode, target_v, target_w = avoid_mode("AVOID: lost color", "AVOID_LOST", ranges, last_color_deg, elapsed)
                 else:
-                    if search_start_time is None:
-                        search_start_time = time.time()
                     mode, target_v, target_w = search_last_cmd(last_color_deg)
 
             elif target is None and last_color_time > 0.0 and not lost_color_obstacle_passed(ranges, last_color_deg):
                 color_lost_during_avoid = True
-                search_start_time = None
                 mode, target_v, target_w = avoid_mode("AVOID: lost color", "AVOID_LOST", ranges, last_color_deg, elapsed)
 
             elif target is None and switch_search_active:
@@ -488,21 +481,15 @@ def main():
                     mode, target_v, target_w = avoid_mode("AVOID: search failed", "AVOID_SEARCH", ranges, last_color_deg if last_color_time > 0.0 else None, elapsed)
                     color_lost_during_avoid, switch_search_active = True, False
                     search_failed_avoid_active = True
-                    search_start_time = None
                     switch_search_start_odom = None
                 else:
                     mode, target_v, target_w = search_next_cmd()
 
             elif target is None and color_lost_during_avoid:
-                if search_start_time is None:
-                    search_start_time = time.time()
-
                 mode, target_v, target_w = search_last_cmd(last_color_deg)
 
             elif target is None:
                 if last_color_time > 0.0:
-                    if search_start_time is None:
-                        search_start_time = time.time()
                     mode, target_v, target_w = search_last_cmd(last_color_deg)
                     color_lost_during_avoid, switch_search_active = True, False
                 else:
