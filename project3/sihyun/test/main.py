@@ -31,7 +31,6 @@ from lidar import (
     COLOR_TO_LIDAR_DEG,
     FREE_D,
     FRONT_LOG_ZONE,
-    GRID,
     LEFT_ZONE,
     RPLidarC1,
     RIGHT_ZONE,
@@ -73,10 +72,6 @@ WHEEL_R = 0.034  # Arduino encoder distance calculation wheel radius(m)
 ENC_PPR = 1012.0  # Arduino encoder counts per wheel revolution
 ENC_COUNTS_PER_M = ENC_PPR / (2.0 * np.pi * WHEEL_R)
 POST_COLOR_FORWARD_M = 0.05  # Move forward after a color exits bottom before pause(m)
-SEARCH_ADVANCE_M = 0.50  # Move forward this far after a failed 360 color search(m)
-SEARCH_OBSTACLE_TURN_DEFAULT_DEG = 45.0
-SEARCH_OBSTACLE_TURN_MIN_DEG = 15.0
-SEARCH_OBSTACLE_TURN_MAX_DEG = 90.0
 TURN_360_WHEEL_BASE_M = 0.18  # Distance between left/right wheels for encoder-based 360 turn(m)
 TURN_360_COUNTS = np.pi * TURN_360_WHEEL_BASE_M * ENC_COUNTS_PER_M
 AVOID_STOP_D = 0.15  # Stop avoid forward speed when a front obstacle is this close(m)
@@ -187,36 +182,6 @@ def search_next_cmd():
     return "SEARCH: next color", 0.0, SWITCH_SEARCH_W
 
 
-def obstacle_heavy_turn_plan(ranges):
-    if ranges is None:
-        return SWITCH_SEARCH_W, TURN_360_COUNTS * SEARCH_OBSTACLE_TURN_DEFAULT_DEG / 360.0
-
-    def side_score(zone):
-        risk = np.maximum(0.0, FREE_D - ranges[zone])
-        return float(np.sum(risk))
-
-    left_score = side_score(LEFT_ZONE)
-    right_score = side_score(RIGHT_ZONE)
-    zone = RIGHT_ZONE if right_score >= left_score else LEFT_ZONE
-    risk = np.maximum(0.0, FREE_D - ranges[zone])
-
-    if float(np.sum(risk)) <= 0.0:
-        target_deg = SEARCH_OBSTACLE_TURN_DEFAULT_DEG if right_score >= left_score else -SEARCH_OBSTACLE_TURN_DEFAULT_DEG
-    else:
-        target_deg = float(np.average(GRID[zone], weights=risk))
-        target_deg = clamp(
-            target_deg,
-            -SEARCH_OBSTACLE_TURN_MAX_DEG,
-            SEARCH_OBSTACLE_TURN_MAX_DEG,
-        )
-        if abs(target_deg) < SEARCH_OBSTACLE_TURN_MIN_DEG:
-            target_deg = SEARCH_OBSTACLE_TURN_MIN_DEG if target_deg >= 0.0 else -SEARCH_OBSTACLE_TURN_MIN_DEG
-
-    w = -SWITCH_SEARCH_W if target_deg >= 0.0 else SWITCH_SEARCH_W
-    target_counts = TURN_360_COUNTS * abs(target_deg) / 360.0
-    return w, target_counts
-
-
 def obstacle_in_zone(ranges, zone, clear_d=FREE_D):
     if ranges is None:
         return False
@@ -282,35 +247,6 @@ def completed_one_encoder_turn(motor, start_odom):
     left_counts = abs(enc_l - start_l)
     right_counts = abs(enc_r - start_r)
     return 0.5 * (left_counts + right_counts) >= TURN_360_COUNTS
-
-
-def completed_encoder_turn_counts(motor, start_odom, target_counts):
-    if start_odom is None:
-        return False
-
-    enc_l, enc_r, _, odom_time = motor.get_odom()
-    if odom_time == 0.0 or time.time() - odom_time > 0.5:
-        return False
-
-    start_l, start_r = start_odom
-    left_counts = abs(enc_l - start_l)
-    right_counts = abs(enc_r - start_r)
-    return 0.5 * (left_counts + right_counts) >= target_counts
-
-
-def completed_encoder_forward(motor, start_odom, distance_m):
-    if start_odom is None:
-        return False
-
-    enc_l, enc_r, _, odom_time = motor.get_odom()
-    if odom_time == 0.0 or time.time() - odom_time > 0.5:
-        return False
-
-    start_l, start_r = start_odom
-    left_counts = abs(enc_l - start_l)
-    right_counts = abs(enc_r - start_r)
-    target_counts = abs(distance_m) * ENC_COUNTS_PER_M
-    return 0.5 * (left_counts + right_counts) >= target_counts
 
 
 def drive_forward_by_encoder(motor, distance_m=POST_COLOR_FORWARD_M):
@@ -422,11 +358,6 @@ def main():
     search_failed_avoid_active = False
     switch_search_active = False
     switch_search_start_odom = None
-    search_advance_start_odom = None
-    search_obstacle_turn_active = False
-    search_obstacle_turn_start_odom = None
-    search_obstacle_turn_w = SWITCH_SEARCH_W
-    search_obstacle_turn_counts = TURN_360_COUNTS * SEARCH_OBSTACLE_TURN_DEFAULT_DEG / 360.0
     target_index = 0
     current_target = TARGET_SEQUENCE[target_index]
 
@@ -462,11 +393,6 @@ def main():
             if target is not None:
                 last_color_deg, last_color_time, last_color_center_ratio, last_color_x_err = update_color_memory(target, frame)
                 switch_search_active, search_failed_avoid_active, switch_search_start_odom = False, False, None
-                search_advance_start_odom = None
-                search_obstacle_turn_active = False
-                search_obstacle_turn_start_odom = None
-                search_obstacle_turn_w = SWITCH_SEARCH_W
-                search_obstacle_turn_counts = TURN_360_COUNTS * SEARCH_OBSTACLE_TURN_DEFAULT_DEG / 360.0
 
             if time.time() - last_odom_log_time >= ODOM_LOG_INTERVAL:
                 log_odom(elapsed, motor.get_odom())
@@ -520,11 +446,6 @@ def main():
                         last_color_deg, last_color_time, last_color_center_ratio, last_color_x_err = clear_color_memory()
                         color_lost_during_avoid, switch_search_active = False, True
                         switch_search_start_odom = get_turn_start_odom(motor)
-                        search_advance_start_odom = None
-                        search_obstacle_turn_active = False
-                        search_obstacle_turn_start_odom = None
-                        search_obstacle_turn_w = SWITCH_SEARCH_W
-                        search_obstacle_turn_counts = TURN_360_COUNTS * SEARCH_OBSTACLE_TURN_DEFAULT_DEG / 360.0
                 else:
                     mode = "STOP: color bottom"
                     drive_forward_by_encoder(motor)
@@ -532,11 +453,6 @@ def main():
                     last_color_deg, last_color_time, last_color_center_ratio, last_color_x_err = clear_color_memory()
                     color_lost_during_avoid, switch_search_active = False, False
                     search_failed_avoid_active, switch_search_start_odom = False, None
-                    search_advance_start_odom = None
-                    search_obstacle_turn_active = False
-                    search_obstacle_turn_start_odom = None
-                    search_obstacle_turn_w = SWITCH_SEARCH_W
-                    search_obstacle_turn_counts = TURN_360_COUNTS * SEARCH_OBSTACLE_TURN_DEFAULT_DEG / 360.0
                     print(f"[{elapsed:.2f}s] [COLOR] {current_target} done, mission complete")
                     break
 
@@ -552,31 +468,7 @@ def main():
                     )
 
             elif target is None and search_failed_avoid_active:
-                if search_obstacle_turn_active:
-                    if search_obstacle_turn_start_odom is None:
-                        search_obstacle_turn_start_odom = get_turn_start_odom(motor)
-
-                    if completed_encoder_turn_counts(motor, search_obstacle_turn_start_odom, search_obstacle_turn_counts):
-                        search_obstacle_turn_active = False
-                        search_obstacle_turn_start_odom = None
-                        search_advance_start_odom = get_turn_start_odom(motor)
-                        mode, target_v, target_w = avoid_mode("AVOID: search advance", "AVOID_SEARCH_ADV", ranges, None, elapsed)
-                    else:
-                        mode, target_v, target_w = "SEARCH: turn obstacle side", 0.0, search_obstacle_turn_w
-
-                elif search_advance_start_odom is None:
-                    search_advance_start_odom = get_turn_start_odom(motor)
-                    mode, target_v, target_w = avoid_mode("AVOID: search advance", "AVOID_SEARCH_ADV", ranges, None, elapsed)
-
-                else:
-                    if completed_encoder_forward(motor, search_advance_start_odom, SEARCH_ADVANCE_M):
-                        mode, target_v, target_w = search_next_cmd()
-                        switch_search_active = True
-                        search_failed_avoid_active = False
-                        switch_search_start_odom = get_turn_start_odom(motor)
-                        search_advance_start_odom = None
-                    else:
-                        mode, target_v, target_w = avoid_mode("AVOID: search advance", "AVOID_SEARCH_ADV", ranges, None, elapsed)
+                mode, target_v, target_w = avoid_mode("AVOID: search failed", "AVOID_SEARCH", ranges, last_color_deg if last_color_time > 0.0 else None, elapsed)
 
             elif color_exited_bottom:
                 color_lost_during_avoid = True
@@ -595,14 +487,10 @@ def main():
                     switch_search_start_odom = get_turn_start_odom(motor)
 
                 if completed_one_encoder_turn(motor, switch_search_start_odom):
-                    search_obstacle_turn_w, search_obstacle_turn_counts = obstacle_heavy_turn_plan(ranges)
-                    mode, target_v, target_w = "SEARCH: turn obstacle side", 0.0, search_obstacle_turn_w
+                    mode, target_v, target_w = avoid_mode("AVOID: search failed", "AVOID_SEARCH", ranges, last_color_deg if last_color_time > 0.0 else None, elapsed)
                     color_lost_during_avoid, switch_search_active = True, False
                     search_failed_avoid_active = True
                     switch_search_start_odom = None
-                    search_advance_start_odom = None
-                    search_obstacle_turn_active = True
-                    search_obstacle_turn_start_odom = get_turn_start_odom(motor)
                 else:
                     mode, target_v, target_w = search_next_cmd()
 
@@ -618,10 +506,6 @@ def main():
                     color_lost_during_avoid, switch_search_active = True, False
                     search_failed_avoid_active = True
                     switch_search_start_odom = None
-                    search_advance_start_odom = None
-                    search_obstacle_turn_active = True
-                    search_obstacle_turn_start_odom = get_turn_start_odom(motor)
-                    search_obstacle_turn_w, search_obstacle_turn_counts = obstacle_heavy_turn_plan(ranges)
 
             if motor_enabled.is_set() and (target is not None or mode.startswith("AVOID") or mode.startswith("SEARCH")):
                 last_v = rate_limit(last_v, target_v, V_STEP)
