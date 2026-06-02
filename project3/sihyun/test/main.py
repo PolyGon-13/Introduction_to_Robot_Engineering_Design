@@ -166,7 +166,7 @@ def color_angle_from_target(target, frame_shape):
         return 0.0
 
     err = bottom_center_error(target, frame_shape)
-    return clamp(-err * COLOR_TO_LIDAR_DEG, ANG_MIN, ANG_MAX)
+    return clamp(err * COLOR_TO_LIDAR_DEG, ANG_MIN, ANG_MAX)
 
 
 def update_color_memory(target, frame):
@@ -325,7 +325,7 @@ def color_cmd(target, frame, ranges, has_obstacle, color_deg, center_ratio, elap
 
 
 def search_last_cmd(last_color_deg):
-    w = SEARCH_MAX_W if last_color_deg >= 0.0 else -SEARCH_MAX_W
+    w = -SEARCH_MAX_W if last_color_deg >= 0.0 else SEARCH_MAX_W
     return "SEARCH: last color direction", 0.0, w
 
 
@@ -405,6 +405,10 @@ def main():
                     drive_forward_by_encoder(motor)
                     target_v, target_w, last_v, last_w = 0.0, 0.0, 0.0, 0.0
                     wait_ms(COLOR_SWITCH_PAUSE_MS)
+                    scan, scan_time, scan_seq = lidar.get()
+                    ranges = front_ranges(scan) if scan is not None else None
+                    lidar_dist = lidar_zone_distances(ranges)
+                    has_obstacle = obstacle_detected(ranges)
                     ok, frame = read_frame(cam)
                     if not ok:
                         break
