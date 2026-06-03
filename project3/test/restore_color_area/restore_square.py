@@ -21,7 +21,7 @@ from camera import (
     pick,
     read_frame,
 )
-from lidar import FREE_D, GRID, RPLidarC1, front_ranges
+from lidar import GRID, RPLidarC1, front_ranges
 
 
 TARGET_NAMES = ("RED", "YELLOW", "BLUE")
@@ -43,7 +43,7 @@ SQUARE_SIZE_M = 0.30
 MIN_AREA = 1000
 MIN_GROUND_POINTS = 3
 MIN_GROUND_SPAN_M = 0.04
-MAX_GROUND_SPAN_M = 0.45
+MAX_GROUND_SPAN_M = 0.60
 COMPLETE_FILL_RATIO = 0.65
 COMPLETE_SIZE_MIN_RATIO = 0.70
 COMPLETE_SIZE_MAX_RATIO = 1.45
@@ -894,20 +894,24 @@ def restore_target(frame, target, projector, ranges, args, previous_center):
         return None, [], "no plausible square"
 
     observed_center = np.mean(ground_points, axis=0)
-    if ranges is None:
-        return None, candidates, "waiting lidar"
 
-    supported = filter_lidar_supported_candidates(candidates, ranges, observed_center, args)
+    supported = []
+    if ranges is not None:
+        supported = filter_lidar_supported_candidates(candidates, ranges, observed_center, args)
 
-    if not supported:
-        return None, candidates, "no lidar obstacle"
+    if supported:
+        selected = choose_candidate(supported, previous_center, observed_center)
+        selected = filtered_candidate(selected, previous_center, args.smooth)
+        lidar_angle = selected.get("lidar_angle")
+        lidar_distance = selected.get("lidar_distance")
+        status = f"lidar restored {lidar_angle:.0f}deg {lidar_distance:.2f}m"
+        return selected, candidates, status
 
-    selected = choose_candidate(supported, previous_center, observed_center)
+    # 라이다 확인이 안 돼도 기하학적 최적 후보로 복원 추정을 표시한다.
+    selected = choose_candidate(candidates, previous_center, observed_center)
     selected = filtered_candidate(selected, previous_center, args.smooth)
-    lidar_angle = selected.get("lidar_angle")
-    lidar_distance = selected.get("lidar_distance")
-    status = f"lidar restored {lidar_angle:.0f}deg {lidar_distance:.2f}m"
-    return selected, candidates, status
+    reason = "no lidar" if ranges is None else "no obstacle"
+    return selected, candidates, f"restored geom ({reason})"
 
 
 def draw_target(frame, target, selected, candidates, projector, status, args):
@@ -969,7 +973,7 @@ def parse_args():
     parser.add_argument("--complete-size-max-ratio", type=float, default=COMPLETE_SIZE_MAX_RATIO)
     parser.add_argument("--max-projected-area-ratio", type=float, default=MAX_PROJECTED_AREA_RATIO)
     parser.add_argument("--center-margin", type=float, default=CENTER_MARGIN_RATIO)
-    parser.add_argument("--lidar-obstacle-d", type=float, default=FREE_D)
+    parser.add_argument("--lidar-obstacle-d", type=float, default=0.60)
     parser.add_argument("--lidar-half-deg", type=float, default=LIDAR_GUIDE_HALF_DEG)
     parser.add_argument("--lidar-max-age", type=float, default=LIDAR_MAX_AGE_S)
     parser.add_argument("--min-restore-shift", type=float, default=MIN_RESTORE_SHIFT_M)
