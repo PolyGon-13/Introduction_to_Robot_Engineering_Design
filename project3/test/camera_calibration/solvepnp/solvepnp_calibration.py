@@ -1,24 +1,5 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""체커보드 + solvePnP 로 카메라의 지면 자세를 1회 추정해 지면 호모그래피를 저장한다.
-
-restore_square.py 와 동일한 파이프라인(undistort -> raw 좌표 -> 호모그래피)을 재사용하며,
-결과를 restore_square 가 --use-homography 로 읽는 npz(키 "homography") 형식으로 저장한다.
-결과 파일은 이 스크립트와 같은 폴더에 ground_homography.npz 로 저장된다.
-
-사용법:
-    바닥에 체커보드(내부 코너 8x8, 한 칸 21mm)를 평평하게 놓고 실행.
-    python3 calibrate_ground_pnp.py
-    검출되면 추정된 높이/피치가 표시됨 -> 0.65m / 45deg 와 비슷한지 확인 후 SPACE 로 저장.
-    q/ESC : 종료
-
-    저장한 결과를 restore_square 에서 사용:
-    python3 restore_square.py --target RED --use-homography \\
-        --homography-file <이 폴더>/ground_homography.npz
-
-지면 좌표계는 카메라 광축 기준(x=전방, y=우측, 원점=카메라 바로 아래 지면)으로 정의하므로
-라이다 bearing 규약과 일치하고, 정사각 보드의 면내 회전 모호성과 무관하다.
-"""
 
 import argparse
 import sys
@@ -27,8 +8,6 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-# restore_square 의 변환 규약/카메라 파이프라인을 그대로 재사용한다.
-# (restore_square import 시 그 내부에서 camera/lidar 경로도 sys.path 에 추가된다.)
 RESTORE_DIR = Path(__file__).resolve().parent.parent.parent / "restore_color_area"
 sys.path.insert(0, str(RESTORE_DIR))
 import restore_square as rs
@@ -78,14 +57,12 @@ def ground_frame_from_pose(rvec, tvec):
     rot, _ = cv2.Rodrigues(rvec)
     t = tvec.reshape(3)
 
-    # 보드(=지면) 평면 법선. 카메라 아래(+Y)를 향하도록 부호 정렬.
     normal = rot[:, 2].astype(np.float64)
     if np.dot(normal, np.array([0.0, 1.0, 0.0])) < 0.0:
         normal = -normal
 
-    # 카메라 원점에서 평면까지 수직 거리(=카메라 높이).
     height = float(np.dot(normal, t))
-    foot = height * normal  # 카메라 바로 아래 지면점
+    foot = height * normal
 
     optical = np.array([0.0, 0.0, 1.0])
     forward = optical - np.dot(optical, normal) * normal
@@ -121,7 +98,6 @@ def estimate_homography(objp, raw_corners, k):
     if homography is None:
         return None
 
-    # 검증: pixel -> ground 변환 결과가 solvePnP 기하와 얼마나 일치하는지(미터 오차).
     mapped = cv2.perspectiveTransform(
         raw_corners.reshape(-1, 1, 2), homography
     ).reshape(-1, 2)

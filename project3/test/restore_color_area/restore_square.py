@@ -26,19 +26,13 @@ from lidar import GRID, RPLidarC1, front_ranges
 
 TARGET_NAMES = ("RED", "YELLOW", "BLUE")
 THIS_DIR = Path(__file__).resolve().parent
-DEFAULT_HOMOGRAPHY_FILE = THIS_DIR / "restore_square_homography.npz"
-DEFAULT_CAMERA_MATRIX_FILE = THIS_DIR.parent / "camera_calibration" / "camera_matrix.npy"
-DEFAULT_DIST_COEFFS_FILE = THIS_DIR.parent / "camera_calibration" / "dist_coeffs.npy"
+DEFAULT_HOMOGRAPHY_FILE = THIS_DIR.parent / "camera_calibration" / "solvepnp" / "ground_homography.npz"
+DEFAULT_CAMERA_MATRIX_FILE = THIS_DIR.parent / "camera_calibration" / "camera_matrix" / "camera_matrix.npy"
+DEFAULT_DIST_COEFFS_FILE = THIS_DIR.parent / "camera_calibration" / "camera_matrix" / "dist_coeffs.npy"
 
 CALIB_WIDTH = 640.0
 CALIB_HEIGHT = 480.0
-CALIB_FX = 651.22884042
-CALIB_FY = 676.79930888
-CALIB_CX = 380.17305783
-CALIB_CY = 221.65856353
 
-CAMERA_HEIGHT_M = 0.65
-PITCH_DOWN_DEG = 45.0
 SQUARE_SIZE_M = 0.30
 MIN_AREA = 1000
 MIN_GROUND_POINTS = 3
@@ -52,16 +46,8 @@ CENTER_MARGIN_RATIO = 0.15
 LIDAR_GUIDE_HALF_DEG = 12.0
 LIDAR_MAX_AGE_S = 0.5
 MIN_RESTORE_SHIFT_M = 0.03
-PRINT_INTERVAL_S = 0.5
-GROUND_FORWARD_SCALE = 1.0
-GROUND_SIDE_SCALE = 1.0
-CALIB_X_NEAR_M = 0.30
-CALIB_X_FAR_M = 0.60
-CALIB_Y_LEFT_M = -0.15
-CALIB_Y_RIGHT_M = 0.15
 
 SELECTED_COLOR = (255, 255, 255)
-CANDIDATE_COLOR = (120, 120, 120)
 CENTER_COLOR = (0, 255, 0)
 
 
@@ -76,19 +62,6 @@ def frame_raw_size(frame_shape):
         return float(display_h), float(display_w)
 
     return float(display_w), float(display_h)
-
-
-def scaled_intrinsics(frame_shape, args):
-    raw_w, raw_h = frame_raw_size(frame_shape)
-    sx = raw_w / args.calib_width
-    sy = raw_h / args.calib_height
-
-    return (
-        args.fx * sx,
-        args.fy * sy,
-        args.cx * sx,
-        args.cy * sy,
-    )
 
 
 def display_to_raw_points(points, frame_shape):
@@ -222,210 +195,26 @@ def load_tuned_intrinsics(args):
 
 
 class GroundProjector:
-    def __init__(
-        self,
-        height_m,
-        pitch_down_deg,
-        fx,
-        fy,
-        cx,
-        cy,
-        forward_scale=1.0,
-        side_scale=1.0,
-        homography=None,
-    ):
-        self.height_m = float(height_m)
-        self.fx = float(fx)
-        self.fy = float(fy)
-        self.cx = float(cx)
-        self.cy = float(cy)
-        self.forward_scale = float(forward_scale)
-        self.side_scale = float(side_scale)
-        self.homography = None
-        self.inverse_homography = None
-
-        if homography is not None:
-            self.homography = np.asarray(homography, dtype=np.float32)
-            self.inverse_homography = np.linalg.inv(self.homography).astype(np.float32)
-
-        theta = math.radians(pitch_down_deg)
-        self.cam_right = np.array([0.0, 1.0, 0.0], dtype=np.float32)
-        self.cam_down = np.array([-math.sin(theta), 0.0, math.cos(theta)], dtype=np.float32)
-        self.cam_forward = np.array([math.cos(theta), 0.0, math.sin(theta)], dtype=np.float32)
+    def __init__(self, homography):
+        self.homography = np.asarray(homography, dtype=np.float32)
+        self.inverse_homography = np.linalg.inv(self.homography).astype(np.float32)
 
     def raw_pixels_to_ground(self, raw_points):
-        pts = np.asarray(raw_points, dtype=np.float32).reshape(-1, 2)
-
-        if self.homography is not None:
-            mapped = cv2.perspectiveTransform(pts.reshape(-1, 1, 2), self.homography)
-            return mapped.reshape(-1, 2).astype(np.float32)
-
-        x_cam = (pts[:, 0] - self.cx) / self.fx
-        y_cam = (pts[:, 1] - self.cy) / self.fy
-
-        rays = (
-            x_cam[:, None] * self.cam_right
-            + y_cam[:, None] * self.cam_down
-            + self.cam_forward
-        )
-        valid = rays[:, 2] > 1.0e-6
-
-        if not np.any(valid):
-            return np.empty((0, 2), dtype=np.float32)
-
-        scale = self.height_m / rays[valid, 2]
-        ground = rays[valid, :2] * scale[:, None]
-        ground[:, 0] *= self.forward_scale
-        ground[:, 1] *= self.side_scale
-        return ground.astype(np.float32)
+        pts = np.asarray(raw_points, dtype=np.float32).reshape(-1, 1, 2)
+        return cv2.perspectiveTransform(pts, self.homography).reshape(-1, 2).astype(np.float32)
 
     def ground_to_raw_pixels(self, ground_points):
-        pts = np.asarray(ground_points, dtype=np.float32).reshape(-1, 2)
-
-        if self.inverse_homography is not None:
-            mapped = cv2.perspectiveTransform(pts.reshape(-1, 1, 2), self.inverse_homography)
-            return mapped.reshape(-1, 2).astype(np.float32)
-
-        unscaled = pts.copy()
-        unscaled[:, 0] /= max(self.forward_scale, 1.0e-6)
-        unscaled[:, 1] /= max(self.side_scale, 1.0e-6)
-        vecs = np.column_stack(
-            (
-                unscaled[:, 0],
-                unscaled[:, 1],
-                np.full(len(pts), self.height_m, dtype=np.float32),
-            )
-        )
-
-        x_cam = vecs @ self.cam_right
-        y_cam = vecs @ self.cam_down
-        z_cam = vecs @ self.cam_forward
-        valid = z_cam > 1.0e-6
-
-        raw = np.full((len(pts), 2), np.nan, dtype=np.float32)
-        raw[valid, 0] = self.fx * x_cam[valid] / z_cam[valid] + self.cx
-        raw[valid, 1] = self.fy * y_cam[valid] / z_cam[valid] + self.cy
-        return raw
+        pts = np.asarray(ground_points, dtype=np.float32).reshape(-1, 1, 2)
+        return cv2.perspectiveTransform(pts, self.inverse_homography).reshape(-1, 2).astype(np.float32)
 
 
 def homography_path(args):
     return Path(args.homography_file).expanduser()
 
 
-def calibration_ground_points(args):
-    return np.array(
-        [
-            [args.calib_x_near, args.calib_y_left],
-            [args.calib_x_near, args.calib_y_right],
-            [args.calib_x_far, args.calib_y_right],
-            [args.calib_x_far, args.calib_y_left],
-        ],
-        dtype=np.float32,
-    )
-
-
 def load_homography(path):
     data = np.load(str(path))
     return np.asarray(data["homography"], dtype=np.float32)
-
-
-def save_homography(path, homography, raw_points, display_points, ground_points):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    np.savez(
-        str(path),
-        homography=np.asarray(homography, dtype=np.float32),
-        raw_points=np.asarray(raw_points, dtype=np.float32),
-        display_points=np.asarray(display_points, dtype=np.float32),
-        ground_points=np.asarray(ground_points, dtype=np.float32),
-    )
-
-
-def draw_calibration_overlay(frame, clicked, ground_points):
-    labels = ("near-left", "near-right", "far-right", "far-left")
-    view = frame.copy()
-
-    for idx, point in enumerate(clicked):
-        x, y = int(round(point[0])), int(round(point[1]))
-        cv2.circle(view, (x, y), 5, (0, 255, 0), -1)
-        cv2.putText(
-            view,
-            str(idx + 1),
-            (x + 8, y - 8),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.6,
-            (0, 255, 0),
-            2,
-        )
-
-    next_idx = min(len(clicked), len(labels) - 1)
-    next_xy = ground_points[next_idx]
-    lines = [
-        "Click 4 floor calibration points.",
-        f"Next: {labels[next_idx]} x={next_xy[0]:.2f}m y={next_xy[1]:.2f}m",
-        "Order: near-left, near-right, far-right, far-left",
-        "r: reset, q: cancel",
-    ]
-
-    for idx, text in enumerate(lines):
-        cv2.putText(
-            view,
-            text,
-            (10, 28 + 24 * idx),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.58,
-            (255, 255, 255),
-            2,
-        )
-
-    return view
-
-
-def calibrate_homography(cam, args, undistorter=None):
-    ok, frame = read_frame(cam)
-
-    if not ok:
-        raise RuntimeError("[CALIB] camera frame read failed")
-
-    if undistorter is not None:
-        frame = undistorter.apply(frame)
-
-    clicked = []
-    ground_points = calibration_ground_points(args)
-    window_name = "restore_square calibration"
-
-    def on_mouse(event, x, y, flags, param):
-        if event == cv2.EVENT_LBUTTONDOWN and len(clicked) < 4:
-            clicked.append((float(x), float(y)))
-
-    cv2.namedWindow(window_name)
-    cv2.setMouseCallback(window_name, on_mouse)
-
-    while len(clicked) < 4:
-        cv2.imshow(window_name, draw_calibration_overlay(frame, clicked, ground_points))
-        key = cv2.waitKey(20) & 0xFF
-
-        if key == ord("q"):
-            cv2.destroyWindow(window_name)
-            raise RuntimeError("[CALIB] homography calibration cancelled")
-
-        if key == ord("r"):
-            clicked.clear()
-
-    cv2.imshow(window_name, draw_calibration_overlay(frame, clicked, ground_points))
-    cv2.waitKey(300)
-    cv2.destroyWindow(window_name)
-
-    display_points = np.asarray(clicked, dtype=np.float32)
-    raw_points = display_to_raw_points(display_points, frame.shape)
-    homography, _ = cv2.findHomography(raw_points, ground_points, 0)
-
-    if homography is None:
-        raise RuntimeError("[CALIB] findHomography failed")
-
-    path = homography_path(args)
-    save_homography(path, homography, raw_points, display_points, ground_points)
-    print(f"[CALIB] saved homography: {path}")
-    return np.asarray(homography, dtype=np.float32)
 
 
 def contour_points(target):
@@ -551,49 +340,12 @@ def target_size_measurement(frame, target, projector):
     display_polygon = target_display_polygon(target)
     raw_polygon = display_to_raw_points(display_polygon, frame.shape)
     ground_polygon = projector.raw_pixels_to_ground(raw_polygon)
-    dimensions = ground_polygon_dimensions(ground_polygon)
-    ground_area = polygon_area(ground_polygon) if dimensions is not None else None
-    ground_span = None
-
-    if len(ground_polygon) > 0:
-        ground_span = (
-            float(np.max(ground_polygon[:, 0]) - np.min(ground_polygon[:, 0])),
-            float(np.max(ground_polygon[:, 1]) - np.min(ground_polygon[:, 1])),
-        )
 
     return {
         "display_polygon": display_polygon,
-        "pixel_area": int(target[5]),
-        "bbox_w": int(target[3]),
-        "bbox_h": int(target[4]),
         "fill_ratio": contour_fill_ratio(target),
-        "ground_size": dimensions,
-        "ground_span": ground_span,
-        "ground_area": ground_area,
+        "ground_size": ground_polygon_dimensions(ground_polygon),
     }
-
-
-def format_size_log(name, measurement, status):
-    if measurement["ground_size"] is None:
-        ground_text = "ground=unknown"
-    else:
-        short_m, long_m = measurement["ground_size"]
-        area_m2 = measurement["ground_area"]
-        span_x, span_y = measurement["ground_span"]
-        ground_text = (
-            f"ground={short_m:.3f}x{long_m:.3f}m "
-            f"span_x={span_x:.3f}m span_y={span_y:.3f}m "
-            f"area={area_m2:.4f}m2"
-        )
-
-    return (
-        f"[SIZE] {name} "
-        f"pixels={measurement['pixel_area']}px "
-        f"bbox={measurement['bbox_w']}x{measurement['bbox_h']}px "
-        f"fill={measurement['fill_ratio']:.2f} "
-        f"{ground_text} "
-        f"status={status}"
-    )
 
 
 def diagonal_center(points):
@@ -915,17 +667,13 @@ def restore_target(frame, target, projector, ranges, args, previous_center):
     return selected, candidates, f"restored geom ({reason})"
 
 
-def draw_target(frame, target, selected, candidates, projector, status, args):
+def draw_target(frame, target, selected, projector, status):
     name, x, y, w, h, area, cx, cy, box, cnt = target
     color = BOX_COLORS.get(name, (0, 255, 0))
 
     cv2.drawContours(frame, [cnt], -1, color, 2)
     cv2.polylines(frame, [box], True, color, 1)
     cv2.circle(frame, (int(round(cx)), int(round(cy))), 4, color, -1)
-
-    if args.show_candidates:
-        for candidate in candidates:
-            draw_candidate(frame, candidate, projector, CANDIDATE_COLOR, 1)
 
     if selected is not None:
         draw_candidate(frame, selected, projector, SELECTED_COLOR, 3, CENTER_COLOR)
@@ -948,24 +696,8 @@ def parse_args():
     parser.add_argument("--target", choices=TARGET_NAMES, default="RED")
     parser.add_argument("--square-size", type=float, default=SQUARE_SIZE_M)
     parser.add_argument("--homography-file", default=str(DEFAULT_HOMOGRAPHY_FILE))
-    parser.add_argument("--calibrate", action="store_true")
-    parser.add_argument("--use-homography", action="store_true")
     parser.add_argument("--camera-matrix-file", default=str(DEFAULT_CAMERA_MATRIX_FILE))
     parser.add_argument("--dist-coeffs-file", default=str(DEFAULT_DIST_COEFFS_FILE))
-    parser.add_argument("--no-undistort", action="store_true",
-                        help="튜닝된 왜곡 계수로 프레임 보정하는 단계를 끈다")
-    parser.add_argument("--calib-x-near", type=float, default=CALIB_X_NEAR_M)
-    parser.add_argument("--calib-x-far", type=float, default=CALIB_X_FAR_M)
-    parser.add_argument("--calib-y-left", type=float, default=CALIB_Y_LEFT_M)
-    parser.add_argument("--calib-y-right", type=float, default=CALIB_Y_RIGHT_M)
-    parser.add_argument("--height", type=float, default=CAMERA_HEIGHT_M)
-    parser.add_argument("--pitch-down", type=float, default=PITCH_DOWN_DEG)
-    parser.add_argument("--fx", type=float, default=CALIB_FX)
-    parser.add_argument("--fy", type=float, default=CALIB_FY)
-    parser.add_argument("--cx", type=float, default=CALIB_CX)
-    parser.add_argument("--cy", type=float, default=CALIB_CY)
-    parser.add_argument("--calib-width", type=float, default=CALIB_WIDTH)
-    parser.add_argument("--calib-height", type=float, default=CALIB_HEIGHT)
     parser.add_argument("--min-area", type=int, default=MIN_AREA)
     parser.add_argument("--min-ground-span", type=float, default=MIN_GROUND_SPAN_M)
     parser.add_argument("--max-ground-span", type=float, default=MAX_GROUND_SPAN_M)
@@ -978,12 +710,7 @@ def parse_args():
     parser.add_argument("--lidar-half-deg", type=float, default=LIDAR_GUIDE_HALF_DEG)
     parser.add_argument("--lidar-max-age", type=float, default=LIDAR_MAX_AGE_S)
     parser.add_argument("--min-restore-shift", type=float, default=MIN_RESTORE_SHIFT_M)
-    parser.add_argument("--no-lidar", action="store_true")
-    parser.add_argument("--print-interval", type=float, default=PRINT_INTERVAL_S)
-    parser.add_argument("--ground-forward-scale", type=float, default=GROUND_FORWARD_SCALE)
-    parser.add_argument("--ground-side-scale", type=float, default=GROUND_SIDE_SCALE)
     parser.add_argument("--smooth", type=float, default=0.65)
-    parser.add_argument("--show-candidates", action="store_true")
     return parser.parse_args()
 
 
@@ -999,88 +726,40 @@ def main():
     args.complete_size_min_ratio = clamp(args.complete_size_min_ratio, 0.1, 1.0)
     args.complete_size_max_ratio = max(args.complete_size_max_ratio, args.complete_size_min_ratio)
     args.center_margin = clamp(args.center_margin, 0.0, 1.0)
-    args.print_interval = max(0.0, args.print_interval)
-    args.ground_forward_scale = max(args.ground_forward_scale, 1.0e-6)
-    args.ground_side_scale = max(args.ground_side_scale, 1.0e-6)
     cam = lidar = None
     previous_center = None
-    last_size_print = 0.0
-    homography = None
-    undistorter = None
 
     camera_matrix, dist_coeffs = load_tuned_intrinsics(args)
-
-    if camera_matrix is not None:
-        args.fx = float(camera_matrix[0, 0])
-        args.fy = float(camera_matrix[1, 1])
-        args.cx = float(camera_matrix[0, 2])
-        args.cy = float(camera_matrix[1, 2])
-        print(
-            f"[CALIB] intrinsics loaded fx={args.fx:.1f} fy={args.fy:.1f} "
-            f"cx={args.cx:.1f} cy={args.cy:.1f}"
+    if camera_matrix is None or dist_coeffs is None:
+        raise RuntimeError(
+            f"[CALIB] intrinsics not found:\n  {args.camera_matrix_file}\n  {args.dist_coeffs_file}"
         )
-    else:
-        print("[CALIB] intrinsics .npy not found; using built-in tuned defaults")
+    undistorter = Undistorter(camera_matrix, dist_coeffs, CALIB_WIDTH, CALIB_HEIGHT)
 
-    if not args.no_undistort and camera_matrix is not None and dist_coeffs is not None:
-        undistorter = Undistorter(camera_matrix, dist_coeffs, args.calib_width, args.calib_height)
-        print("[CALIB] lens undistortion enabled")
-    else:
-        print("[CALIB] lens undistortion disabled")
+    path = homography_path(args)
+    if not path.exists():
+        raise RuntimeError(
+            f"[CALIB] homography not found: {path}\n"
+            "run camera_calibration/solvepnp/solvepnp_calibration.py first"
+        )
+    projector = GroundProjector(load_homography(path))
+    print(f"[CALIB] loaded homography: {path}")
 
     try:
         cam = open_camera()
-
-        if args.use_homography:
-            path = homography_path(args)
-
-            if args.calibrate or not path.exists():
-                print(f"[CALIB] homography file not found or recalibration requested: {path}")
-                homography = calibrate_homography(cam, args, undistorter)
-            else:
-                homography = load_homography(path)
-                print(f"[CALIB] loaded homography: {path}")
-        else:
-            print("[CALIB] pinhole projection (no homography click calibration)")
-
-        if not args.no_lidar:
-            lidar = RPLidarC1()
+        lidar = RPLidarC1()
 
         while True:
             ok, frame = read_frame(cam)
-
             if not ok:
                 break
 
-            if undistorter is not None:
-                frame = undistorter.apply(frame)
+            frame = undistorter.apply(frame)
 
-            fx, fy, cx, cy = scaled_intrinsics(frame.shape, args)
-            projector = GroundProjector(
-                args.height,
-                args.pitch_down,
-                fx,
-                fy,
-                cx,
-                cy,
-                args.ground_forward_scale,
-                args.ground_side_scale,
-                homography,
-            )
             ranges = None
-            lidar_status = "LIDAR off" if args.no_lidar else "LIDAR waiting"
-
-            if lidar is not None:
-                scan, scan_time, scan_seq = lidar.get()
-
-                if scan is not None:
-                    scan_age = time.time() - scan_time
-
-                    if scan_age <= args.lidar_max_age:
-                        ranges = front_ranges(scan)
-                        lidar_status = f"LIDAR seq={scan_seq}"
-                    else:
-                        lidar_status = f"LIDAR stale {scan_age:.1f}s"
+            scan, scan_time, _ = lidar.get()
+            if scan is not None and time.time() - scan_time <= args.lidar_max_age:
+                ranges = front_ranges(scan)
 
             target = selected_target(detect(frame), args.target, args.min_area)
 
@@ -1088,27 +767,15 @@ def main():
                 previous_center = None
                 status = f"{args.target}: not found"
             else:
-                selected, candidates, status = restore_target(
+                selected, _, status = restore_target(
                     frame, target, projector, ranges, args, previous_center
                 )
-
-                if selected is not None:
-                    previous_center = selected["center"]
-                else:
-                    previous_center = None
-
-                draw_target(frame, target, selected, candidates, projector, status, args)
-
-                now = time.time()
-
-                if args.print_interval == 0.0 or now - last_size_print >= args.print_interval:
-                    measurement = target_size_measurement(frame, target, projector)
-                    print(format_size_log(target[0], measurement, status))
-                    last_size_print = now
+                previous_center = selected["center"] if selected is not None else None
+                draw_target(frame, target, selected, projector, status)
 
             cv2.putText(
                 frame,
-                f"target={args.target} {status} {lidar_status} q: quit",
+                f"target={args.target} {status} q: quit",
                 (10, 30),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.8,
