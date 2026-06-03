@@ -19,7 +19,6 @@ DEFAULT_HEIGHT = 480
 DEFAULT_FPS = 20
 
 MAIN_WINDOW = "HSV Tuner"
-CONTROL_WINDOW = "Controls"
 
 
 class Camera:
@@ -100,33 +99,30 @@ def _noop(_value):
     pass
 
 
-def create_control_window(args):
-    """H/S/V 최소·최대 트랙바 6개를 만든다."""
-    cv2.namedWindow(CONTROL_WINDOW, cv2.WINDOW_NORMAL)
-    cv2.resizeWindow(CONTROL_WINDOW, args.width * 2, 240)
-
-    cv2.createTrackbar("H min", CONTROL_WINDOW, args.h_min, 179, _noop)
-    cv2.createTrackbar("H max", CONTROL_WINDOW, args.h_max, 179, _noop)
-    cv2.createTrackbar("S min", CONTROL_WINDOW, args.s_min, 255, _noop)
-    cv2.createTrackbar("S max", CONTROL_WINDOW, args.s_max, 255, _noop)
-    cv2.createTrackbar("V min", CONTROL_WINDOW, args.v_min, 255, _noop)
-    cv2.createTrackbar("V max", CONTROL_WINDOW, args.v_max, 255, _noop)
+def create_trackbars(args):
+    """메인 창에 H/S/V 최소·최대 트랙바 6개를 만든다."""
+    cv2.createTrackbar("H min", MAIN_WINDOW, args.h_min, 179, _noop)
+    cv2.createTrackbar("H max", MAIN_WINDOW, args.h_max, 179, _noop)
+    cv2.createTrackbar("S min", MAIN_WINDOW, args.s_min, 255, _noop)
+    cv2.createTrackbar("S max", MAIN_WINDOW, args.s_max, 255, _noop)
+    cv2.createTrackbar("V min", MAIN_WINDOW, args.v_min, 255, _noop)
+    cv2.createTrackbar("V max", MAIN_WINDOW, args.v_max, 255, _noop)
 
 
 def read_trackbars():
     lower = np.array(
         [
-            cv2.getTrackbarPos("H min", CONTROL_WINDOW),
-            cv2.getTrackbarPos("S min", CONTROL_WINDOW),
-            cv2.getTrackbarPos("V min", CONTROL_WINDOW),
+            cv2.getTrackbarPos("H min", MAIN_WINDOW),
+            cv2.getTrackbarPos("S min", MAIN_WINDOW),
+            cv2.getTrackbarPos("V min", MAIN_WINDOW),
         ],
         dtype=np.uint8,
     )
     upper = np.array(
         [
-            cv2.getTrackbarPos("H max", CONTROL_WINDOW),
-            cv2.getTrackbarPos("S max", CONTROL_WINDOW),
-            cv2.getTrackbarPos("V max", CONTROL_WINDOW),
+            cv2.getTrackbarPos("H max", MAIN_WINDOW),
+            cv2.getTrackbarPos("S max", MAIN_WINDOW),
+            cv2.getTrackbarPos("V max", MAIN_WINDOW),
         ],
         dtype=np.uint8,
     )
@@ -216,10 +212,8 @@ def main():
         return 1
 
     cv2.namedWindow(MAIN_WINDOW, cv2.WINDOW_NORMAL)
-    create_control_window(args)
-    # 컨트롤 창을 메인 창 바로 아래에 배치
+    create_trackbars(args)
     cv2.moveWindow(MAIN_WINDOW, 40, 20)
-    cv2.moveWindow(CONTROL_WINDOW, 40, args.height + 80)
 
     frame_delay = 1.0 / max(1, args.fps)
 
