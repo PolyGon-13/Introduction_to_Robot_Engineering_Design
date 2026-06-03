@@ -1,8 +1,5 @@
 #include <Arduino.h>
 
-// Encoder-only serial test for Raspberry Pi.
-// Output format: O,<left_count>,<right_count>,<millis>
-// Input command: R or r resets both cumulative encoder counts to zero.
 
 const byte PWMPin_r = 9;
 const byte DirPin1_r = 10;

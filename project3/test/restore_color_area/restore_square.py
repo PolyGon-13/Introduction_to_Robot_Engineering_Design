@@ -10,7 +10,6 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-# camera.py / lidar.py 는 project3/sihyun/test 디렉토리에 위치한다.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "sihyun" / "test"))
 
 from camera import (
@@ -28,11 +27,9 @@ from lidar import FREE_D, GRID, RPLidarC1, front_ranges
 TARGET_NAMES = ("RED", "YELLOW", "BLUE")
 THIS_DIR = Path(__file__).resolve().parent
 DEFAULT_HOMOGRAPHY_FILE = THIS_DIR / "restore_square_homography.npz"
-# 튜닝된 카메라 내부 파라미터(.npy)는 형제 폴더 camera_calibration 에 위치한다.
 DEFAULT_CAMERA_MATRIX_FILE = THIS_DIR.parent / "camera_calibration" / "camera_matrix.npy"
 DEFAULT_DIST_COEFFS_FILE = THIS_DIR.parent / "camera_calibration" / "dist_coeffs.npy"
 
-# camera_calibration/calibration_result.txt 기준 (640x480 raw). .npy 가 있으면 런타임에 덮어쓴다.
 CALIB_WIDTH = 640.0
 CALIB_HEIGHT = 480.0
 CALIB_FX = 651.22884042
@@ -947,7 +944,6 @@ def parse_args():
     parser.add_argument("--square-size", type=float, default=SQUARE_SIZE_M)
     parser.add_argument("--homography-file", default=str(DEFAULT_HOMOGRAPHY_FILE))
     parser.add_argument("--calibrate", action="store_true")
-    # 기본은 핀홀 투영(클릭 캘리브레이션 불필요). 호모그래피는 명시적으로 켤 때만 사용.
     parser.add_argument("--use-homography", action="store_true")
     parser.add_argument("--camera-matrix-file", default=str(DEFAULT_CAMERA_MATRIX_FILE))
     parser.add_argument("--dist-coeffs-file", default=str(DEFAULT_DIST_COEFFS_FILE))
@@ -1007,7 +1003,6 @@ def main():
     homography = None
     undistorter = None
 
-    # 튜닝된 내부 파라미터/왜곡 계수 로드. 있으면 args 기본값을 덮어쓴다.
     camera_matrix, dist_coeffs = load_tuned_intrinsics(args)
 
     if camera_matrix is not None:

@@ -35,7 +35,6 @@ from world import (
 )
 import sensors
 
-# ----------------------------------------------------------------- 레이아웃
 BASE_MARGIN = 20
 BASE_PANEL_W = 430
 BASE_ARENA_PX = 700
@@ -55,13 +54,12 @@ ARENA_PX = BASE_ARENA_PX
 PANEL_X = MARGIN + ARENA_PX + MARGIN
 WIN_W = PANEL_X + PANEL_W + MARGIN
 WIN_H = MARGIN + ARENA_PX + MARGIN
-SCALE = ARENA_PX / ARENA_M            # px per meter
+SCALE = ARENA_PX / ARENA_M
 SIM_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(SIM_DIR, "data")
 LAYOUT_PATH = os.path.join(DATA_DIR, "layout.json")
 LEGACY_LAYOUT_PATH = os.path.join(SIM_DIR, "layout.json")
 
-# 색
 BG = (24, 26, 32)
 ARENA_BG = (40, 43, 52)
 TEST_ZONE_BG = (50, 62, 54)
@@ -257,13 +255,12 @@ def configure_layout(window_w, window_h):
     SCALE = ARENA_PX / ARENA_M
 
 
-# ----------------------------------------------------------------- 위젯
 class Button:
     def __init__(self, rect, label, cb, is_on=None):
         self.rect = pygame.Rect(rect)
         self.label = label
         self.cb = cb
-        self.is_on = is_on            # 함수: 활성 상태면 True
+        self.is_on = is_on
 
     def draw(self, surf, font):
         on = self.is_on() if self.is_on else False
@@ -291,7 +288,7 @@ class Slider:
         self.fmt = fmt
         self.tip = tip
         self.label_rect = pygame.Rect(0, 0, 0, 0)
-        self.rect = pygame.Rect(0, 0, 0, 0)   # 매 프레임 갱신
+        self.rect = pygame.Rect(0, 0, 0, 0)
         self.drag = False
 
     def _to_px(self):
@@ -337,7 +334,6 @@ class Slider:
         return False
 
 
-# ----------------------------------------------------------------- 시뮬레이터
 class Simulator:
     SIM_DT = 0.005
 
@@ -348,19 +344,16 @@ class Simulator:
         self.world = World()
         self.world.set_robot_radius(self.p3.ROBOT_RADIUS)
 
-        # 실행 상태
         self.running = False
         self.paused = False
         self.start_pose = (self.world.robot.x, self.world.robot.y, self.world.robot.theta)
 
-        # 브레인 상태: 결정/시퀀스/타이머는 전부 project3.py Controller 가 단일 진실원
         self.ctrl = self.p3.Controller()
         self.brain_acc = 0.0
         self.acc = 0.0
         self.sim_time = 0.0
         self.target_color = self.p3.TARGET_SEQUENCE[0]
 
-        # sim 파라미터
         self.sim_speed = 1.0
         self.n_rays = 360
         self.lidar_noise = 0.0
@@ -372,14 +365,12 @@ class Simulator:
         self.patch_size = 0.35
         self._sync_project3_geometry()
 
-        # 월드 보기 상태: 마우스 휠로 아레나를 확대/축소한다.
         self.view_zoom = 1.0
         self.view_cx = ARENA_M * 0.5
         self.view_cy = ARENA_M * 0.5
         self.view_panning = False
         self.view_pan_last = None
 
-        # 텔레메트리/시각화
         self.tele = dict(v=0.0, w=0.0, gb=0.0, clr=0.0, blocked=False,
                          see=False, npts=0, ar=0.0, bstate="SEEK")
         self.pts_world = np.empty((0, 2))
@@ -409,7 +400,6 @@ class Simulator:
             },
         }
 
-        # 입력 도구
         self.tool = "Obstacle"
         self.robot_placing = False
         self.obstacle_placing = False
@@ -420,7 +410,6 @@ class Simulator:
         self.param_scroll_drag_offset = 0
         self.toast = ("", 0.0)
 
-        # 시리얼 링크(실제 send_vw 가 호출)
         sim = self
 
         class _Link:
@@ -446,7 +435,6 @@ class Simulator:
         self._build_ui()
         self._clamp_param_scroll()
 
-    # ----- UI 구성 -----
     def _build_ui(self):
         self.tool_buttons = []
         tool_rows = [
@@ -483,7 +471,6 @@ class Simulator:
                 on = lambda: self.paused
             self.action_buttons.append(Button((x, y, btn_w, btn_h), lab, cb, is_on=on))
 
-        # BEARING_SIGN 토글
         self.sign_button = Button(
             (PANEL_X, 0, ui(200), ui(28)), "",
             self._flip_bearing_sign,
@@ -633,7 +620,6 @@ class Simulator:
             ("patch size", S("patch size", simget("patch_size"), simset("patch_size"), 0.10, 0.50)),
         ]
 
-    # ----- 액션 -----
     def _set_tool(self, t):
         self.tool = t
         self.robot_placing = False
@@ -744,7 +730,6 @@ class Simulator:
         if len(data) >= 4:
             return Obstacle(data[0], data[1], data[2], data[3], 0.0, self.obstacle_z_h)
         if len(data) == 3:
-            # 구버전 원형 장애물 저장값 [x, y, r]은 같은 지름의 정사각형으로 변환.
             return Obstacle(data[0], data[1], data[2] * 2.0, data[2] * 2.0, 0.0, self.obstacle_z_h)
         return Obstacle(*data)
 
@@ -758,7 +743,6 @@ class Simulator:
             return Patch(x, y, color, size)
         return Patch(data[0], data[1], data[2], data[3])
 
-    # ----- 실행 전체 기록 -----
     def _compact_layout_snapshot(self):
         return {
             "robot": [self.world.robot.x, self.world.robot.y, self.world.robot.theta],
@@ -1831,7 +1815,6 @@ class Simulator:
             },
         }
 
-    # ----- 좌표 변환 -----
     def view_scale(self):
         return SCALE * self.view_zoom
 
@@ -1948,16 +1931,14 @@ class Simulator:
         self.param_scroll_drag = False
         self.param_scroll_drag_offset = 0
 
-    # ----- 브레인 1틱: 합성 센서 → project3.py Controller.tick() → 모터 -----
     def brain_tick(self, commit):
         """결정/상태는 전부 p3.Controller.tick() 에 위임(단일 진실원).
            sim 은 합성 센서·시각화 글루만 담당. py 의 tick() 을 고치면 여기로 자동 반영."""
         p3 = self.p3
-        color = self.ctrl.target_color           # None 이면 완주
+        color = self.ctrl.target_color
         if color is not None:
             self.target_color = color
 
-        # 합성 센서 (sim 전용 글루 — 실제 하드웨어 입력을 대체)
         scan = sensors.simulate_lidar_raw(self.world, p3, n_rays=self.n_rays,
                                           noise_m=self.lidar_noise)
         pts = p3.lidar_points_to_xy(scan)
@@ -2002,8 +1983,6 @@ class Simulator:
                 target_xy = None
             seen = vis
 
-        # 결정/상태 전이는 전부 Controller.tick() 에 위임(= 실제 코드).
-        # 미리보기(commit=False)는 복사본으로 돌려 상태를 바꾸지 않는다.
         ctrl = self.ctrl if commit else copy.deepcopy(self.ctrl)
         v, w, state = ctrl.tick(pts, seen, bearing, cy, self.sim_time,
                                 pose=self._p3_pose_tuple(), target_xy=target_xy,
@@ -2011,7 +1990,6 @@ class Simulator:
         if commit:
             p3.send_vw(self.link, v, w)
 
-        # 시각화/텔레메트리
         self._update_viz(pts, v, w)
         if seen and state in ("SEEK", "CENTER", "CENTER_BLIND", "CLOSE", "AVOID", "BLOCKED"):
             d = 0.6
@@ -2079,14 +2057,12 @@ class Simulator:
         ty = rb.y + xs * sn + ys * cs
         self.traj_world = np.column_stack((tx, ty))
 
-    # ----- 한 프레임 스텝 -----
     def step(self, dt_real):
         if any(self.bridge.check_reload()):
             self.p3 = self.bridge.p3
             self.arduino.ino = self.bridge.ino
             self.world.set_robot_radius(self.p3.ROBOT_RADIUS)
             self._sync_project3_geometry()
-            # 새 코드의 Controller 로 교체하되 진행 상태(시퀀스/타이머)는 보존
             new_ctrl = self.p3.Controller()
             new_ctrl.__dict__.update(self.ctrl.__dict__)
             self.ctrl = new_ctrl
@@ -2109,9 +2085,8 @@ class Simulator:
                 self._append_history_sample("physics")
                 self.acc -= self.SIM_DT
         else:
-            self.brain_tick(commit=False)   # 정지 중에도 미리보기
+            self.brain_tick(commit=False)
 
-    # ----- 입력 -----
     def on_click(self, pos):
         for b in self.tool_buttons + self.action_buttons:
             if b.click(pos):
@@ -2213,14 +2188,12 @@ class Simulator:
         elif self.in_arena(pos):
             self.zoom_at(y, pos)
 
-    # ----- 렌더 -----
     def draw(self, surf, font, bigfont):
         surf.fill(BG)
         arena = pygame.Rect(MARGIN, MARGIN, ARENA_PX, ARENA_PX)
         pygame.draw.rect(surf, ARENA_BG, arena)
         surf.set_clip(arena)
         view_s = self.view_scale()
-        # 시험 배치 영역: 장애물/색상 영역이 놓이는 약 2m x 2m 구역.
         zx, zy = self.w2s(TEST_ZONE_X, TEST_ZONE_Y + TEST_ZONE_M)
         zw = TEST_ZONE_M * view_s
         zh = TEST_ZONE_M * view_s
@@ -2228,21 +2201,18 @@ class Simulator:
         zone_surf.fill((*TEST_ZONE_BG, 150))
         surf.blit(zone_surf, (zx, zy))
         pygame.draw.rect(surf, TEST_ZONE_EDGE, (zx, zy, zw, zh), max(1, ui(2)))
-        # project3.py가 odometry로 벗어나지 않으려는 2.3m keep-in 경계.
         if getattr(self.p3, "KEEPIN_ENABLED", False):
             kb = self._keepin_bounds_world()
             kx, ky = self.w2s(kb["x_min_m"], kb["y_max_m"])
             kw = (kb["x_max_m"] - kb["x_min_m"]) * view_s
             kh = (kb["y_max_m"] - kb["y_min_m"]) * view_s
             pygame.draw.rect(surf, KEEPIN_EDGE, (kx, ky, kw, kh), max(1, ui(2)))
-        # 그리드
         for i in range(1, int(ARENA_M / 0.5)):
             gx = i * 0.5
             pygame.draw.line(surf, GRID, self.w2s(gx, 0.0), self.w2s(gx, ARENA_M))
             gy = i * 0.5
             pygame.draw.line(surf, GRID, self.w2s(0.0, gy), self.w2s(ARENA_M, gy))
 
-        # 패치(반투명)
         for p in self.world.patches:
             cx, cy = self.w2s(p.x, p.y)
             spx = p.size * view_s
@@ -2252,7 +2222,6 @@ class Simulator:
             pygame.draw.rect(surf, PATCH_COL[p.color],
                              (cx - spx / 2, cy - spx / 2, spx, spx), 1)
 
-        # 장애물
         for o in self.world.obstacles:
             self._draw_obstacle(surf, o)
         if self.obstacle_preview is not None:
@@ -2307,10 +2276,8 @@ class Simulator:
         cx, cy = self.w2s(rb.x, rb.y)
         c = (int(cx), int(cy))
         view_s = self.view_scale()
-        # 안전영역(반투명): SLOW 먼저, COLLISION 위에
         self._alpha_circle(surf, c, self.p3.SLOW_DIST * view_s, (220, 200, 70, 36))
         self._alpha_circle(surf, c, self.p3.COLLISION_DIST * view_s, (230, 80, 80, 60))
-        # 몸체
         body_pts = [(int(round(x)), int(round(y)))
                     for x, y in (self.w2s(wx, wy) for wx, wy in self._robot_body_world_points())]
         pygame.draw.polygon(surf, ROBOT_C, body_pts)
@@ -2318,11 +2285,9 @@ class Simulator:
         cam_x, cam_y = self._camera_world_pose()
         cam_p = self.w2s(cam_x, cam_y)
         pygame.draw.circle(surf, (40, 70, 72), (int(cam_p[0]), int(cam_p[1])), max(3, ui(4)))
-        # 헤딩
         hx = rb.x + self.robot_body_length * 0.75 * math.cos(rb.theta)
         hy = rb.y + self.robot_body_length * 0.75 * math.sin(rb.theta)
         pygame.draw.line(surf, HEAD_C, c, self.w2s(hx, hy), 2)
-        # 바퀴 접점
         wb = self.bridge.ino["WHEEL_BASE"]
         left, right = rb.wheel_contacts(wb)
         for wc in (left, right):
@@ -2331,11 +2296,9 @@ class Simulator:
 
     def _draw_overlays(self, surf):
         rb = self.world.robot
-        # 카메라 바닥 직사각형 발자국
         pts = [(int(round(x)), int(round(y)))
                for x, y in (self.w2s(wx, wy) for wx, wy in self._camera_rect_world_points())]
         pygame.draw.lines(surf, FOV_C, True, pts, 1)
-        # 라이다 점
         arena = pygame.Rect(MARGIN, MARGIN, ARENA_PX, ARENA_PX)
         for px, py in self.pts_world:
             sp = self.w2s(px, py)
@@ -2343,11 +2306,9 @@ class Simulator:
             if arena.collidepoint(ip):
                 surf.set_at(ip, LIDAR_C)
                 pygame.draw.circle(surf, LIDAR_C, ip, 2)
-        # DWA 선택 궤적
         if len(self.traj_world) > 1:
             pts = [self.w2s(x, y) for x, y in self.traj_world]
             pygame.draw.lines(surf, TRAJ_C, False, pts, 2)
-        # 타깃 방위선
         if self.bear_pt:
             pygame.draw.line(surf, BEAR_C, self.w2s(rb.x, rb.y),
                              self.w2s(*self.bear_pt), 2)
@@ -2355,7 +2316,6 @@ class Simulator:
     def _draw_panel(self, surf, font, bigfont):
         for b in self.tool_buttons + self.action_buttons:
             b.draw(surf, font)
-        # BEARING_SIGN 토글
         y = MARGIN + ui(150)
         self.sign_button.rect = pygame.Rect(PANEL_X, y, ui(200), ui(28))
         self.sign_button.label = "BEARING_SIGN: {:+.0f}".format(self.p3.BEARING_SIGN)
@@ -2364,7 +2324,6 @@ class Simulator:
                              PATCH_COL[self.target_color])
         surf.blit(tgt, (PANEL_X + ui(210), y + ui(2)))
 
-        # 슬라이더(스크롤 영역)
         self._clamp_param_scroll()
         top = self._param_panel_top()
         clip = self._param_viewport_rect()

@@ -2,42 +2,35 @@ import os
 import numpy as np
 import cv2
 
-# ===== 설정 =====
-CHECKERBOARD = (8, 8)          # 체커보드 내부 코너 개수
-SQUARE_SIZE = 21.0             # 사각형 한 변 크기 (mm)
-MIN_IMAGES = 15                # 캘리브레이션에 필요한 최소 캡처 수
-CAMERA_INDEX = 0               # 시스템 기본 카메라
+CHECKERBOARD = (8, 8)
+SQUARE_SIZE = 21.0
+MIN_IMAGES = 15
+CAMERA_INDEX = 0
 
-# 결과 저장 디렉토리 (이 스크립트가 위치한 디렉토리)
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# 코너 검출 종료 기준 (cornerSubPix / calibrate)
 SUBPIX_CRITERIA = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
 
-# ===== 3D 오브젝트 포인트 준비 (Z=0 평면) =====
-# (0,0,0), (1,0,0), ... 형태로 만든 뒤 실제 크기(mm)를 곱함
 objp = np.zeros((CHECKERBOARD[0] * CHECKERBOARD[1], 3), np.float32)
 objp[:, :2] = np.mgrid[0:CHECKERBOARD[0], 0:CHECKERBOARD[1]].T.reshape(-1, 2)
 objp *= SQUARE_SIZE
 
-# 캡처 성공한 프레임들의 포인트 누적 저장 리스트
-objpoints = []  # 3D 실세계 좌표
-imgpoints = []  # 2D 이미지 좌표
+objpoints = []
+imgpoints = []
 
 capture_count = 0
-last_status = ""        # 마지막 검출 상태 텍스트
-status_timer = 0        # 상태 텍스트 표시 잔여 프레임
+last_status = ""
+status_timer = 0
 
 
 def run_calibration(image_size):
     """누적된 포인트로 캘리브레이션 실행 후 결과 저장/출력."""
-    flags = cv2.CALIB_RATIONAL_MODEL  # k1~k6, p1, p2 (8개 왜곡 계수)
+    flags = cv2.CALIB_RATIONAL_MODEL
 
     ret, camera_matrix, dist_coeffs, rvecs, tvecs = cv2.calibrateCamera(
         objpoints, imgpoints, image_size, None, None, flags=flags
     )
 
-    # ===== 재투영 오차 계산 =====
     total_error = 0.0
     for i in range(len(objpoints)):
         projected, _ = cv2.projectPoints(
@@ -47,7 +40,6 @@ def run_calibration(image_size):
         total_error += error
     reprojection_error = total_error / len(objpoints)
 
-    # ===== 결과 저장 =====
     mtx_path = os.path.join(SCRIPT_DIR, "camera_matrix.npy")
     dist_path = os.path.join(SCRIPT_DIR, "dist_coeffs.npy")
     txt_path = os.path.join(SCRIPT_DIR, "calibration_result.txt")
@@ -67,7 +59,6 @@ def run_calibration(image_size):
         f.write(np.array2string(dist_coeffs) + "\n\n")
         f.write(f"Reprojection error: {reprojection_error}\n")
 
-    # ===== 터미널 출력 =====
     print("\n===== Camera Calibration Result =====")
     print(f"Number of images used: {len(objpoints)}")
     print("\nCamera matrix:")
@@ -88,7 +79,7 @@ def main():
         print(f"Error: Cannot open camera (index {CAMERA_INDEX})")
         return
 
-    image_size = None  # (width, height)
+    image_size = None
 
     print("=== Camera Calibration ===")
     print("[SPACE] : 체커보드 검출 시도")
@@ -104,11 +95,9 @@ def main():
         image_size = (frame.shape[1], frame.shape[0])
         display = frame.copy()
 
-        # 좌상단에 현재 캡처 성공 횟수 표시
         cv2.putText(display, f"Captured: {capture_count}", (10, 30),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
 
-        # 상태 텍스트 표시 (일정 프레임 동안)
         if status_timer > 0:
             color = (0, 0, 255) if "Failed" in last_status or "Need" in last_status \
                 else (0, 255, 0)
@@ -123,7 +112,6 @@ def main():
             break
 
         elif key == ord(' '):
-            # 체커보드 코너 검출 시도
             gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             found, corners = cv2.findChessboardCorners(
                 gray, CHECKERBOARD,
@@ -131,7 +119,6 @@ def main():
             )
 
             if found:
-                # 서브픽셀 정밀도로 코너 위치 보정
                 corners_refined = cv2.cornerSubPix(
                     gray, corners, (11, 11), (-1, -1), SUBPIX_CRITERIA
                 )
@@ -140,7 +127,6 @@ def main():
                 imgpoints.append(corners_refined)
                 capture_count += 1
 
-                # 검출된 코너를 그려서 시각적으로 확인
                 vis = frame.copy()
                 cv2.drawChessboardCorners(vis, CHECKERBOARD, corners_refined, found)
                 cv2.imshow("Calibration", vis)
@@ -155,7 +141,6 @@ def main():
                 print("Detection Failed")
 
         elif key == ord('c'):
-            # 캘리브레이션 실행
             if capture_count < MIN_IMAGES:
                 last_status = f"Need more images (current: {capture_count})"
                 status_timer = 60

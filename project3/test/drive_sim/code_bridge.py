@@ -20,12 +20,11 @@ import types
 import numpy as np
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT3_DIR = os.path.dirname(_THIS_DIR)            # .../project3
+PROJECT3_DIR = os.path.dirname(_THIS_DIR)
 PY_PATH = os.path.join(PROJECT3_DIR, "project3.py")
 INO_PATH = os.path.join(PROJECT3_DIR, "project3.ino")
 
 
-# ---------------------------------------------------------------- 스텁 주입
 def _install_stubs():
     """project3.py가 하드웨어 없이 import되도록 serial/picamera2를 가짜로 채운다.
        (시뮬레이터는 실제 시리얼/카메라를 절대 호출하지 않는다.)"""
@@ -66,7 +65,6 @@ def _install_stubs():
         sys.modules["picamera2"] = pm
 
 
-# ---------------------------------------------------------------- project3.py
 def load_p3():
     """project3.py를 새 모듈 객체로 로드해 반환."""
     _install_stubs()
@@ -97,7 +95,6 @@ def recompute_derived(p3):
         p3.ODOM_COUNT_PER_RAD = p3.ODOM_PPR / (2.0 * math.pi)
 
 
-# ---------------------------------------------------------------- project3.ino
 _DEFINE_RE = re.compile(r"#define\s+(\w+)\s+([^\n/]+)")
 _CONST_RE = re.compile(
     r"const\s+(?:unsigned\s+long|float|double|int|long|byte|bool)\s+(\w+)\s*=\s*([^;]+);"
@@ -105,7 +102,6 @@ _CONST_RE = re.compile(
 
 
 def _strip_c_number_suffix(expr):
-    # 0.034f -> 0.034 (소문자 f 접미사만; PI_F 같은 식별자는 보존)
     return re.sub(r"([0-9.])[fF](?![A-Za-z0-9_])", r"\1", expr)
 
 
@@ -115,7 +111,7 @@ def _eval_c_value(expr, ns):
     safe.update(ns)
     safe.update({"true": True, "false": False, "PI": math.pi})
     try:
-        return eval(expr, safe)  # noqa: S307 - 신뢰된 소스(.ino) 상수식만
+        return eval(expr, safe)
     except Exception:
         try:
             return float(expr)
@@ -140,7 +136,6 @@ def parse_ino(path=INO_PATH):
     return ns
 
 
-# ---------------------------------------------------------------- hot-reload
 class CodeBridge:
     """project3.py / project3.ino를 로드하고 변경을 감시한다."""
 

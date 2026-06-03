@@ -161,11 +161,9 @@ def draw_region_overlay(frame, mask, args):
     contours = [c for c in contours if cv2.contourArea(c) >= args.min_area]
 
     if contours:
-        # 반투명 채움
         fill = view.copy()
         cv2.drawContours(fill, contours, -1, (0, 255, 0), thickness=cv2.FILLED)
         view = cv2.addWeighted(fill, 0.35, view, 0.65, 0)
-        # 정확한 윤곽선
         cv2.drawContours(view, contours, -1, (0, 255, 0), 2)
 
     cv2.putText(view, f"regions={len(contours)}", (10, 24),
@@ -192,7 +190,6 @@ def parse_args():
     parser.add_argument("--min-area", type=int, default=300, help="Smallest region area to outline")
     parser.add_argument("--morph-kernel", type=int, default=5, choices=(1, 3, 5, 7),
                         help="Mask cleanup kernel size")
-    # 트랙바 초기값
     parser.add_argument("--h-min", type=int, default=0)
     parser.add_argument("--h-max", type=int, default=179)
     parser.add_argument("--s-min", type=int, default=80)

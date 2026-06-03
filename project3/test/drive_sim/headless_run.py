@@ -11,11 +11,9 @@ import sys
 import math
 import time
 
-# pygame dummy 드라이버는 import 전에 설정해야 한다.
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 
-# drive_sim 디렉토리를 작업 디렉토리 및 import 경로로 설정
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 os.chdir(_SCRIPT_DIR)
 sys.path.insert(0, _SCRIPT_DIR)
@@ -27,8 +25,8 @@ pygame.display.set_mode((1, 1))
 import sim as _sim_module
 from sim import Simulator
 
-LOG_INTERVAL_S = 5.0    # 콘솔 로그 주기 (시뮬 시간 기준)
-STUCK_DIST_M = 0.05     # 5초 동안 이 거리 미만이면 'stuck'
+LOG_INTERVAL_S = 5.0
+STUCK_DIST_M = 0.05
 MAX_SIM_TIME = 180.0
 
 
@@ -41,10 +39,10 @@ def run_once(trial: int) -> dict:
     SIM_DT = sim.SIM_DT
     ino = sim.bridge.ino
 
-    last_log_t = -LOG_INTERVAL_S      # 0초에 첫 로그 찍기
+    last_log_t = -LOG_INTERVAL_S
     last_log_pos = (sim.world.robot.x, sim.world.robot.y)
     stuck_events: list[str] = []
-    phase_log: list[tuple] = []       # (t, phase, x, y)
+    phase_log: list[tuple] = []
 
     wall_start = time.perf_counter()
 
@@ -132,7 +130,6 @@ def main():
                 print(f"    - {e}")
         print()
 
-    # 요약
     print("=" * 60)
     print("요약")
     print("=" * 60)
@@ -150,7 +147,6 @@ def main():
             f"final_phase={r['final_phase']}"
         )
 
-    # 공통 stuck 패턴 분석
     all_stuck = [e for r in results for e in r["stuck_events"]]
     if all_stuck:
         print(f"\n전체 stuck 이벤트 ({len(all_stuck)}건):")

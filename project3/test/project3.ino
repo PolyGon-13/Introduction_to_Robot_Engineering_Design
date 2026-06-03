@@ -2,61 +2,53 @@
 
 #define PI_F 3.1416f
 
-// ── 핀 정의 ───────────────────────────────────────────────
-const byte PWMPin_r = 9;   // 오른쪽 모터 PWM
-const byte DirPin1_r = 10;  // 오른쪽 방향 1
-const byte DirPin2_r = 11;  // 오른쪽 방향 2
-const byte ENC_A_r = 2;     // 오른쪽 엔코더 A (인터럽트)
-const byte ENC_B_r = 4;     // 오른쪽 엔코더 B
+const byte PWMPin_r = 9;
+const byte DirPin1_r = 10;
+const byte DirPin2_r = 11;
+const byte ENC_A_r = 2;
+const byte ENC_B_r = 4;
 
-const byte PWMPin_l = 6;    // 왼쪽 모터 PWM
-const byte DirPin1_l = 7;   // 왼쪽 방향 1
-const byte DirPin2_l = 8;   // 왼쪽 방향 2
-const byte ENC_A_l = 3;     // 왼쪽 엔코더 A
-const byte ENC_B_l = 5;     // 왼쪽 엔코더 B
+const byte PWMPin_l = 6;
+const byte DirPin1_l = 7;
+const byte DirPin2_l = 8;
+const byte ENC_A_l = 3;
+const byte ENC_B_l = 5;
 
-// ── 방향 반전 (하드웨어 캘리브, project2와 동일) ───────────
 const bool INVERT_ENC_R = true;
 const bool INVERT_ENC_L = false;
 const bool REVERSE_MOTOR_R = true;
 const bool REVERSE_MOTOR_L = true;
 
-// ── 로봇 물리 파라미터 ────────────────────────────────────
-const float WHEEL_R = 0.034f;        // 바퀴 반지름 (m)
-const float WHEEL_BASE = 0.179f;     // 좌우 바퀴 간격 (m)
-const float PPR = 1012.0f;           // 1회전당 엔코더 카운트
+const float WHEEL_R = 0.034f;
+const float WHEEL_BASE = 0.179f;
+const float PPR = 1012.0f;
 const float COUNT_PER_RAD = PPR / (2.0f * PI_F);
 
-// ── 모터 출력 제한 ────────────────────────────────────────
 const float V_MAX = 6.0f;
 const float V_MIN = -V_MAX;
 const float DRIVER_DEADBAND_V = 0.05f;
-const float WHEEL_SPEED_MAX = 8.0f;  // 바퀴 최대 각속도 (rad/s)
+const float WHEEL_SPEED_MAX = 8.0f;
 
-// ── 바퀴별 PID + 피드포워드 ───────────────────────────────
 struct WheelPID {
   float kp, ki, kd;
   float integ, prev_e;
-  float target;  // 목표 각속도 (rad/s)
-  float meas;    // 측정 각속도 (rad/s)
+  float target;
+  float meas;
 };
 WheelPID pidR = {0.50f, 1.50f, 0.0f, 0, 0, 0, 0};
 WheelPID pidL = {0.50f, 1.50f, 0.0f, 0, 0, 0, 0};
-const float WHEEL_FF = 1.0f;  // 목표 각속도 비례 피드포워드
+const float WHEEL_FF = 1.0f;
 
-// ── 명령값 ────────────────────────────────────────────────
-float V_cmd = 0.0f;  // 목표 선속도 (m/s)
-float W_cmd = 0.0f;  // 목표 각속도 (rad/s),  w>0 = 좌회전
+float V_cmd = 0.0f;
+float W_cmd = 0.0f;
 
-// ── 타이밍 ────────────────────────────────────────────────
 const unsigned long PID_INTERVAL_MS = 20;
-const unsigned long CMD_TIMEOUT_MS = 300;   // 명령 끊기면 정지 (Pi 50ms 주기의 6배 → 행/크래시 시 빠른 정지)
-const unsigned long ODOM_INTERVAL_MS = 50;  // Pi odometry용 엔코더 누적값 송신 주기
+const unsigned long CMD_TIMEOUT_MS = 300;
+const unsigned long ODOM_INTERVAL_MS = 50;
 unsigned long lastPidMs = 0;
 unsigned long lastCmdMs = 0;
 unsigned long lastOdomMs = 0;
 
-// ── 엔코더 ────────────────────────────────────────────────
 volatile long EncoderCount_r = 0;
 volatile long EncoderCount_l = 0;
 long encR_prev = 0, encL_prev = 0;
@@ -74,8 +66,6 @@ void ISR_Encoder_A_l() {
   EncoderCount_l += delta;
 }
 
-// 누적 엔코더 카운트를 0으로 리셋. PID 속도 측정용 prev도 함께 0으로
-// 맞춰야 다음 주기에 가짜 delta 스파이크가 생기지 않는다.
 void resetEncoderCounts() {
   noInterrupts();
   EncoderCount_r = 0;
@@ -85,7 +75,6 @@ void resetEncoderCounts() {
   encL_prev = 0;
 }
 
-// ── 모터 드라이버 출력 ────────────────────────────────────
 static inline void writeDriver_r(float V) {
   if (fabs(V) < DRIVER_DEADBAND_V) V = 0.0f;
   V = constrain(V, V_MIN, V_MAX);
@@ -139,7 +128,6 @@ float computePID(WheelPID &p, float dt) {
   return WHEEL_FF * p.target + (p.kp * e + p.ki * p.integ + p.kd * d);
 }
 
-// (v, w) → 좌우 바퀴 목표 각속도.  w>0 = 좌회전
 void resolveWheelTargets(float v, float w) {
   float wL = (v - WHEEL_BASE * w * 0.5f) / WHEEL_R;
   float wR = (v + WHEEL_BASE * w * 0.5f) / WHEEL_R;
@@ -147,8 +135,6 @@ void resolveWheelTargets(float v, float w) {
   pidR.target = constrain(wR, -WHEEL_SPEED_MAX, WHEEL_SPEED_MAX);
 }
 
-// ── 시리얼 명령 ───────────────────────────────────────────
-//   "V<v>,<w>\n" : 속도 명령,   "S\n" : 정지
 String inputPi = "";
 
 void processCommand(String s) {

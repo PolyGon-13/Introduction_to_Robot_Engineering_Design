@@ -15,10 +15,10 @@ ARENA_M = 4.0
 TEST_ZONE_M = 2.0
 TEST_ZONE_X = (ARENA_M - TEST_ZONE_M) * 0.5
 TEST_ZONE_Y = (ARENA_M - TEST_ZONE_M) * 0.5
-ORDER = ["RED", "YELLOW", "BLUE"]   # 통과 순서
-DEFAULT_OBSTACLE_Z_H = 0.23         # 장애물 수직 높이 23cm
-DEFAULT_ROBOT_BODY_LENGTH_M = 0.165 # 로봇 전후 길이 16.5cm
-DEFAULT_ROBOT_BODY_WIDTH_M = 0.21   # 로봇 좌우 폭 21cm
+ORDER = ["RED", "YELLOW", "BLUE"]
+DEFAULT_OBSTACLE_Z_H = 0.23
+DEFAULT_ROBOT_BODY_LENGTH_M = 0.165
+DEFAULT_ROBOT_BODY_WIDTH_M = 0.21
 
 
 def _dot(a, b):
@@ -54,10 +54,10 @@ class Obstacle:
     def __init__(self, x, y, w=0.24, h=0.12, theta=0.0, z_h=DEFAULT_OBSTACLE_Z_H):
         self.x = x
         self.y = y
-        self.w = w          # 발자국 폭 (m) — 로컬 x축 방향
-        self.h = h          # 발자국 깊이 (m) — 로컬 y축 방향
-        self.theta = theta  # +x 기준 CCW 회전각 (rad)
-        self.z_h = z_h      # 수직 높이 (m)
+        self.w = w
+        self.h = h
+        self.theta = theta
+        self.z_h = z_h
 
     @property
     def half_w(self):
@@ -102,10 +102,10 @@ class Obstacle:
 class Patch:
     """바닥 색종이(축 정렬 사각형). 라이다는 못 보고 카메라만 본다."""
     def __init__(self, x, y, color, size=0.25):
-        self.x = x          # 중심
+        self.x = x
         self.y = y
-        self.color = color  # "RED"/"YELLOW"/"BLUE"
-        self.size = size    # 한 변 길이 (m)
+        self.color = color
+        self.size = size
 
     def contains(self, px, py):
         h = self.size * 0.5
@@ -116,8 +116,8 @@ class Robot:
     def __init__(self, x=2.0, y=1.0, theta=math.pi / 2):
         self.x = x
         self.y = y
-        self.theta = theta   # +x 기준 CCW
-        self.v = 0.0         # 현재 실제 선속도(텔레메트리)
+        self.theta = theta
+        self.v = 0.0
         self.w = 0.0
         self.body_length = DEFAULT_ROBOT_BODY_LENGTH_M
         self.body_width = DEFAULT_ROBOT_BODY_WIDTH_M
@@ -147,7 +147,7 @@ class Robot:
     def wheel_contacts(self, wheel_base):
         """좌/우 바퀴 바닥 접점 (월드 좌표). 좌측 = heading 기준 +90°."""
         hb = wheel_base * 0.5
-        lx = -math.sin(self.theta)   # 좌측 단위벡터
+        lx = -math.sin(self.theta)
         ly = math.cos(self.theta)
         left = (self.x + hb * lx, self.y + hb * ly)
         right = (self.x - hb * lx, self.y - hb * ly)
@@ -161,15 +161,13 @@ class World:
         self.patches = []
         self.walls_on = False
 
-        # 심판 상태
         self.collisions = 0
         self._colliding = False
-        self.target_idx = 0          # 현재 통과해야 할 색 인덱스(ORDER)
-        self.dwell = 0.0             # 영역 내 정지 유지 시간
+        self.target_idx = 0
+        self.dwell = 0.0
         self.cleared = [False, False, False]
         self.finished = False
 
-    # ---- 배치/초기화 ----
     def current_target_color(self):
         if self.target_idx < len(ORDER):
             return ORDER[self.target_idx]
@@ -186,7 +184,6 @@ class World:
         self.cleared = [False, False, False]
         self.finished = False
 
-    # ---- 물리 적분(정확한 차동구동) ----
     def step_physics(self, wL, wR, wheel_r, wheel_base, dt):
         v = (wR + wL) * wheel_r * 0.5
         w = (wR - wL) * wheel_r / wheel_base
@@ -226,7 +223,6 @@ class World:
         if not hit and self.walls_on:
             if any(x < 0 or x > ARENA_M or y < 0 or y > ARENA_M for x, y in body):
                 hit = True
-        # 새로 충돌이 시작될 때만 1회 카운트(디바운스)
         if hit and not self._colliding:
             self.collisions += 1
         self._colliding = hit

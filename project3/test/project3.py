@@ -1,11 +1,5 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-#
-# Project 3: 라이다 lean DWA + 카메라 색상영역 시퀀스 추적
-#   카메라로 현재 타깃 색 영역의 방위 β를 구해 DWA 목표 방위로 사용.
-#   미검출 시에는 제자리 스윕 후 odometry 기반 waypoint를 훑으며 전역 탐색한다.
-#   도착 판정은 CLOSE→CREEP→HOLD 상태로 패치 위까지 더 들어간 뒤 정지한다.
-#   좌표계: 로봇 기준 x=전방, y=좌측(+).  w>0 = 좌회전.  β>0 = 타깃이 좌측.
 
 import time
 import math
@@ -17,45 +11,40 @@ try:
     import cv2
     _CV2_OK = True
 except Exception:
-    _CV2_OK = False        # cv2 없으면 카메라 비활성화 → 라이다 단독 동작
+    _CV2_OK = False
 
-# ===================== 설정 =====================
 ARDU_PORT = "/dev/ttyS0"
 ARDU_BAUD = 9600
 LIDAR_PORT = "/dev/ttyUSB0"
 LIDAR_BAUD = 460800
 
-# 라이다 캘리브 (project2 검증값)
 ANGLE_OFFSET_DEG = 1.54
 DIST_OFFSET_MM = 0.0
 LIDAR_ANGLE_SIGN = -1.0
 MIN_RANGE_M = 0.05
-MAX_RANGE_M = 2.5          # project2의 0.75 캡을 상향 → 더 일찍 반응
+MAX_RANGE_M = 2.5
 MIN_QUALITY = 1
 SCAN_HOLD_S = 0.30
-MAX_POINTS = 500           # 계산용 최대 포인트 수
+MAX_POINTS = 500
 
-# 로봇 / 주행
 ROBOT_RADIUS = 0.13
-COLLISION_DIST = ROBOT_RADIUS + 0.06   # 이 안으로 들어오는 궤적은 충돌로 간주
-SLOW_DIST = 0.22                       # 이 거리부터 감속 시작
-CRUISE_V = 0.18                        # 기본 직진 속도 (WHEEL_SPEED_MAX×WHEEL_R=0.272 m/s 포화 방지)
-V_MIN_RATIO = 0.4                      # 감속 시 최소 속도 비율
-MAX_W = 1.0                            # 최대 회전속도
-W_RATE = 0.30                          # 루프당 w 변화 제한
+COLLISION_DIST = ROBOT_RADIUS + 0.06
+SLOW_DIST = 0.22
+CRUISE_V = 0.18
+V_MIN_RATIO = 0.4
+MAX_W = 1.0
+W_RATE = 0.30
 
-# 엔코더 odometry / 시험 영역 keep-in
-ODOM_WHEEL_R = 0.034                   # project3.ino WHEEL_R와 맞춘 값
-ODOM_WHEEL_BASE = 0.179                # project3.ino WHEEL_BASE와 맞춘 값
-ODOM_PPR = 1012.0                      # project3.ino PPR와 맞춘 값
+ODOM_WHEEL_R = 0.034
+ODOM_WHEEL_BASE = 0.179
+ODOM_PPR = 1012.0
 ODOM_COUNT_PER_RAD = ODOM_PPR / (2.0 * math.pi)
-ODOM_START_X = 0.0                     # centered 좌표계 기준 시작 x
-ODOM_START_Y = -0.5                    # centered 좌표계 기준 시작 y (남쪽 끝→중앙 사이)
-ODOM_START_TH = math.pi / 2.0          # +y 방향으로 출발
-ODOM_HOLD_S = 0.50                     # 이 시간 이상 엔코더 피드백이 없으면 안전 정지
-KEEPIN_SIZE_M = 2.30                   # 탐색 waypoint 계산용 아레나 크기 참조값
+ODOM_START_X = 0.0
+ODOM_START_Y = -0.5
+ODOM_START_TH = math.pi / 2.0
+ODOM_HOLD_S = 0.50
+KEEPIN_SIZE_M = 2.30
 
-# DWA
 HORIZON_T = 1.2
 DT = 0.10
 STEPS = int(HORIZON_T / DT)
@@ -63,48 +52,44 @@ W_SET = np.linspace(-MAX_W, MAX_W, 11)
 V_SET_RATIOS = np.array([1.0, 0.70, 0.47, 0.33])
 V_SET_MIN = 0.03
 V_SET = np.maximum(V_SET_MIN, CRUISE_V * V_SET_RATIOS)
-CLEAR_CAP = 0.5                        # 이 이상 뚫려 있으면 동일 취급
-W_CLEAR = 1.5                          # 여유(clearance) 가중치  ┐ goal/clearance
-W_GOAL = 1.0                           # 목표 방향 가중치        ┘ 비율 = 핵심 노브
-W_SPEED = 0.25                         # 같은 안전도면 빠른 후보를 약간 선호
-W_TURN = 0.08                          # 불필요하게 큰 회전을 약간 억제
-W_SMOOTH = 0.10                        # 직전 회전속도와 가까운 후보를 약간 선호
+CLEAR_CAP = 0.5
+W_CLEAR = 1.5
+W_GOAL = 1.0
+W_SPEED = 0.25
+W_TURN = 0.08
+W_SMOOTH = 0.10
 
-# 목표 방향이 장애물로 막혔을 때 라이다 gap을 임시 목표로 쓰는 회피.
-GAP_BEARING_MAX = 1.20                 # gap 후보 최대 좌우 방위각(rad)
-GAP_BEARING_STEP = 0.15                # gap 후보 샘플 간격(rad)
-GAP_WINDOW_RAD = 0.22                  # 후보 방위 주변 장애물 확인 폭(rad)
-GAP_MIN_CLEAR_MARGIN = 0.02            # gap 후보가 가져야 하는 최소 추가 여유
-GAP_PASS_LOOKAHEAD_M = 0.75            # gap 후보가 실제 통로인지 확인할 고정 전방 거리
-GAP_PASS_SIDE_MARGIN_M = 0.06          # 로봇 좌우 폭에 더할 통과 여유
-GAP_W_PASS = 1.00                      # 통로 폭 여유 점수 비중
+GAP_BEARING_MAX = 1.20
+GAP_BEARING_STEP = 0.15
+GAP_WINDOW_RAD = 0.22
+GAP_MIN_CLEAR_MARGIN = 0.02
+GAP_PASS_LOOKAHEAD_M = 0.75
+GAP_PASS_SIDE_MARGIN_M = 0.06
+GAP_W_PASS = 1.00
 GAP_W_CLEAR = 1.20
 GAP_W_TARGET = 1.00
 GAP_W_TURN = 0.15
 GAP_W_AWAY = 0.60
-AVOID_TRIGGER_MARGIN = 0.02            # 직접 경로가 이 여유보다 좁으면 gap 회피를 검토
-AVOID_RELEASE_MARGIN = 0.06            # 직접 목표 경로가 이만큼 여유로워지면 회피 해제
-AVOID_LOST_MEMORY_S = 1.50             # 회피 중 색을 잠깐 잃어도 gap 방향으로 유지하는 시간
-ESCAPE_ROTATE_MARGIN = 0.01            # 안전 여유 안에서도 회전 탈출을 허용할 최소 몸체 여유
-ESCAPE_CREEP_MAX_V = 0.035             # 안전 여유 안에서 허용할 탈출용 최대 저속 전진
-ESCAPE_REVERSE_V = 0.04                # 안전 여유 안쪽에서만 쓰는 후진 탈출 속도 크기
-ESCAPE_REVERSE_MIN_GAIN = 0.002        # 후진 후보가 현재 여유보다 최소 이만큼 좋아야 채택
+AVOID_TRIGGER_MARGIN = 0.02
+AVOID_RELEASE_MARGIN = 0.06
+AVOID_LOST_MEMORY_S = 1.50
+ESCAPE_ROTATE_MARGIN = 0.01
+ESCAPE_CREEP_MAX_V = 0.035
+ESCAPE_REVERSE_V = 0.04
+ESCAPE_REVERSE_MIN_GAIN = 0.002
 
 LOOP_DT = 0.05
 
-# ===================== 카메라 / 색상 인식 =====================
 CAM_W = 320
 CAM_H = 240
 CAM_EXPOSURE = -1.0
-FLIP_180 = True                        # 카메라 180° 반전 보정 (sihyun 검증값: 상하+좌우)
-HFOV_DEG = 62.0                        # 수평 화각 placeholder (Step 8서 캘리브). 부호가 더 중요
+FLIP_180 = True
+HFOV_DEG = 62.0
 HALF_HFOV_RAD = math.radians(HFOV_DEG) * 0.5
-BEARING_SIGN = -1.0                    # cx 우측(+err)→우회전(β<0). 하드웨어서 반대로 돌면 +1.0
-VISION_HOLD_S = 0.30                   # 인식 결과 신선도 (이보다 오래되면 미검출 취급)
-VISION_MIN_DT = 0.05                   # 비전 처리 최소 주기(최대 ~20Hz로 CPU 양보)
+BEARING_SIGN = -1.0
+VISION_HOLD_S = 0.30
+VISION_MIN_DT = 0.05
 
-# practice/camera_2/practice10.py 의 임시 카메라 행렬(640x480 기준)을 현재 해상도에 맞춰 축소.
-# 체커보드 실측 전까지만 쓰는 초기값이며, 중심 정렬은 아래 바닥 footprint 실측값과 함께 근사한다.
 PRACTICE10_FX_640 = 700.0
 PRACTICE10_FY_480 = 700.0
 PRACTICE10_CX_640 = 320.0
@@ -114,71 +99,66 @@ CAMERA_FY_PX = PRACTICE10_FY_480 * (CAM_H / 480.0)
 CAMERA_CX_PX = PRACTICE10_CX_640 * (CAM_W / 640.0)
 CAMERA_CY_PX = PRACTICE10_CY_480 * (CAM_H / 480.0)
 
-# 실측한 top-down 바닥 시야. 로봇 좌표 x=전방, y=좌측.
 ROBOT_BODY_LENGTH_M = 0.165
 ROBOT_BODY_WIDTH_M = 0.21
 CAMERA_FORWARD_OFFSET_M = -0.05
 CAMERA_LEFT_OFFSET_M = 0.0
-CAMERA_REAR_BLIND_M = 0.40             # 로봇 후방→근거리 맹점 끝; 카메라 기준 37cm 사각지대에 대응
-CAMERA_RECT_WIDTH_M = 0.50             # 카메라 시야 폭 (실측 50cm)
-CAMERA_RECT_DEPTH_M = 0.89             # 카메라 시야 깊이 (실측 37→126cm, 89cm)
+CAMERA_REAR_BLIND_M = 0.40
+CAMERA_RECT_WIDTH_M = 0.50
+CAMERA_RECT_DEPTH_M = 0.89
 
-# ===================== 시퀀스 추적 / 탐색 동작 =====================
-DEFAULT_TARGET = "RED"                 # 시작 타깃 색
-TARGET_SEQUENCE = ["RED", "YELLOW", "BLUE"]   # 통과 순서
-ARRIVE_CY = 0.85                       # 코앞 감지 → 정지 전 close/creep 진입
-APPROACH_CY = 0.65                     # 이 이상 가까우면 저속 정렬 접근으로 전환
-APPROACH_ALIGN_MAX = 0.12              # 이 방위각 안에 안정적으로 들어와야 commit 허용
-APPROACH_STABLE_S = 0.10               # 정렬 상태가 유지되어야 하는 최소 시간
-BEARING_SMOOTH_ALPHA = 0.35            # 카메라 bearing 저역통과 필터 비율
-CLOSE_LOST_HOLD_CY = 0.95              # 이만큼 가까이 본 뒤 잃으면 패치 위로 보고 정지
-CLOSE_APPROACH_V = 0.07                # 코앞 감지 후 카메라를 보며 더 들어가는 저속
-CLOSE_APPROACH_MAX_S = 2.20            # 카메라가 계속 보여도 CLOSE를 끝내는 최대 시간
-BLIND_CREEP_V = 0.07                   # 카메라가 패치를 잃은 뒤 짧게 더 들어가는 속도
-BLIND_CREEP_DIST_M = 0.12              # 패치 위로 바퀴를 올리기 위한 추가 전진 거리
-CREEP_STEER_GAIN = 0.45                # CREEP 중 마지막 bearing을 유지하는 작은 조향 게인
-CREEP_MAX_W = 0.16                     # CREEP 중 보정 회전속도 상한
-DWELL_S = 1.20                         # 패치 위 정지 유지 시간
-CENTER_TOL_M = 0.055                   # 로봇 중심과 색상 중심의 허용 오차
-CENTER_MAX_V = CRUISE_V                # 중심 정렬 접근 속도; v_scale(거리 비례)이 감속 담당
-CENTER_SLOW_RADIUS_M = 0.35            # 중심 목표에 가까워질수록 감속하는 반경
-CENTER_GOAL_ALPHA = 0.35               # 색상 중심 world 좌표 저역통과 비율
-CENTER_LOST_MEMORY_S = 8.00            # 색을 잃어도 마지막 중심 좌표로 마무리하는 시간 (맹점37cm→중심~4s 소요)
-CENTER_MAX_BEARING = 1.20              # 중심 목표 방위각 제한
-SEARCH_W = 0.80                        # 탐색 스윕 회전 속도 상한
-SEARCH_SWEEP_ANGLE_DEG = 35.0          # 현재 자세 기준 좌우로 훑는 각도
+DEFAULT_TARGET = "RED"
+TARGET_SEQUENCE = ["RED", "YELLOW", "BLUE"]
+ARRIVE_CY = 0.85
+APPROACH_CY = 0.65
+APPROACH_ALIGN_MAX = 0.12
+APPROACH_STABLE_S = 0.10
+BEARING_SMOOTH_ALPHA = 0.35
+CLOSE_LOST_HOLD_CY = 0.95
+CLOSE_APPROACH_V = 0.07
+CLOSE_APPROACH_MAX_S = 2.20
+BLIND_CREEP_V = 0.07
+BLIND_CREEP_DIST_M = 0.12
+CREEP_STEER_GAIN = 0.45
+CREEP_MAX_W = 0.16
+DWELL_S = 1.20
+CENTER_TOL_M = 0.055
+CENTER_MAX_V = CRUISE_V
+CENTER_SLOW_RADIUS_M = 0.35
+CENTER_GOAL_ALPHA = 0.35
+CENTER_LOST_MEMORY_S = 8.00
+CENTER_MAX_BEARING = 1.20
+SEARCH_W = 0.80
+SEARCH_SWEEP_ANGLE_DEG = 35.0
 SEARCH_SWEEP_ANGLE_RAD = math.radians(SEARCH_SWEEP_ANGLE_DEG)
-SEARCH_SETTLE_RAD = 0.08               # 목표 스윕 각도에 이 정도 가까우면 반대로 전환
-SEARCH_SCAN_EDGE_HITS = 2              # 좌/우 끝점을 이 횟수만큼 훑고도 안 보이면 전진 탐색
-SEARCH_DRIVE_V = CRUISE_V              # 스캔 후 미검출 시 전진 탐색 속도
-SEARCH_DRIVE_S = 1.20                  # 한 번 스캔한 뒤 전진 탐색하는 시간
-RE_SCAN_DIST_M = 0.80                 # 이 거리 이상 이동 후 타깃 미검출이면 제자리 재스캔
-SEARCH_SWEEP_S = 0.80                  # odometry가 없을 때 방향을 바꾸는 시간 fallback
-TARGET_LOST_MEMORY_S = 0.60            # 마지막으로 본 방향을 기억하는 시간
+SEARCH_SETTLE_RAD = 0.08
+SEARCH_SCAN_EDGE_HITS = 2
+SEARCH_DRIVE_V = CRUISE_V
+SEARCH_DRIVE_S = 1.20
+RE_SCAN_DIST_M = 0.80
+SEARCH_SWEEP_S = 0.80
+TARGET_LOST_MEMORY_S = 0.60
 
-# Odometry 기반 전역 탐색. 색이 안 보이면 2.3m keep-in 영역 안의 waypoint를 훑는다.
 EXPLORE_ENABLED = True
-EXPLORE_SPACING_M = 0.55               # 카메라 폭 0.39m보다 약간 작게 겹치며 훑는 간격
-EXPLORE_EDGE_MARGIN_M = 0.12           # keep-in 경계에서 waypoint가 추가로 떨어질 거리
-EXPLORE_REACH_DIST_M = 0.12            # waypoint 도착 판정 거리
-EXPLORE_SCAN_EDGE_HITS = 0             # waypoint 도착 후 스캔 횟수. 0이면 멈추지 않고 다음 지점으로 간다
-EXPLORE_MAX_V = CRUISE_V               # 전역 탐색 중 최대 전진 속도
-EXPLORE_SLOW_DIST_M = 0.28             # waypoint 근처 감속 거리
-EXPLORE_TURN_IN_PLACE_RAD = 1.10       # 목표가 크게 옆/뒤면 먼저 제자리 회전
-EXPLORE_BLOCKED_S = 0.90               # 이 시간 이상 막히면 해당 waypoint를 포기
-EXPLORE_STUCK_S = 2.00                 # 거의 움직이지 못하면 다른 waypoint로 전환
-EXPLORE_STUCK_DIST_M = 0.04            # stuck 판정에 쓰는 최소 이동량
-BACK_OUT_V = CRUISE_V * 0.40           # 전역 탈출 후진 속도
-BACK_OUT_S = 2.00                      # 전역 탈출 후진 지속 시간(s)
-GLOBAL_STUCK_S = 14.0                  # 이 시간 동안 GLOBAL_STUCK_DIST_M 미만 이동 시 후진 탈출
-GLOBAL_STUCK_DIST_M = 0.35             # 전역 stuck 판정 이동 임계(m)
+EXPLORE_SPACING_M = 0.55
+EXPLORE_EDGE_MARGIN_M = 0.12
+EXPLORE_REACH_DIST_M = 0.12
+EXPLORE_SCAN_EDGE_HITS = 0
+EXPLORE_MAX_V = CRUISE_V
+EXPLORE_SLOW_DIST_M = 0.28
+EXPLORE_TURN_IN_PLACE_RAD = 1.10
+EXPLORE_BLOCKED_S = 0.90
+EXPLORE_STUCK_S = 2.00
+EXPLORE_STUCK_DIST_M = 0.04
+BACK_OUT_V = CRUISE_V * 0.40
+BACK_OUT_S = 2.00
+GLOBAL_STUCK_S = 14.0
+GLOBAL_STUCK_DIST_M = 0.35
 
-# 목표가 아닌 색을 보았을 때의 위치 기억. 나중에 그 색이 목표가 되면 먼저 찾아가고,
-# 현재 목표가 아니면 그 주변 waypoint를 후순위로 밀어 탐색 시간을 줄인다.
 COLOR_MEMORY_TTL_S = 240.0
 WRONG_COLOR_AVOID_RADIUS_M = 0.55
 WRONG_COLOR_SCORE_PENALTY = 1.60
-TARGET_MEMORY_REACHED_DIST_M = 0.40  # RE_SCAN 기동 시 타깃이 보이도록 맹점 경계(0.32m)보다 크게
+TARGET_MEMORY_REACHED_DIST_M = 0.40
 TARGET_MEMORY_MAX_V = CRUISE_V
 
 
@@ -219,7 +199,6 @@ def pixel_to_robot_ground(u_px, v_px):
     )
 
 
-# HSV 범위 (sihyun 검증값).  RED는 H=0/179 양쪽 두 구간.
 COLOR_RANGES = {
     "RED": [
         (np.array([0, 100, 80]), np.array([10, 255, 255])),
@@ -229,13 +208,12 @@ COLOR_RANGES = {
     "BLUE": [(np.array([95, 100, 80]), np.array([130, 255, 255]))],
 }
 CAM_AREA = float(CAM_W * CAM_H)
-MIN_AREA = 20                          # 작은 일부 노출도 쓰되, 점 잡음만 거르는 최소 픽셀 면적
-MIN_EXTENT = 0.45                      # 박스 채움 비율(가는/흩어진 잡음 제거)
+MIN_AREA = 20
+MIN_EXTENT = 0.45
 BLUR_SIZE = 5
 MORPH_KERNEL = np.ones((5, 5), np.uint8)
 
 
-# ===================== 유틸 =====================
 def normalize_deg(a):
     return (a + 180.0) % 360.0 - 180.0
 
@@ -244,7 +222,6 @@ def rate_limit(prev, target, lim):
     return prev + float(np.clip(target - prev, -lim, lim))
 
 
-# ===================== 아두이노 =====================
 def open_arduino():
     ardu = serial.Serial(ARDU_PORT, ARDU_BAUD, timeout=0.1)
     time.sleep(2.0)
@@ -333,7 +310,6 @@ class WheelOdometry:
     def parse_line(self, line, now=None):
         line = line.strip()
         if line == "RESET":
-            # Arduino가 리셋을 확인 → 다음 O 라인을 새 0 기준으로 잡도록 baseline만 비운다.
             self.prev_l = None
             self.prev_r = None
             return False
@@ -371,14 +347,13 @@ class WheelOdometry:
         return parsed
 
 
-# ===================== 라이다 =====================
 class RPLidarC1:
     def __init__(self, port, baud):
         self.ser = serial.Serial(port, baud, timeout=0.1)
-        self.ser.write(bytes([0xA5, 0x40]))   # RESET
+        self.ser.write(bytes([0xA5, 0x40]))
         time.sleep(2.0)
         self.ser.reset_input_buffer()
-        self.ser.write(bytes([0xA5, 0x20]))   # SCAN
+        self.ser.write(bytes([0xA5, 0x20]))
         header = self.ser.read(7)
         if len(header) != 7 or header[0] != 0xA5 or header[1] != 0x5A:
             self.ser.close()
@@ -387,15 +362,12 @@ class RPLidarC1:
         self.lock = threading.Lock()
         self.latest_scan = None
         self.scan_time = 0.0
-        self.backlog = 0          # 진단용: 직전에 OS 버퍼에 밀려 있던 바이트 수
+        self.backlog = 0
         self.running = True
         self.thread = threading.Thread(target=self._loop, daemon=True)
         self.thread.start()
 
     def _loop(self):
-        # OS 시리얼 버퍼를 매번 통째로 읽어 비운다 → 라이다 데이터가 누적/지연되지 않음.
-        # 잔여(불완전) 바이트는 parser에 보존해 5바이트 패킷 정렬을 유지.
-        # 조립된 스캔은 latest_scan 하나만 유지 → 파이썬 객체도 쌓이지 않음.
         parser = bytearray()
         buf_a, buf_d, buf_q = [], [], []
         while self.running:
@@ -435,9 +407,9 @@ class RPLidarC1:
                         buf_d.append(dist)
                         buf_q.append(quality)
 
-                del parser[:n_pkt * 5]            # 처리한 패킷 제거, 잔여 바이트 보존
+                del parser[:n_pkt * 5]
 
-                if len(buf_a) > 2000:             # 회전 경계 미검출 시 무한 증가 방지(안전망)
+                if len(buf_a) > 2000:
                     buf_a, buf_d, buf_q = [], [], []
             except (serial.SerialException, OSError) as e:
                 print(f"[LIDAR] Serial Error: {e}, retry in 1s")
@@ -456,7 +428,7 @@ class RPLidarC1:
     def close(self):
         self.running = False
         try:
-            self.ser.write(bytes([0xA5, 0x25]))   # STOP
+            self.ser.write(bytes([0xA5, 0x25]))
         except Exception:
             pass
         time.sleep(0.1)
@@ -466,7 +438,6 @@ class RPLidarC1:
             pass
 
 
-# 스캔 → 전방(x>0) 장애물 점 (x,y) 배열
 def lidar_points_to_xy(scan):
     if scan is None:
         return np.empty((0, 2), dtype=np.float32)
@@ -488,7 +459,7 @@ def lidar_points_to_xy(scan):
     x = dist_m * np.cos(angle_rad)
     y = dist_m * np.sin(angle_rad)
 
-    ahead = x > 0.0   # 전방만 (지나친/뒤쪽 점은 무시)
+    ahead = x > 0.0
     if not ahead.any():
         return np.empty((0, 2), dtype=np.float32)
 
@@ -499,7 +470,6 @@ def lidar_points_to_xy(scan):
     return points
 
 
-# ===================== 카메라 색상 인식 =====================
 def open_camera():
     """Picamera2 우선, 없으면 USB. (cam, is_picam) 반환. 실패 시 (None, False)."""
     if not _CV2_OK:
@@ -602,7 +572,6 @@ class ColorPerception:
             return (False, 0.0, 0.0, 0.0, 0, None, None)
 
         x, y, w, h = best
-        # bounding box보다 contour moment 중심이 색종이 중심 추정에 더 안정적이다.
         cx = x + w * 0.5
         cy = y + h * 0.5
         if best_cnt is not None:
@@ -610,10 +579,10 @@ class ColorPerception:
             if abs(m["m00"]) > 1e-6:
                 cx = m["m10"] / m["m00"]
                 cy = m["m01"] / m["m00"]
-        err = (cx - CAM_W * 0.5) / (CAM_W * 0.5)   # -1(좌) .. +1(우)
+        err = (cx - CAM_W * 0.5) / (CAM_W * 0.5)
         bearing = BEARING_SIGN * err * HALF_HFOV_RAD
-        area_ratio = best_area / CAM_AREA          # 0..1 (대략 가까울수록 큼)
-        cy_norm = (y + h) / CAM_H                  # 영역 하단의 세로위치(1=프레임 바닥=가까움)
+        area_ratio = best_area / CAM_AREA
+        cy_norm = (y + h) / CAM_H
         target_x, target_y = pixel_to_robot_ground(cx, cy)
         return (True, float(bearing), float(area_ratio), float(cy_norm), n, target_x, target_y)
 
@@ -681,11 +650,9 @@ class ColorPerception:
             pass
 
 
-# ===================== lean DWA =====================
-_TS = (np.arange(STEPS) + 1) * DT   # 예측 시점들
+_TS = (np.arange(STEPS) + 1) * DT
 
 
-# (v,w)로 HORIZON_T 동안 그릴 로봇 기준 궤적 (xs, ys)
 def predict_xy(v, w):
     if abs(w) < 1e-4:
         return v * _TS, np.zeros_like(_TS)
@@ -693,7 +660,6 @@ def predict_xy(v, w):
     return r * np.sin(w * _TS), r * (1.0 - np.cos(w * _TS))
 
 
-# 궤적이 장애물 점들에 가장 가까이 지나가는 거리
 def path_clearance(v, w, points):
     if len(points) == 0:
         return MAX_RANGE_M
@@ -718,7 +684,7 @@ def _pose_tuple(pose):
 
 def command_clearance(v, w, points, pose=None):
     """DWA용 장애물 clearance."""
-    return path_clearance(v, w, points)  # noqa: ARG001 pose unused after keepin removal
+    return path_clearance(v, w, points)
 
 
 def _speed_candidates():
@@ -788,7 +754,6 @@ def _escape_reverse_cmd(points, goal_bearing, prev_w, pose=None):
     return None
 
 
-# 후보 (v,w)들을 평가해 선택.  반환: v, w, best_clear, blocked
 def choose_cmd(points, goal_bearing, prev_w, pose=None):
     best_v = 0.0
     best_w = 0.0
@@ -869,13 +834,11 @@ def choose_cmd(points, goal_bearing, prev_w, pose=None):
             return escape
         return 0.0, 0.0, max(0.0, best_blocked_clear), True
 
-    # 가까울수록 감속하되, 이미 저속 후보를 고른 경우 그 속도보다 빠르게 올리지 않는다.
     span = max(1e-6, SLOW_DIST - COLLISION_DIST)
     v_limit = CRUISE_V * float(np.clip((best_clear - COLLISION_DIST) / span, V_MIN_RATIO, 1.0))
     v = min(best_v, v_limit)
     w = rate_limit(prev_w, best_w, W_RATE)
 
-    # rate limit 때문에 실제로 보낼 w가 후보 w와 달라질 수 있어 최종 명령도 다시 검사한다.
     final_clear = command_clearance(v, w, points, pose)
     if final_clear < COLLISION_DIST:
         for rv in sorted([s for s in _speed_candidates() if s <= v + 1e-6], reverse=True):
@@ -950,7 +913,6 @@ def gap_corridor_clearance(points, bearing, lookahead=None):
     forward = points[:, 0] * c + points[:, 1] * s
     lateral = -points[:, 0] * s + points[:, 1] * c
 
-    # 몸체 길이만큼 앞뒤로 살짝 부풀려서 회전 직후 코앞의 좁은 통로도 걸러낸다.
     mask = (forward >= -half_len) & (forward <= lookahead + half_len)
     if not mask.any():
         return MAX_RANGE_M
@@ -1032,25 +994,21 @@ def choose_gap_cmd(points, target_bearing, prev_w, pose=None):
     return best
 
 
-# ===================== 시퀀스 컨트롤러 =====================
-# 한 제어주기의 의사결정 = main() 과 시뮬레이터가 공유하는 단일 진실원.
-# 여기(상수/choose_cmd/tick)를 고치면 시뮬레이터 동작도 그대로 바뀐다
-# (sim 이 이 코드를 import 해 직접 호출하므로 글루를 다시 짤 필요가 없다).
 class Controller:
     """색 시퀀스 추적 + 패치 위로 더 들어간 뒤 정지 + DWA 조향."""
 
     def __init__(self):
-        self.seq_idx = 0           # 현재 추적 색 = TARGET_SEQUENCE[seq_idx]
-        self.phase = "INIT_SCAN"   # 시작 시 360° 회전으로 color_memory 선구성
+        self.seq_idx = 0
+        self.phase = "INIT_SCAN"
         self.init_scan_prev_theta = None
         self.init_scan_rotated = 0.0
         self.init_scan_start_t = None
         self.close_until = 0.0
         self.creep_until = 0.0
-        self.dwell_until = 0.0     # >0 이면 패치 위 정지 유지가 끝나는 시각
+        self.dwell_until = 0.0
         self.last_w = 0.0
-        self.goal = 0.0            # 직전 목표 방위 (로깅/시각화용)
-        self.clr = 0.0             # 직전 여유거리
+        self.goal = 0.0
+        self.clr = 0.0
         self.last_seen_t = -1e9
         self.last_seen_bearing = 0.0
         self.last_seen_cy = 0.0
@@ -1079,7 +1037,7 @@ class Controller:
         self.explore_anchor_y = None
         self.explore_priority_count = 0
         self.explore_backup_until = 0.0
-        self.global_stuck_ref = None   # (x, y, t) — 전역 stuck 기준점
+        self.global_stuck_ref = None
         self.avoid_active = False
         self.avoid_goal = 0.0
         self.avoid_direct_clr = 0.0
@@ -1089,14 +1047,14 @@ class Controller:
         self.avoid_required_half_width = 0.0
         self.avoid_lookahead = 0.0
         self.avoid_score = 0.0
-        self.center_goal_x = None      # centered/world 좌표계의 목표 색상 중심 x
+        self.center_goal_x = None
         self.center_goal_y = None
-        self.last_target_x = None      # 로봇 좌표계의 최근 색상 중심 x
+        self.last_target_x = None
         self.last_target_y = None
         self.last_center_dist = None
-        self.color_memory = {}         # color -> centered/world 좌표계의 최근 관측 위치
-        self.rescan_dist_m = 0.0       # 마지막 스캔 이후 누적 이동 거리
-        self.rescan_last_pose = None   # 직전 tick pose (거리 적분용)
+        self.color_memory = {}
+        self.rescan_dist_m = 0.0
+        self.rescan_last_pose = None
 
     @property
     def done(self):
@@ -1318,10 +1276,8 @@ class Controller:
         self.rescan_last_pose = None
 
         if self._target_memory(now) is not None:
-            return 0.0, 0.0, "SEEK"    # 다음 tick에서 MEMORY_GOTO가 안내
+            return 0.0, 0.0, "SEEK"
 
-        # 타깃 미발견 → EXPLORE_GOTO로 아레나를 체계적으로 커버하며 탐색.
-        # (단순 직진은 장애물에 막히거나 타깃 반대 방향으로 갈 수 있음)
         return self._begin_and_try_search_drive(points, now, pose)
 
     def _begin_search_scan(self):
@@ -1410,10 +1366,10 @@ class Controller:
         px, py, _ = pose_t
         if self.explore_anchor_x is None or self.explore_anchor_y is None:
             half = self._explore_half_span()
-            if self.seq_idx == 2:  # BLUE: 북쪽 앵커
+            if self.seq_idx == 2:
                 self.explore_anchor_x = 0.0
                 self.explore_anchor_y = half
-            else:  # YELLOW 등: x 반대편 앵커
+            else:
                 self.explore_anchor_x = max(-half, min(half, -px))
                 self.explore_anchor_y = 0.0
         priority_stop = min(self.explore_priority_count, len(self.explore_waypoints))
@@ -1515,14 +1471,12 @@ class Controller:
             self._begin_search_drive(now)
             return self._search_drive_cmd(points, pose)
 
-        # 탈출 후진 중이면 뒤로 빠져나간다.
         if now < self.explore_backup_until:
             back_v = -BACK_OUT_V
             for bw in (0.0, 0.25, -0.25, 0.5, -0.5):
                 if command_clearance(back_v, bw, points, pose) >= COLLISION_DIST:
                     self.last_w = bw
                     return back_v, bw, "EXPLORE_BACKUP"
-            # 후진도 막혔으면 회전으로 탈출
             escape = _escape_rotate_cmd(points, 0.0, self.last_w, pose)
             if escape is not None:
                 self.last_w = escape[1]
@@ -1559,7 +1513,6 @@ class Controller:
             self.goal = goal_bearing
             self.clr = clr
             if clr >= escape_rotate_clearance_min():
-                # 회전이 가능하면 stuck 타이머를 리셋한다 (회전 중엔 waypoint 거리 감소 없음)
                 self.explore_last_dist = dist
                 self.explore_last_progress_t = now
                 self._reset_avoidance()
@@ -1578,7 +1531,6 @@ class Controller:
             if now - self.explore_blocked_since >= EXPLORE_BLOCKED_S:
                 self._select_next_explore_waypoint(pose_t, now, skip_current=True, prefer_far=True)
                 return 0.0, 0.0, "EXPLORE_BLOCKED"
-            # 타임아웃 전: 서 있지 않고 탈출 회전으로 다른 경로 모색
             escape = _escape_rotate_cmd(points, goal_bearing, self.last_w, pose)
             if escape is not None:
                 v_e, w_e, clr_e, _ = escape
@@ -1605,8 +1557,6 @@ class Controller:
         dy = mem["y_m"] - py
         dist = math.hypot(dx, dy)
         if dist <= TARGET_MEMORY_REACHED_DIST_M:
-            # 기억 위치까지 왔는데도 안 보이면 현장 RE_SCAN으로 탐색한다.
-            # (메모리는 유지 — 스캔 후 재발견 시 다시 접근)
             self.phase = "RE_SCAN"
             self.init_scan_prev_theta = None
             self.init_scan_rotated = 0.0
@@ -1742,7 +1692,6 @@ class Controller:
         if dist <= CENTER_TOL_M:
             return self._begin_hold(now)
 
-        # 최종 목표가 로봇 중심이므로 가까운 구간에서는 속도를 줄인다.
         goal_bearing = math.atan2(ey, max(0.03, ex))
         goal_bearing = max(-CENTER_MAX_BEARING, min(CENTER_MAX_BEARING, goal_bearing))
         v, w, state = self._goal_cmd(points, goal_bearing, pose, allow_avoid=True)
@@ -1850,7 +1799,7 @@ class Controller:
            색 전환·정지 타이머는 내부 갱신."""
         self.goal = 0.0
         self.clr = 0.0
-        if self.done:                              # 완주 → 정지 유지
+        if self.done:
             self.last_w = 0.0
             return 0.0, 0.0, "DONE"
 
@@ -1859,16 +1808,16 @@ class Controller:
         if seen:
             self._note_seen(bearing, cy_norm, now)
 
-        if self.phase in ("INIT_SCAN", "POST_SCAN", "RE_SCAN"):   # 제자리 스캔: 타깃이 보이면 즉시 접근
+        if self.phase in ("INIT_SCAN", "POST_SCAN", "RE_SCAN"):
             if seen and target_xy is not None:
                 self.phase = "SEEK"
             else:
                 return self._init_scan_cmd(points, now, pose)
 
-        if self.phase == "HOLD":                   # 패치 위 정지 유지
+        if self.phase == "HOLD":
             self.last_w = 0.0
             if now >= self.dwell_until:
-                self.seq_idx += 1                  # 다음 색 (넘치면 done)
+                self.seq_idx += 1
                 self._reset_for_next_target()
             return 0.0, 0.0, "HOLD"
 
@@ -1884,12 +1833,12 @@ class Controller:
             self._reset_center()
             self.phase = "SEEK"
 
-        if self.phase == "CREEP":                  # 카메라가 잃은 뒤 짧게 더 전진
+        if self.phase == "CREEP":
             if now < self.creep_until:
                 return self._creep_cmd(points, BLIND_CREEP_V, "CREEP", pose)
             return self._begin_hold(now)
 
-        if self.phase == "CLOSE":                  # 코앞 감지 후 바로 멈추지 않고 진입
+        if self.phase == "CLOSE":
             if now >= self.close_until:
                 if self.close_peak_cy >= CLOSE_LOST_HOLD_CY:
                     return self._begin_hold(now)
@@ -1946,7 +1895,6 @@ class Controller:
             return min(v, CLOSE_APPROACH_V), w, "CLOSE"
 
         if not seen:
-            # odometry 기반 이동 거리 누적
             pose_t = _pose_tuple(pose)
             if pose_t is not None:
                 if self.rescan_last_pose is not None:
@@ -1956,7 +1904,6 @@ class Controller:
                     )
                 self.rescan_last_pose = (pose_t[0], pose_t[1])
 
-            # 전역 stuck 감지: SEEK 중 너무 오래 같은 자리에 있으면 후진 탈출
             if self.phase == "SEEK" and pose_t is not None:
                 if self.global_stuck_ref is None:
                     self.global_stuck_ref = (pose_t[0], pose_t[1], now)
@@ -1967,7 +1914,7 @@ class Controller:
                     elif now - rt >= GLOBAL_STUCK_S:
                         self._reset_explore()
                         half = self._explore_half_span()
-                        if self.seq_idx == 2:  # BLUE stuck: NE 방향으로 우회
+                        if self.seq_idx == 2:
                             self.explore_anchor_x = half
                             self.explore_anchor_y = half
                         else:
@@ -1976,7 +1923,6 @@ class Controller:
                         self.explore_backup_until = now + BACK_OUT_S
                         self.global_stuck_ref = (pose_t[0], pose_t[1], now)
 
-            # RE_SCAN_DIST_M 이상 이동 후 타깃 미검출 → 제자리 재스캔
             if self.phase == "SEEK" and self.rescan_dist_m >= RE_SCAN_DIST_M:
                 self.phase = "RE_SCAN"
                 self.init_scan_prev_theta = None
@@ -1998,7 +1944,6 @@ class Controller:
         return self._goal_cmd(points, self.smooth_bearing, pose, allow_avoid=True)
 
 
-# ===================== 메인 =====================
 def main():
     ardu = open_arduino()
     lidar = RPLidarC1(LIDAR_PORT, LIDAR_BAUD)
@@ -2020,7 +1965,7 @@ def main():
 
     ctrl = Controller()
     odom = WheelOdometry()
-    odom.request_reset(ardu)   # 엔코더 누적 카운트를 0부터 시작 (검증된 리셋 핸드셰이크)
+    odom.request_reset(ardu)
     last_log = 0.0
 
     try:
@@ -2038,7 +1983,6 @@ def main():
 
             scan, scan_time = lidar.get_scan()
 
-            # 신선한 스캔이 없으면 안전하게 정지
             if scan is None or now - scan_time > SCAN_HOLD_S:
                 send_vw(ardu, 0.0, 0.0)
                 ctrl.last_w = 0.0
@@ -2046,7 +1990,7 @@ def main():
                 continue
 
             points = lidar_points_to_xy(scan)
-            cam.set_target(ctrl.target_color)      # 시퀀스 진행에 맞춰 카메라 타깃 동기화
+            cam.set_target(ctrl.target_color)
             cam_res, cam_stamp = cam.get()
             if len(cam_res) >= 7:
                 visible, bearing, area_ratio, cy_norm, ncnt, target_x, target_y = cam_res[:7]

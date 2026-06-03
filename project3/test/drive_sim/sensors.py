@@ -11,18 +11,16 @@ import numpy as np
 from world import ARENA_M
 
 
-# ===================== 라이다 =====================
 def simulate_lidar_raw(world, p3, n_rays=360, sensor_max=6.0, noise_m=0.0):
     """장애물(회전 직사각형)+벽에 레이캐스팅 → 실제 코드가 기대하는 (angles_deg, dists_mm, q)."""
     rb = world.robot
-    phi = np.linspace(-math.pi, math.pi, n_rays, endpoint=False)   # 로봇기준 방위
+    phi = np.linspace(-math.pi, math.pi, n_rays, endpoint=False)
     A = rb.theta + phi
     dx = np.cos(A)
     dy = np.sin(A)
 
     dist = np.full(n_rays, np.inf)
 
-    # 회전 직사각형 장애물: 레이를 장애물 로컬 좌표로 돌린 뒤 slab 교차.
     for o in world.obstacles:
         ox, oy = o.world_to_local(rb.x, rb.y)
         c = math.cos(o.theta)
@@ -61,7 +59,6 @@ def simulate_lidar_raw(world, p3, n_rays=360, sensor_max=6.0, noise_m=0.0):
         valid = (t_exit >= np.maximum(t_enter, 1e-4)) & (t > 1e-4)
         dist = np.where(valid, np.minimum(dist, t), dist)
 
-    # 아레나 벽 (내부에서 박스 경계까지)
     if world.walls_on:
         with np.errstate(divide="ignore", invalid="ignore"):
             tx = np.where(dx > 0, (ARENA_M - rb.x) / dx,
@@ -82,15 +79,12 @@ def simulate_lidar_raw(world, p3, n_rays=360, sensor_max=6.0, noise_m=0.0):
     phi_k = phi[keep]
     dist_k = dist[keep]
 
-    # project3 캘리브의 역변환: raw_deg → (코드가 적용 후) phi 가 되도록
-    #   코드: phi_deg = LIDAR_ANGLE_SIGN * normalize(raw + ANGLE_OFFSET_DEG)
     raw_deg = p3.LIDAR_ANGLE_SIGN * np.degrees(phi_k) - p3.ANGLE_OFFSET_DEG
     dist_mm = dist_k * 1000.0 - p3.DIST_OFFSET_MM
     q = np.full(phi_k.shape, 15.0, dtype=np.float32)
     return (raw_deg.astype(np.float32), dist_mm.astype(np.float32), q)
 
 
-# ===================== 카메라 =====================
 def camera_rect_half_width(p3, cam_max=None, cam_width_m=None):
     """top-down 카메라 바닥 직사각형의 좌우 반폭."""
     if cam_width_m is not None:

@@ -21,20 +21,18 @@ def _clamp(x, lo, hi):
 
 class ArduinoSim:
     def __init__(self, ino):
-        self.ino = ino                 # .ino 상수 dict (code_bridge.parse_ino)
-        self.V_cmd = 0.0               # 목표 선속도 (m/s)
-        self.W_cmd = 0.0               # 목표 각속도 (rad/s)
-        self.wL = 0.0                  # 실제 좌바퀴 각속도 (rad/s)
-        self.wR = 0.0                  # 실제 우바퀴 각속도 (rad/s)
-        self.now = 0.0                 # 내부 시계 (s)
+        self.ino = ino
+        self.V_cmd = 0.0
+        self.W_cmd = 0.0
+        self.wL = 0.0
+        self.wR = 0.0
+        self.now = 0.0
         self.last_cmd_t = 0.0
         self._rx = ""
 
-        # --- sim 파라미터 (GUI에서 조정) ---
-        self.tau = 0.10                # 휠 폐루프 응답 시간상수 (s)
-        self.wheel_accel_max = 50.0    # 휠 각가속 한계 (rad/s^2)
+        self.tau = 0.10
+        self.wheel_accel_max = 50.0
 
-    # 실제 project3.send_vw/stop 이 호출하는 serial.write 와 동일 인터페이스
     def write(self, data):
         s = data.decode() if isinstance(data, (bytes, bytearray)) else str(data)
         self._rx += s
@@ -72,7 +70,6 @@ class ArduinoSim:
         return _clamp(wL, -cap, cap), _clamp(wR, -cap, cap)
 
     def _approach(self, cur, tgt, dt):
-        # 1차 지연으로 목표에 접근 + 가속 한계
         step = (tgt - cur) * min(1.0, dt / max(self.tau, 1e-3))
         amax = self.wheel_accel_max * dt
         step = _clamp(step, -amax, amax)
@@ -80,7 +77,6 @@ class ArduinoSim:
 
     def update(self, dt):
         self.now += dt
-        # CMD_TIMEOUT: 명령 끊기면 정지 (.ino 와 동일)
         if (self.now - self.last_cmd_t) * 1000.0 > self.ino["CMD_TIMEOUT_MS"]:
             self.V_cmd = 0.0
             self.W_cmd = 0.0
@@ -92,7 +88,6 @@ class ArduinoSim:
         self.wL = self._approach(self.wL, tL, dt)
         self.wR = self._approach(self.wR, tR, dt)
 
-    # --- 텔레메트리: 실제 (v,w) ---
     def actual_vw(self):
         R = self.ino["WHEEL_R"]
         WB = self.ino["WHEEL_BASE"]
