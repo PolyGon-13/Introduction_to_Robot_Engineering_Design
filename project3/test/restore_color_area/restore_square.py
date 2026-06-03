@@ -3,11 +3,15 @@
 
 import argparse
 import math
+import sys
 import time
 from pathlib import Path
 
 import cv2
 import numpy as np
+
+# camera.py / lidar.py 는 project3/sihyun/test 디렉토리에 위치한다.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent / "sihyun" / "test"))
 
 from camera import (
     BOX_COLORS,
@@ -24,13 +28,17 @@ from lidar import FREE_D, GRID, RPLidarC1, front_ranges
 TARGET_NAMES = ("RED", "YELLOW", "BLUE")
 THIS_DIR = Path(__file__).resolve().parent
 DEFAULT_HOMOGRAPHY_FILE = THIS_DIR / "restore_square_homography.npz"
+# 튜닝된 카메라 내부 파라미터(.npy)는 형제 폴더 camera_calibration 에 위치한다.
+DEFAULT_CAMERA_MATRIX_FILE = THIS_DIR.parent / "camera_calibration" / "camera_matrix.npy"
+DEFAULT_DIST_COEFFS_FILE = THIS_DIR.parent / "camera_calibration" / "dist_coeffs.npy"
 
+# camera_calibration/calibration_result.txt 기준 (640x480 raw). .npy 가 있으면 런타임에 덮어쓴다.
 CALIB_WIDTH = 640.0
 CALIB_HEIGHT = 480.0
-CALIB_FX = 700.0
-CALIB_FY = 700.0
-CALIB_CX = 320.0
-CALIB_CY = 240.0
+CALIB_FX = 651.22884042
+CALIB_FY = 676.79930888
+CALIB_CX = 380.17305783
+CALIB_CY = 221.65856353
 
 CAMERA_HEIGHT_M = 0.65
 PITCH_DOWN_DEG = 45.0
@@ -132,6 +140,88 @@ def raw_to_display_points(points, frame_shape):
         return np.column_stack((x, y)).astype(np.float32)
 
     return pts
+
+
+def unrotate_to_raw_image(frame):
+    """표시 프레임(회전 적용됨)을 원본 센서 방향으로 되돌린다.
+
+    내부 파라미터/왜곡 계수는 회전 전 raw 센서 좌표계에서 정의되므로,
+    undistort 는 반드시 raw 방향에서 수행해야 한다.
+    """
+    if CAMERA_ROTATION == cv2.ROTATE_90_COUNTERCLOCKWISE:
+        return cv2.rotate(frame, cv2.ROTATE_90_CLOCKWISE)
+    if CAMERA_ROTATION == cv2.ROTATE_90_CLOCKWISE:
+        return cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
+    if CAMERA_ROTATION == cv2.ROTATE_180:
+        return cv2.rotate(frame, cv2.ROTATE_180)
+    return frame
+
+
+def rotate_to_display_image(raw_image):
+    """raw 방향 이미지를 다시 표시(회전된) 방향으로 돌린다."""
+    if CAMERA_ROTATION is None:
+        return raw_image
+    return cv2.rotate(raw_image, CAMERA_ROTATION)
+
+
+class Undistorter:
+    """튜닝된 camera_matrix/dist_coeffs 로 프레임의 렌즈 왜곡을 제거한다.
+
+    new camera matrix 를 원본 K 로 두기 때문에 undistort 후에도 내부 파라미터는
+    그대로 유지되고, 핀홀 지면 투영이 유효해진다. raw 해상도별 remap 맵을 캐시한다.
+    """
+
+    def __init__(self, camera_matrix, dist_coeffs, calib_width, calib_height):
+        self.base_k = np.asarray(camera_matrix, dtype=np.float64)
+        self.dist = np.asarray(dist_coeffs, dtype=np.float64).reshape(-1)
+        self.calib_w = float(calib_width)
+        self.calib_h = float(calib_height)
+        self._maps = {}
+
+    def _maps_for(self, raw_w, raw_h):
+        key = (raw_w, raw_h)
+
+        if key not in self._maps:
+            sx = raw_w / self.calib_w
+            sy = raw_h / self.calib_h
+            k = self.base_k.copy()
+            k[0, 0] *= sx
+            k[0, 2] *= sx
+            k[1, 1] *= sy
+            k[1, 2] *= sy
+            map1, map2 = cv2.initUndistortRectifyMap(
+                k, self.dist, None, k, (raw_w, raw_h), cv2.CV_16SC2
+            )
+            self._maps[key] = (map1, map2)
+
+        return self._maps[key]
+
+    def apply(self, frame):
+        raw_image = unrotate_to_raw_image(frame)
+        raw_h, raw_w = raw_image.shape[:2]
+        map1, map2 = self._maps_for(raw_w, raw_h)
+        undistorted = cv2.remap(raw_image, map1, map2, cv2.INTER_LINEAR)
+        return rotate_to_display_image(undistorted)
+
+
+def load_tuned_intrinsics(args):
+    """camera_matrix.npy / dist_coeffs.npy 를 읽어 내부 파라미터·왜곡 계수를 반환.
+
+    파일이 없으면 (None, None) 을 돌려주고 호출측이 args 기본값으로 대체한다.
+    """
+    camera_matrix = None
+    dist_coeffs = None
+
+    matrix_path = Path(args.camera_matrix_file).expanduser()
+    dist_path = Path(args.dist_coeffs_file).expanduser()
+
+    if matrix_path.exists():
+        camera_matrix = np.load(str(matrix_path)).astype(np.float64)
+
+    if dist_path.exists():
+        dist_coeffs = np.load(str(dist_path)).astype(np.float64).reshape(-1)
+
+    return camera_matrix, dist_coeffs
 
 
 class GroundProjector:
@@ -293,11 +383,14 @@ def draw_calibration_overlay(frame, clicked, ground_points):
     return view
 
 
-def calibrate_homography(cam, args):
+def calibrate_homography(cam, args, undistorter=None):
     ok, frame = read_frame(cam)
 
     if not ok:
         raise RuntimeError("[CALIB] camera frame read failed")
+
+    if undistorter is not None:
+        frame = undistorter.apply(frame)
 
     clicked = []
     ground_points = calibration_ground_points(args)
@@ -854,7 +947,12 @@ def parse_args():
     parser.add_argument("--square-size", type=float, default=SQUARE_SIZE_M)
     parser.add_argument("--homography-file", default=str(DEFAULT_HOMOGRAPHY_FILE))
     parser.add_argument("--calibrate", action="store_true")
-    parser.add_argument("--no-homography", action="store_true")
+    # 기본은 핀홀 투영(클릭 캘리브레이션 불필요). 호모그래피는 명시적으로 켤 때만 사용.
+    parser.add_argument("--use-homography", action="store_true")
+    parser.add_argument("--camera-matrix-file", default=str(DEFAULT_CAMERA_MATRIX_FILE))
+    parser.add_argument("--dist-coeffs-file", default=str(DEFAULT_DIST_COEFFS_FILE))
+    parser.add_argument("--no-undistort", action="store_true",
+                        help="튜닝된 왜곡 계수로 프레임 보정하는 단계를 끈다")
     parser.add_argument("--calib-x-near", type=float, default=CALIB_X_NEAR_M)
     parser.add_argument("--calib-x-far", type=float, default=CALIB_X_FAR_M)
     parser.add_argument("--calib-y-left", type=float, default=CALIB_Y_LEFT_M)
@@ -907,21 +1005,43 @@ def main():
     previous_center = None
     last_size_print = 0.0
     homography = None
+    undistorter = None
+
+    # 튜닝된 내부 파라미터/왜곡 계수 로드. 있으면 args 기본값을 덮어쓴다.
+    camera_matrix, dist_coeffs = load_tuned_intrinsics(args)
+
+    if camera_matrix is not None:
+        args.fx = float(camera_matrix[0, 0])
+        args.fy = float(camera_matrix[1, 1])
+        args.cx = float(camera_matrix[0, 2])
+        args.cy = float(camera_matrix[1, 2])
+        print(
+            f"[CALIB] intrinsics loaded fx={args.fx:.1f} fy={args.fy:.1f} "
+            f"cx={args.cx:.1f} cy={args.cy:.1f}"
+        )
+    else:
+        print("[CALIB] intrinsics .npy not found; using built-in tuned defaults")
+
+    if not args.no_undistort and camera_matrix is not None and dist_coeffs is not None:
+        undistorter = Undistorter(camera_matrix, dist_coeffs, args.calib_width, args.calib_height)
+        print("[CALIB] lens undistortion enabled")
+    else:
+        print("[CALIB] lens undistortion disabled")
 
     try:
         cam = open_camera()
 
-        if not args.no_homography:
+        if args.use_homography:
             path = homography_path(args)
 
             if args.calibrate or not path.exists():
                 print(f"[CALIB] homography file not found or recalibration requested: {path}")
-                homography = calibrate_homography(cam, args)
+                homography = calibrate_homography(cam, args, undistorter)
             else:
                 homography = load_homography(path)
                 print(f"[CALIB] loaded homography: {path}")
         else:
-            print("[CALIB] homography disabled; using pinhole fallback")
+            print("[CALIB] pinhole projection (no homography click calibration)")
 
         if not args.no_lidar:
             lidar = RPLidarC1()
@@ -931,6 +1051,9 @@ def main():
 
             if not ok:
                 break
+
+            if undistorter is not None:
+                frame = undistorter.apply(frame)
 
             fx, fy, cx, cy = scaled_intrinsics(frame.shape, args)
             projector = GroundProjector(
