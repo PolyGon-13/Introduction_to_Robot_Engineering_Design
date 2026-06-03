@@ -854,7 +854,7 @@ def draw_cross(frame, point, color):
     cv2.line(frame, (x, y - 8), (x, y + 8), color, 2)
 
 
-def draw_candidate(frame, candidate, projector, color, thickness):
+def draw_candidate(frame, candidate, projector, color, thickness, center_color=None):
     polygon = project_candidate(candidate, projector, frame.shape)
 
     if polygon is None:
@@ -862,10 +862,11 @@ def draw_candidate(frame, candidate, projector, color, thickness):
 
     cv2.polylines(frame, [polygon], True, color, thickness)
 
-    center = candidate_display_center(candidate, projector, frame.shape)
+    if center_color is not None:
+        center = candidate_display_center(candidate, projector, frame.shape)
 
-    if center is not None:
-        draw_cross(frame, center, CENTER_COLOR)
+        if center is not None:
+            draw_cross(frame, center, center_color)
 
     return True
 
@@ -927,7 +928,7 @@ def draw_target(frame, target, selected, candidates, projector, status, args):
             draw_candidate(frame, candidate, projector, CANDIDATE_COLOR, 1)
 
     if selected is not None:
-        draw_candidate(frame, selected, projector, SELECTED_COLOR, 3)
+        draw_candidate(frame, selected, projector, SELECTED_COLOR, 3, CENTER_COLOR)
 
     cv2.putText(
         frame,
