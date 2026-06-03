@@ -1,0 +1,17 @@
+===== Camera Calibration Result =====
+Image size (w, h): (640, 480)
+Checkerboard inner corners: (8, 8)
+Square size: 21.0 mm
+Number of images used: 16
+
+Camera matrix:
+[[651.22884042   0.         380.17305783]
+ [  0.         676.79930888 221.65856353]
+ [  0.           0.           1.        ]]
+
+Distortion coefficients (k1, k2, p1, p2, k3, k4, k5, k6):
+[[ 0.10701298 -0.04757086 -0.02075894  0.03484089  2.11274143  0.01177269
+   0.74391013  0.19099403  0.          0.          0.          0.
+   0.          0.        ]]
+
+Reprojection error: 0.25654670112233824
