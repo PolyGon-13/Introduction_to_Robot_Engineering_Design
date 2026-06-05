@@ -1037,12 +1037,10 @@ def main():
             target = pick(found, current_target)
             found  = [target] if target is not None else []
 
-            # Single lidar read with staleness check — shared with restore_target()
+            # Obstacle avoidance uses any fresh scan; restore applies staleness guard separately
             scan, scan_time, _ = lidar.get()
-            if scan is not None and time.time() - scan_time <= rargs.lidar_max_age:
-                ranges = front_ranges(scan)
-            else:
-                ranges = None
+            ranges = front_ranges(scan) if scan is not None else None
+            restore_ranges = ranges if (scan is not None and time.time() - scan_time <= rargs.lidar_max_age) else None
 
             lidar_dist   = lidar_zone_distances(ranges)
             has_obstacle = obstacle_detected(ranges)
@@ -1062,7 +1060,7 @@ def main():
             # Restore square overlay — passes same ranges, no second RPLidarC1
             if projector is not None and target is not None:
                 selected, _, restore_status = restore_target(
-                    frame, target, projector, ranges, rargs, previous_restore_center
+                    frame, target, projector, restore_ranges, rargs, previous_restore_center
                 )
                 if selected is not None:
                     previous_restore_center = selected["center"]
@@ -1107,10 +1105,8 @@ def main():
                     wait_ms(COLOR_SWITCH_PAUSE_MS)
 
                     scan, scan_time, _ = lidar.get()
-                    if scan is not None and time.time() - scan_time <= rargs.lidar_max_age:
-                        ranges = front_ranges(scan)
-                    else:
-                        ranges = None
+                    ranges = front_ranges(scan) if scan is not None else None
+                    restore_ranges = ranges if (scan is not None and time.time() - scan_time <= rargs.lidar_max_age) else None
                     lidar_dist   = lidar_zone_distances(ranges)
                     has_obstacle = obstacle_detected(ranges)
                     ok, frame    = read_frame(cam)
