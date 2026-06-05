@@ -46,6 +46,7 @@ CENTER_MARGIN_RATIO = 0.15
 LIDAR_GUIDE_HALF_DEG = 12.0
 LIDAR_MAX_AGE_S = 0.5
 MIN_RESTORE_SHIFT_M = 0.03
+MAX_RESTORE_SHIFT_M = 0.23
 
 SELECTED_COLOR = (255, 255, 255)
 CENTER_COLOR = (0, 255, 0)
@@ -444,6 +445,9 @@ def add_lidar_support(candidate, ranges, observed_center, args):
     if restore_shift < args.min_restore_shift:
         return None
 
+    if restore_shift > args.max_restore_shift:
+        return None
+
     angle_deg = ground_bearing_deg(candidate["center"])
     obstacle_d = lidar_min_distance_at(ranges, angle_deg, args.lidar_half_deg)
 
@@ -455,7 +459,7 @@ def add_lidar_support(candidate, ranges, observed_center, args):
     supported["lidar_distance"] = obstacle_d
     supported["lidar_score"] = (
         (args.lidar_obstacle_d - obstacle_d) / max(args.lidar_obstacle_d, 1.0e-6)
-        + 0.25 * min(1.0, restore_shift / args.square_size)
+        + 0.25 * (1.0 - min(1.0, restore_shift / args.max_restore_shift))
     )
     return supported
 
@@ -470,6 +474,14 @@ def filter_lidar_supported_candidates(candidates, ranges, observed_center, args)
             supported.append(item)
 
     return supported
+
+
+def filter_near_observed_candidates(candidates, observed_center, args):
+    return [
+        candidate
+        for candidate in candidates
+        if float(np.linalg.norm(candidate["center"] - observed_center)) <= args.max_restore_shift
+    ]
 
 
 def restore_square_candidates(ground_points, square_size):
@@ -641,12 +653,12 @@ def restore_target(frame, target, projector, ranges, args, previous_center):
         return None, [], "implausible span"
 
     candidates = restore_square_candidates(ground_points, args.square_size)
+    observed_center = np.mean(ground_points, axis=0)
+    candidates = filter_near_observed_candidates(candidates, observed_center, args)
     candidates = filter_plausible_candidates(candidates, projector, frame.shape, target[5], args)
 
     if not candidates:
         return None, [], "no plausible square"
-
-    observed_center = np.mean(ground_points, axis=0)
 
     supported = []
     if ranges is not None:
@@ -710,6 +722,7 @@ def parse_args():
     parser.add_argument("--lidar-half-deg", type=float, default=LIDAR_GUIDE_HALF_DEG)
     parser.add_argument("--lidar-max-age", type=float, default=LIDAR_MAX_AGE_S)
     parser.add_argument("--min-restore-shift", type=float, default=MIN_RESTORE_SHIFT_M)
+    parser.add_argument("--max-restore-shift", type=float, default=MAX_RESTORE_SHIFT_M)
     parser.add_argument("--smooth", type=float, default=0.65)
     return parser.parse_args()
 
@@ -726,6 +739,7 @@ def main():
     args.complete_size_min_ratio = clamp(args.complete_size_min_ratio, 0.1, 1.0)
     args.complete_size_max_ratio = max(args.complete_size_max_ratio, args.complete_size_min_ratio)
     args.center_margin = clamp(args.center_margin, 0.0, 1.0)
+    args.max_restore_shift = max(args.max_restore_shift, args.min_restore_shift + 1.0e-6)
     cam = lidar = None
     previous_center = None
 
