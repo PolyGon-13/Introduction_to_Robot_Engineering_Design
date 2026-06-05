@@ -1030,6 +1030,8 @@ def main():
             ok, frame = read_frame(cam)
             if not ok:
                 break
+            if undistorter is not None:
+                frame = undistorter.apply(frame)
 
             found  = detect(frame)
             target = pick(found, current_target)
@@ -1114,6 +1116,8 @@ def main():
                     ok, frame    = read_frame(cam)
                     if not ok:
                         break
+                    if undistorter is not None:
+                        frame = undistorter.apply(frame)
 
                     found  = detect(frame)
                     target = pick(found, current_target)
