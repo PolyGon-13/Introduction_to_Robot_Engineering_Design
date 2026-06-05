@@ -43,6 +43,8 @@ COMPLETE_SIZE_MIN_RATIO = 0.70
 COMPLETE_SIZE_MAX_RATIO = 1.45
 MAX_PROJECTED_AREA_RATIO = 2.0
 CENTER_MARGIN_RATIO = 0.15
+BORDER_TOUCH_PX = 18
+OUT_OF_FRAME_PX = 4
 LIDAR_GUIDE_HALF_DEG = 12.0
 LIDAR_MAX_AGE_S = 0.5
 MIN_RESTORE_SHIFT_M = 0.03
@@ -484,6 +486,72 @@ def filter_near_observed_candidates(candidates, observed_center, args):
     ]
 
 
+def touched_frame_sides(display_points, frame_shape, border_px):
+    pts = np.asarray(display_points, dtype=np.float32).reshape(-1, 2)
+    height, width = frame_shape[:2]
+    sides = set()
+
+    if float(np.min(pts[:, 0])) <= border_px:
+        sides.add("left")
+    if float(np.max(pts[:, 0])) >= width - 1 - border_px:
+        sides.add("right")
+    if float(np.min(pts[:, 1])) <= border_px:
+        sides.add("top")
+    if float(np.max(pts[:, 1])) >= height - 1 - border_px:
+        sides.add("bottom")
+
+    return sides
+
+
+def candidate_extends_outside_sides(candidate, projector, frame_shape, observed_display_center, sides, args):
+    polygon = project_candidate(candidate, projector, frame_shape)
+
+    if polygon is None:
+        return False
+
+    center = candidate_display_center(candidate, projector, frame_shape)
+
+    if center is None:
+        return False
+
+    height, width = frame_shape[:2]
+    min_x = float(np.min(polygon[:, 0]))
+    max_x = float(np.max(polygon[:, 0]))
+    min_y = float(np.min(polygon[:, 1]))
+    max_y = float(np.max(polygon[:, 1]))
+    out_px = float(args.out_of_frame_px)
+
+    if "left" in sides and not (center[0] <= observed_display_center[0] and min_x <= -out_px):
+        return False
+    if "right" in sides and not (center[0] >= observed_display_center[0] and max_x >= width - 1 + out_px):
+        return False
+    if "top" in sides and not (center[1] <= observed_display_center[1] and min_y <= -out_px):
+        return False
+    if "bottom" in sides and not (center[1] >= observed_display_center[1] and max_y >= height - 1 + out_px):
+        return False
+
+    return True
+
+
+def filter_border_candidates(candidates, target, projector, frame_shape, args):
+    display_points = contour_points(target)
+    sides = touched_frame_sides(display_points, frame_shape, args.border_touch_px)
+
+    if not sides:
+        return candidates
+
+    observed_display_center = np.mean(display_points, axis=0)
+    outside = [
+        candidate
+        for candidate in candidates
+        if candidate_extends_outside_sides(
+            candidate, projector, frame_shape, observed_display_center, sides, args
+        )
+    ]
+
+    return outside if outside else candidates
+
+
 def restore_square_candidates(ground_points, square_size):
     if len(ground_points) < MIN_GROUND_POINTS:
         return []
@@ -655,6 +723,7 @@ def restore_target(frame, target, projector, ranges, args, previous_center):
     candidates = restore_square_candidates(ground_points, args.square_size)
     observed_center = np.mean(ground_points, axis=0)
     candidates = filter_near_observed_candidates(candidates, observed_center, args)
+    candidates = filter_border_candidates(candidates, target, projector, frame.shape, args)
     candidates = filter_plausible_candidates(candidates, projector, frame.shape, target[5], args)
 
     if not candidates:
@@ -718,6 +787,8 @@ def parse_args():
     parser.add_argument("--complete-size-max-ratio", type=float, default=COMPLETE_SIZE_MAX_RATIO)
     parser.add_argument("--max-projected-area-ratio", type=float, default=MAX_PROJECTED_AREA_RATIO)
     parser.add_argument("--center-margin", type=float, default=CENTER_MARGIN_RATIO)
+    parser.add_argument("--border-touch-px", type=float, default=BORDER_TOUCH_PX)
+    parser.add_argument("--out-of-frame-px", type=float, default=OUT_OF_FRAME_PX)
     parser.add_argument("--lidar-obstacle-d", type=float, default=0.60)
     parser.add_argument("--lidar-half-deg", type=float, default=LIDAR_GUIDE_HALF_DEG)
     parser.add_argument("--lidar-max-age", type=float, default=LIDAR_MAX_AGE_S)
@@ -739,6 +810,8 @@ def main():
     args.complete_size_min_ratio = clamp(args.complete_size_min_ratio, 0.1, 1.0)
     args.complete_size_max_ratio = max(args.complete_size_max_ratio, args.complete_size_min_ratio)
     args.center_margin = clamp(args.center_margin, 0.0, 1.0)
+    args.border_touch_px = max(0.0, args.border_touch_px)
+    args.out_of_frame_px = max(0.0, args.out_of_frame_px)
     args.max_restore_shift = max(args.max_restore_shift, args.min_restore_shift + 1.0e-6)
     cam = lidar = None
     previous_center = None
