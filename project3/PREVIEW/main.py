@@ -22,9 +22,6 @@ if str(THIS_DIR) not in sys.path:
     sys.path.insert(0, str(THIS_DIR))
 
 from camera import (
-    BOX_COLORS,
-    CAMERA_ROTATION,
-    MIN_AREA,
     bottom_center_error,
     close_camera,
     detect,
@@ -41,7 +38,6 @@ from lidar import (
     COLOR_TO_LIDAR_DEG,
     FREE_D,
     FRONT_LOG_ZONE,
-    GRID,
     LEFT_ZONE,
     RPLidarC1,
     RIGHT_ZONE,
