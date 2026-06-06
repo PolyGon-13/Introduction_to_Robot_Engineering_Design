@@ -547,91 +547,6 @@ def restore_square_candidates(ground_points, square_size):
     return candidates
 
 
-def visible_top_edge_points(frame, target):
-    contour = target[9].reshape(-1, 2).astype(np.float32)
-    height = frame.shape[0]
-    top_points = contour[contour[:, 1] < height - 1 - BORDER_TOUCH_PX]
-
-    if len(top_points) < 6:
-        return None
-
-    x_min = float(np.min(top_points[:, 0]))
-    x_max = float(np.max(top_points[:, 0]))
-    x_span = x_max - x_min
-
-    if x_span < 24.0:
-        return None
-
-    bin_count = int(clamp(x_span / 18.0, 6.0, 24.0))
-    samples = []
-
-    for bin_idx in range(bin_count):
-        left = x_min + x_span * bin_idx / bin_count
-        right = x_min + x_span * (bin_idx + 1) / bin_count
-        in_bin = top_points[(top_points[:, 0] >= left) & (top_points[:, 0] <= right)]
-
-        if len(in_bin) == 0:
-            continue
-
-        samples.append(in_bin[int(np.argmin(in_bin[:, 1]))])
-
-    if len(samples) < 3:
-        return None
-
-    samples = np.asarray(samples, dtype=np.float32)
-    vx, vy, x0, y0 = cv2.fitLine(samples.reshape(-1, 1, 2), cv2.DIST_L2, 0, 0.01, 0.01).reshape(-1)
-    direction = np.array([vx, vy], dtype=np.float32)
-    direction = normalize(direction)
-
-    if direction is None or abs(float(direction[0])) < 1.0e-6:
-        return None
-
-    if abs(float(direction[1])) > abs(float(direction[0])) * 0.9:
-        return None
-
-    origin = np.array([x0, y0], dtype=np.float32)
-    t = (samples - origin) @ direction
-    p1 = origin + direction * float(np.min(t))
-    p2 = origin + direction * float(np.max(t))
-
-    if float(np.linalg.norm(p2 - p1)) < 24.0:
-        return None
-
-    return np.array([p1, p2], dtype=np.float32)
-
-
-def add_anchored_edge_candidate(candidates, display_edge, frame, projector, square_size, observed_center, anchor_score):
-    raw_edge = display_to_raw_points(display_edge, frame.shape)
-    ground_edge = projector.raw_pixels_to_ground(raw_edge)
-    p1, p2 = ground_edge
-    edge = p2 - p1
-    length = float(np.linalg.norm(edge))
-
-    if length < square_size * 0.35:
-        return
-
-    direction = edge / length
-    normal = np.array([-direction[1], direction[0]], dtype=np.float32)
-    edge_mid = 0.5 * (p1 + p2)
-
-    for sign in (-1.0, 1.0):
-        offset = normal * square_size * sign
-
-        if float(np.dot(observed_center - edge_mid, offset)) <= 0.0:
-            continue
-
-        corners = np.array([p1, p2, p2 + offset, p1 + offset], dtype=np.float32)
-        center = np.mean(corners, axis=0).astype(np.float32)
-        candidates.append(
-            {
-                "corners": corners,
-                "center": center,
-                "anchored": True,
-                "anchor_score": anchor_score,
-            }
-        )
-
-
 def visible_edge_anchored_candidates(frame, target, projector, square_size):
     polygon = target_display_polygon(target)
 
@@ -641,20 +556,8 @@ def visible_edge_anchored_candidates(frame, target, projector, square_size):
     raw_polygon = display_to_raw_points(polygon, frame.shape)
     ground_polygon = projector.raw_pixels_to_ground(raw_polygon)
     observed_center = np.mean(ground_polygon, axis=0)
-    height = frame.shape[0]
+    height, width = frame.shape[:2]
     candidates = []
-    top_edge = visible_top_edge_points(frame, target)
-
-    if top_edge is not None:
-        add_anchored_edge_candidate(
-            candidates,
-            top_edge,
-            frame,
-            projector,
-            square_size,
-            observed_center,
-            (-1, float(np.mean(top_edge[:, 1])), -float(np.linalg.norm(top_edge[1] - top_edge[0]))),
-        )
 
     for idx in range(len(ground_polygon)):
         d1 = polygon[idx]
@@ -686,20 +589,32 @@ def visible_edge_anchored_candidates(frame, target, projector, square_size):
         if length < square_size * 0.35:
             continue
 
+        direction = edge / length
+        p2_fixed = p2
+        normal = np.array([-direction[1], direction[0]], dtype=np.float32)
+        edge_mid = 0.5 * (p1 + p2_fixed)
         anchor_score = (
             bottom_touch_count,
             float(0.5 * (d1[1] + d2[1])),
             -display_len,
         )
-        add_anchored_edge_candidate(
-            candidates,
-            np.array([d1, d2], dtype=np.float32),
-            frame,
-            projector,
-            square_size,
-            observed_center,
-            anchor_score,
-        )
+
+        for sign in (-1.0, 1.0):
+            offset = normal * square_size * sign
+
+            if float(np.dot(observed_center - edge_mid, offset)) <= 0.0:
+                continue
+
+            corners = np.array([p1, p2_fixed, p2_fixed + offset, p1 + offset], dtype=np.float32)
+            center = np.mean(corners, axis=0).astype(np.float32)
+            candidates.append(
+                {
+                    "corners": corners,
+                    "center": center,
+                    "anchored": True,
+                    "anchor_score": anchor_score,
+                }
+            )
 
     return candidates
 
