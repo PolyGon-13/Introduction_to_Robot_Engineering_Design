@@ -71,6 +71,9 @@ POST_COLOR_FORWARD_M = 0.05  # Move forward after a color exits bottom before pa
 TURN_360_WHEEL_BASE_M = 0.18  # Distance between left/right wheels for encoder-based 360 turn(m)
 TURN_360_COUNTS = np.pi * TURN_360_WHEEL_BASE_M * ENC_COUNTS_PER_M
 AVOID_STOP_D = 0.15  # Stop avoid forward speed when a front obstacle is this close(m)
+ODOM_TURN_W = 0.7
+ODOM_MIN_MOVE_M = 0.02
+ODOM_MAX_MOVE_M = 0.60
 
 
 def make_square_args():
@@ -337,6 +340,61 @@ def completed_one_encoder_turn(motor, start_odom):
     return 0.5 * (left_counts + right_counts) >= TURN_360_COUNTS
 
 
+def wait_for_valid_odom(motor):
+    while True:
+        odom = motor.get_odom()
+        if odom[3] != 0.0:
+            return odom
+        wait_ms(int(LOOP_DT * 1000))
+
+
+def turn_by_encoder(motor, angle_rad):
+    if abs(angle_rad) < 0.03:
+        return True
+
+    odom = wait_for_valid_odom(motor)
+    start_l, start_r, _, _ = odom
+    target_counts = abs(angle_rad) * 0.5 * TURN_360_WHEEL_BASE_M * ENC_COUNTS_PER_M
+    turn_w = -np.sign(angle_rad) * ODOM_TURN_W
+
+    print(f"[ODOM] turn {np.degrees(angle_rad):.1f}deg target_counts={target_counts:.0f}")
+
+    while True:
+        enc_l, enc_r, _, odom_time = motor.get_odom()
+        if odom_time == 0.0 or time.time() - odom_time > 0.5:
+            motor.stop()
+            print("[ODOM] encoder data timeout during turn")
+            return False
+
+        left_counts = abs(enc_l - start_l)
+        right_counts = abs(enc_r - start_r)
+        if 0.5 * (left_counts + right_counts) >= target_counts:
+            break
+
+        motor.vw(0.0, turn_w)
+        wait_ms(int(LOOP_DT * 1000))
+
+    motor.stop()
+    return True
+
+
+def drive_to_ground_point_by_encoder(motor, ground_center):
+    if ground_center is None:
+        return False
+
+    x = float(ground_center[0])
+    y = float(ground_center[1])
+    distance_m = clamp(float(np.hypot(x, y)), 0.0, ODOM_MAX_MOVE_M)
+    if distance_m < ODOM_MIN_MOVE_M:
+        return True
+
+    angle_rad = float(np.arctan2(y, max(1.0e-6, x)))
+    if not turn_by_encoder(motor, angle_rad):
+        return False
+
+    return drive_forward_by_encoder(motor, distance_m)
+
+
 def drive_forward_by_encoder(motor, distance_m=POST_COLOR_FORWARD_M):
     while True:
         odom = motor.get_odom()
@@ -444,6 +502,7 @@ def main():
     last_odom_log_time = 0.0
     previous_square_center = None
     locked_square_display_center = None
+    locked_square_ground_center = None
     color_lost_during_avoid = False
     search_failed_avoid_active = False
     switch_search_active = False
@@ -487,6 +546,7 @@ def main():
             if target is not None:
                 if locked_square_display_center is None and target[7] / frame.shape[0] >= BOTTOM_LOST_RATIO:
                     locked_square_display_center = display_center_from_target(target)
+                    locked_square_ground_center = previous_square_center
                     target = lock_target_center(target, locked_square_display_center)
                     square_status = f"{square_status} locked"
                 last_color_deg, last_color_time, last_color_center_ratio, last_color_x_err = update_color_memory(target, frame)
@@ -494,12 +554,36 @@ def main():
             else:
                 previous_square_center = None
                 locked_square_display_center = None
+                locked_square_ground_center = None
 
             if time.time() - last_odom_log_time >= ODOM_LOG_INTERVAL:
                 log_odom(elapsed, motor.get_odom())
                 last_odom_log_time = time.time()
 
             log_lidar(elapsed, lidar_dist)
+
+            if motor_enabled.is_set() and locked_square_ground_center is not None:
+                mode = "ODOM: color center"
+                motor.stop()
+                ok = drive_to_ground_point_by_encoder(motor, locked_square_ground_center)
+                target_v, target_w, last_v, last_w = 0.0, 0.0, 0.0, 0.0
+                last_color_deg, last_color_time, last_color_center_ratio, last_color_x_err = clear_color_memory()
+                color_lost_during_avoid, switch_search_active = False, False
+                search_failed_avoid_active, switch_search_start_odom = False, None
+                previous_square_center = None
+                locked_square_display_center = None
+                locked_square_ground_center = None
+
+                if target_index + 1 < len(TARGET_SEQUENCE):
+                    prev_target = current_target
+                    target_index += 1
+                    current_target = TARGET_SEQUENCE[target_index]
+                    print(f"[{elapsed:.2f}s] [COLOR] {prev_target} odom done={ok}, now tracking {current_target}")
+                    wait_ms(COLOR_SWITCH_PAUSE_MS)
+                    continue
+
+                print(f"[{elapsed:.2f}s] [COLOR] {current_target} odom done={ok}, mission complete")
+                break
 
             color_in_forward_zone = (
                 motor_enabled.is_set()
@@ -517,6 +601,7 @@ def main():
                     current_target = TARGET_SEQUENCE[target_index]
                     previous_square_center = None
                     locked_square_display_center = None
+                    locked_square_ground_center = None
                     mode = f"SWITCH: {prev_target}->{current_target}"
                     print(f"[{elapsed:.2f}s] [COLOR] {prev_target} done, now tracking {current_target}")
                     drive_forward_by_encoder(motor)
@@ -538,6 +623,7 @@ def main():
                     if target is not None:
                         if locked_square_display_center is None and target[7] / frame.shape[0] >= BOTTOM_LOST_RATIO:
                             locked_square_display_center = display_center_from_target(target)
+                            locked_square_ground_center = previous_square_center
                             target = lock_target_center(target, locked_square_display_center)
                             square_status = f"{square_status} locked"
                         last_color_deg, last_color_time, last_color_center_ratio, last_color_x_err = update_color_memory(target, frame)
@@ -563,6 +649,7 @@ def main():
                     color_lost_during_avoid, switch_search_active = False, False
                     search_failed_avoid_active, switch_search_start_odom = False, None
                     locked_square_display_center = None
+                    locked_square_ground_center = None
                     print(f"[{elapsed:.2f}s] [COLOR] {current_target} done, mission complete")
                     break
 
