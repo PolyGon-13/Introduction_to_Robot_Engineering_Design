@@ -71,7 +71,7 @@ ODOM_LOG_INTERVAL = 0.5  # 엔코더 누적값 로그 출력 주기(초)
 WHEEL_R = 0.034  # Arduino encoder distance calculation wheel radius(m)
 ENC_PPR = 1012.0  # Arduino encoder counts per wheel revolution
 ENC_COUNTS_PER_M = ENC_PPR / (2.0 * np.pi * WHEEL_R)
-POST_COLOR_FORWARD_M = 0.03  # Move forward after a color exits bottom before pause(m)
+POST_COLOR_FORWARD_M = 0.05  # Move forward after a color exits bottom before pause(m)
 TURN_360_WHEEL_BASE_M = 0.18  # Distance between left/right wheels for encoder-based 360 turn(m)
 TURN_360_COUNTS = np.pi * TURN_360_WHEEL_BASE_M * ENC_COUNTS_PER_M
 AVOID_STOP_D = 0.15  # Stop avoid forward speed when a front obstacle is this close(m)
@@ -337,6 +337,15 @@ def color_cmd(target, frame, ranges, has_obstacle, color_deg, elapsed):
     return "FOLLOW: color only", target_v, target_w
 
 
+def bottom_color_cmd(target, frame):
+    target_v, target_w = follow_cmd(target, frame.shape, DRIVE_V)
+
+    if abs(x_center_error(target, frame.shape)) > COLOR_EXIT_CENTER_ERR:
+        return "ALIGN: bottom color", 0.0, target_w
+
+    return "FOLLOW: bottom color", target_v, target_w
+
+
 def search_last_cmd(last_color_deg):
     w = -SEARCH_MAX_W if last_color_deg >= 0.0 else SEARCH_MAX_W
     return "SEARCH: last color direction", 0.0, w
@@ -435,8 +444,7 @@ def main():
                         color_lost_during_avoid = False
                         search_failed_avoid_active = False
                         if last_color_center_ratio >= BOTTOM_LOST_RATIO:
-                            target_v, target_w = follow_cmd(target, frame.shape, DRIVE_V)
-                            mode = "FOLLOW: bottom color"
+                            mode, target_v, target_w = bottom_color_cmd(target, frame)
                         else:
                             mode, target_v, target_w = color_cmd(
                                 target, frame, ranges, has_obstacle, last_color_deg, elapsed
@@ -460,8 +468,7 @@ def main():
                 color_lost_during_avoid = False
                 search_failed_avoid_active = False
                 if color_in_bottom_zone:
-                    target_v, target_w = follow_cmd(target, frame.shape, DRIVE_V)
-                    mode = "FOLLOW: bottom color"
+                    mode, target_v, target_w = bottom_color_cmd(target, frame)
                 else:
                     mode, target_v, target_w = color_cmd(
                         target, frame, ranges, has_obstacle, last_color_deg, elapsed
@@ -508,7 +515,7 @@ def main():
                     switch_search_start_odom = None
 
             if motor_enabled.is_set() and (target is not None or mode.startswith("AVOID") or mode.startswith("SEARCH")):
-                last_v = rate_limit(last_v, target_v, V_STEP)
+                last_v = 0.0 if mode.startswith("ALIGN") else rate_limit(last_v, target_v, V_STEP)
                 w_step = AVOID_W_STEP if mode.startswith("AVOID") else FOLLOW_W_STEP
                 last_w = rate_limit(last_w, target_w, w_step)
                 motor.vw(last_v, last_w)
