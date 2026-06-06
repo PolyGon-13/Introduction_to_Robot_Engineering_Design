@@ -547,6 +547,39 @@ def restore_square_candidates(ground_points, square_size):
     return candidates
 
 
+def visible_edge_anchored_candidates(frame, target, projector, square_size):
+    polygon = target_display_polygon(target)
+
+    if len(polygon) < 2:
+        return []
+
+    raw_polygon = display_to_raw_points(polygon, frame.shape)
+    ground_polygon = projector.raw_pixels_to_ground(raw_polygon)
+    candidates = []
+
+    for idx in range(len(ground_polygon)):
+        p1 = ground_polygon[idx]
+        p2 = ground_polygon[(idx + 1) % len(ground_polygon)]
+        edge = p2 - p1
+        length = float(np.linalg.norm(edge))
+
+        if length < square_size * 0.35:
+            continue
+
+        direction = edge / length
+        side_len = min(length, square_size)
+        p2_fixed = p1 + direction * side_len
+        normal = np.array([-direction[1], direction[0]], dtype=np.float32)
+
+        for sign in (-1.0, 1.0):
+            offset = normal * square_size * sign
+            corners = np.array([p1, p2_fixed, p2_fixed + offset, p1 + offset], dtype=np.float32)
+            center = np.mean(corners, axis=0).astype(np.float32)
+            candidates.append({"corners": corners, "center": center, "anchored": True})
+
+    return candidates
+
+
 def candidate_moves_toward_frame_center(candidate, projector, frame_shape, observed_display_center):
     center = candidate_display_center(candidate, projector, frame_shape)
 
@@ -580,12 +613,16 @@ def choose_candidate(candidates, previous_center, observed_center):
     if previous_center is not None:
         return min(
             candidates,
-            key=lambda item: float(np.linalg.norm(item["center"] - previous_center)),
+            key=lambda item: (
+                0 if item.get("anchored") else 1,
+                float(np.linalg.norm(item["center"] - previous_center)),
+            ),
         )
 
     return min(
         candidates,
         key=lambda item: (
+            0 if item.get("anchored") else 1,
             abs(float(item["center"][1])),
             abs(float(item["center"][0] - observed_center[0])),
         ),
@@ -716,7 +753,8 @@ def restore_target(frame, target, projector, ranges, args, previous_center):
     if not ground_shape_is_plausible(ground_points, args):
         return None, [], "implausible span"
 
-    candidates = restore_square_candidates(ground_points, args.square_size)
+    anchored_candidates = visible_edge_anchored_candidates(frame, target, projector, args.square_size)
+    candidates = anchored_candidates if anchored_candidates else restore_square_candidates(ground_points, args.square_size)
     observed_center = np.mean(ground_points, axis=0)
     observed_display_center = np.mean(pts_display, axis=0)
     candidates = filter_near_observed_candidates(candidates, observed_center, args)
