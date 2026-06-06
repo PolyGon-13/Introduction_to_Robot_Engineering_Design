@@ -578,6 +578,8 @@ def main():
                     prev_target = current_target
                     target_index += 1
                     current_target = TARGET_SEQUENCE[target_index]
+                    switch_search_active = True
+                    switch_search_start_odom = get_turn_start_odom(motor)
                     print(f"[{elapsed:.2f}s] [COLOR] {prev_target} odom done={ok}, now tracking {current_target}")
                     wait_ms(COLOR_SWITCH_PAUSE_MS)
                     continue
