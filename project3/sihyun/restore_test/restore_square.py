@@ -451,11 +451,12 @@ def filter_lidar_supported_candidates(candidates, ranges, observed_center, args)
 
 
 def filter_near_observed_candidates(candidates, observed_center, args):
-    return [
+    filtered = [
         candidate
         for candidate in candidates
         if float(np.linalg.norm(candidate["center"] - observed_center)) <= args.max_restore_shift
     ]
+    return filtered if filtered else candidates
 
 
 def touched_frame_sides(display_points, frame_shape, border_px):
@@ -652,11 +653,12 @@ def candidate_is_plausible(candidate, projector, frame_shape, target_area, args)
 
 
 def filter_plausible_candidates(candidates, projector, frame_shape, target_area, args):
-    return [
+    filtered = [
         candidate
         for candidate in candidates
         if candidate_is_plausible(candidate, projector, frame_shape, target_area, args)
     ]
+    return filtered if filtered else candidates
 
 
 def filtered_candidate(candidate, previous_center, alpha):
