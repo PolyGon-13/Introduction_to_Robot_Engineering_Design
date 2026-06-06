@@ -555,9 +555,32 @@ def visible_edge_anchored_candidates(frame, target, projector, square_size):
 
     raw_polygon = display_to_raw_points(polygon, frame.shape)
     ground_polygon = projector.raw_pixels_to_ground(raw_polygon)
+    observed_center = np.mean(ground_polygon, axis=0)
+    height, width = frame.shape[:2]
     candidates = []
 
     for idx in range(len(ground_polygon)):
+        d1 = polygon[idx]
+        d2 = polygon[(idx + 1) % len(polygon)]
+        display_edge = d2 - d1
+        display_len = float(np.linalg.norm(display_edge))
+
+        if display_len < 12.0:
+            continue
+
+        dx = abs(float(display_edge[0]))
+        dy = abs(float(display_edge[1]))
+
+        if dx < dy * 0.55:
+            continue
+
+        bottom_touch_count = int(d1[1] >= height - 1 - BORDER_TOUCH_PX) + int(
+            d2[1] >= height - 1 - BORDER_TOUCH_PX
+        )
+
+        if bottom_touch_count == 2:
+            continue
+
         p1 = ground_polygon[idx]
         p2 = ground_polygon[(idx + 1) % len(ground_polygon)]
         edge = p2 - p1
@@ -567,15 +590,31 @@ def visible_edge_anchored_candidates(frame, target, projector, square_size):
             continue
 
         direction = edge / length
-        side_len = min(length, square_size)
-        p2_fixed = p1 + direction * side_len
+        p2_fixed = p2
         normal = np.array([-direction[1], direction[0]], dtype=np.float32)
+        edge_mid = 0.5 * (p1 + p2_fixed)
+        anchor_score = (
+            bottom_touch_count,
+            float(0.5 * (d1[1] + d2[1])),
+            -display_len,
+        )
 
         for sign in (-1.0, 1.0):
             offset = normal * square_size * sign
+
+            if float(np.dot(observed_center - edge_mid, offset)) <= 0.0:
+                continue
+
             corners = np.array([p1, p2_fixed, p2_fixed + offset, p1 + offset], dtype=np.float32)
             center = np.mean(corners, axis=0).astype(np.float32)
-            candidates.append({"corners": corners, "center": center, "anchored": True})
+            candidates.append(
+                {
+                    "corners": corners,
+                    "center": center,
+                    "anchored": True,
+                    "anchor_score": anchor_score,
+                }
+            )
 
     return candidates
 
@@ -615,6 +654,7 @@ def choose_candidate(candidates, previous_center, observed_center):
             candidates,
             key=lambda item: (
                 0 if item.get("anchored") else 1,
+                item.get("anchor_score", (9, 1.0e9, 0.0)),
                 float(np.linalg.norm(item["center"] - previous_center)),
             ),
         )
@@ -623,6 +663,7 @@ def choose_candidate(candidates, previous_center, observed_center):
         candidates,
         key=lambda item: (
             0 if item.get("anchored") else 1,
+            item.get("anchor_score", (9, 1.0e9, 0.0)),
             abs(float(item["center"][1])),
             abs(float(item["center"][0] - observed_center[0])),
         ),
