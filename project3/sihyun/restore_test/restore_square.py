@@ -702,7 +702,7 @@ def filtered_candidate(candidate, previous_center, alpha):
     if previous_center is None:
         return candidate
 
-    if candidate.get("kind") == "image":
+    if candidate.get("kind") == "image" or candidate.get("anchored"):
         return candidate
 
     center = alpha * previous_center + (1.0 - alpha) * candidate["center"]
