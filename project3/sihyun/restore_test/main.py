@@ -11,7 +11,6 @@ import numpy as np
 import serial
 
 from camera import (
-    TARGET_NAMES,
     bottom_center_error,
     clamp,
     close_camera,
@@ -140,13 +139,32 @@ def square_track_target(target, selected, projector, frame_shape):
     return tuple(tracked)
 
 
-def detect_square_target(frame, ranges, projector, args, target_name, previous_center):
+def lock_target_center(target, center):
+    if target is None or center is None:
+        return target
+
+    tracked = list(target)
+    tracked[6] = float(center[0])
+    tracked[7] = float(center[1])
+    return tuple(tracked)
+
+
+def display_center_from_target(target):
+    if target is None:
+        return None
+    return np.array([target[6], target[7]], dtype=np.float32)
+
+
+def detect_square_target(frame, ranges, projector, args, target_name, previous_center, locked_display_center=None):
     target = square.selected_target(detect(frame), target_name, args.min_area)
     if target is None:
         return None, None, None, None, f"{target_name}: not found"
 
     selected, _, status = square.restore_target(frame, target, projector, ranges, args, previous_center)
     track_target = square_track_target(target, selected, projector, frame.shape)
+    if track_target is None and locked_display_center is not None:
+        track_target = lock_target_center(target, locked_display_center)
+    track_target = lock_target_center(track_target, locked_display_center)
     next_center = selected["center"] if selected is not None else None
     return target, selected, track_target, next_center, status
 
@@ -425,6 +443,7 @@ def main():
     last_color_deg = last_color_time = last_color_center_ratio = last_color_x_err = 0.0
     last_odom_log_time = 0.0
     previous_square_center = None
+    locked_square_display_center = None
     color_lost_during_avoid = False
     search_failed_avoid_active = False
     switch_search_active = False
@@ -462,14 +481,19 @@ def main():
             frame = undistorter.apply(frame)
 
             raw_target, selected_square, target, previous_square_center, square_status = detect_square_target(
-                frame, ranges, projector, square_args, current_target, previous_square_center
+                frame, ranges, projector, square_args, current_target, previous_square_center, locked_square_display_center
             )
 
             if target is not None:
+                if locked_square_display_center is None and target[7] / frame.shape[0] >= BOTTOM_LOST_RATIO:
+                    locked_square_display_center = display_center_from_target(target)
+                    target = lock_target_center(target, locked_square_display_center)
+                    square_status = f"{square_status} locked"
                 last_color_deg, last_color_time, last_color_center_ratio, last_color_x_err = update_color_memory(target, frame)
                 switch_search_active, search_failed_avoid_active, switch_search_start_odom = False, False, None
             else:
                 previous_square_center = None
+                locked_square_display_center = None
 
             if time.time() - last_odom_log_time >= ODOM_LOG_INTERVAL:
                 log_odom(elapsed, motor.get_odom())
@@ -492,6 +516,7 @@ def main():
                     target_index += 1
                     current_target = TARGET_SEQUENCE[target_index]
                     previous_square_center = None
+                    locked_square_display_center = None
                     mode = f"SWITCH: {prev_target}->{current_target}"
                     print(f"[{elapsed:.2f}s] [COLOR] {prev_target} done, now tracking {current_target}")
                     drive_forward_by_encoder(motor)
@@ -507,10 +532,14 @@ def main():
 
                     frame = undistorter.apply(frame)
                     raw_target, selected_square, target, previous_square_center, square_status = detect_square_target(
-                        frame, ranges, projector, square_args, current_target, previous_square_center
+                        frame, ranges, projector, square_args, current_target, previous_square_center, locked_square_display_center
                     )
 
                     if target is not None:
+                        if locked_square_display_center is None and target[7] / frame.shape[0] >= BOTTOM_LOST_RATIO:
+                            locked_square_display_center = display_center_from_target(target)
+                            target = lock_target_center(target, locked_square_display_center)
+                            square_status = f"{square_status} locked"
                         last_color_deg, last_color_time, last_color_center_ratio, last_color_x_err = update_color_memory(target, frame)
                         color_lost_during_avoid = False
                         search_failed_avoid_active = False
@@ -533,6 +562,7 @@ def main():
                     last_color_deg, last_color_time, last_color_center_ratio, last_color_x_err = clear_color_memory()
                     color_lost_during_avoid, switch_search_active = False, False
                     search_failed_avoid_active, switch_search_start_odom = False, None
+                    locked_square_display_center = None
                     print(f"[{elapsed:.2f}s] [COLOR] {current_target} done, mission complete")
                     break
 
