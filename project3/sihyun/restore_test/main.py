@@ -44,7 +44,7 @@ from lidar import (
 # HSV color following settings
 # ==============================
 
-TARGET_SEQUENCE = TARGET_NAMES  # Follow colors in this order.
+TARGET_SEQUENCE = ("RED", "YELLOW", "BLUE")  # Follow colors in this order.
 SHOW_WINDOW = True  # 카메라 인식 화면을 띄울지 여부
 BOTTOM_LOST_RATIO = 0.90  # 색상이 화면 아래 1/10 지점 아래에서 사라지면 정지로 판단
 COLOR_SWITCH_PAUSE_MS = 1000  # 다음 색 추적 전 정지 시간(ms)
