@@ -167,6 +167,11 @@ def ground_distance_text(ground_center):
     return f"dist={np.hypot(x, y):.2f}m x={x:.2f} y={y:.2f}"
 
 
+def put_text_outline(frame, text, org, scale=0.7, color=(255, 255, 255)):
+    cv2.putText(frame, text, org, cv2.FONT_HERSHEY_SIMPLEX, scale, (0, 0, 0), 4)
+    cv2.putText(frame, text, org, cv2.FONT_HERSHEY_SIMPLEX, scale, color, 2)
+
+
 def detect_square_target(frame, ranges, projector, args, target_name, previous_center, locked_display_center=None):
     target = square.selected_target(detect(frame), target_name, args.min_area)
     if target is None:
@@ -740,15 +745,8 @@ def main():
                 if raw_target is not None:
                     square.draw_target(frame, raw_target, selected_square, projector, square_status)
                 display_ground_center = locked_square_ground_center if locked_square_ground_center is not None else previous_square_center
-                cv2.putText(
-                    frame,
-                    f"target={current_target} {mode} {square_status} {ground_distance_text(display_ground_center)}",
-                    (10, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.8,
-                    (255, 255, 255),
-                    2,
-                )
+                put_text_outline(frame, f"target={current_target} {mode}", (10, 30), 0.8)
+                put_text_outline(frame, ground_distance_text(display_ground_center), (10, 60), 0.75, (0, 255, 255))
                 cv2.imshow("main", frame)
                 if cv2.waitKey(1) & 0xFF == ord("q"):
                     break
