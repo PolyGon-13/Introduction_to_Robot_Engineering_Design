@@ -435,10 +435,6 @@ def add_lidar_support(candidate, ranges, observed_center, args):
     supported = dict(candidate)
     supported["lidar_angle"] = angle_deg
     supported["lidar_distance"] = obstacle_d
-    supported["lidar_score"] = (
-        (args.lidar_obstacle_d - obstacle_d) / max(args.lidar_obstacle_d, 1.0e-6)
-        + 0.25 * (1.0 - min(1.0, restore_shift / args.max_restore_shift))
-    )
     return supported
 
 
@@ -550,6 +546,32 @@ def restore_square_candidates(ground_points, square_size):
     return candidates
 
 
+def candidate_moves_toward_frame_center(candidate, projector, frame_shape, observed_display_center):
+    center = candidate_display_center(candidate, projector, frame_shape)
+
+    if center is None:
+        return False
+
+    _, width = frame_shape[:2]
+    frame_center_x = width / 2.0
+    observed_to_frame = frame_center_x - observed_display_center[0]
+    candidate_shift = center[0] - observed_display_center[0]
+
+    if abs(observed_to_frame) < 1.0:
+        return True
+
+    return np.sign(observed_to_frame) * candidate_shift > 0.0
+
+
+def filter_toward_frame_center(candidates, projector, frame_shape, observed_display_center):
+    filtered = [
+        candidate
+        for candidate in candidates
+        if candidate_moves_toward_frame_center(candidate, projector, frame_shape, observed_display_center)
+    ]
+    return filtered if filtered else candidates
+
+
 def choose_candidate(candidates, previous_center, observed_center):
     if not candidates:
         return None
@@ -557,18 +579,14 @@ def choose_candidate(candidates, previous_center, observed_center):
     if previous_center is not None:
         return min(
             candidates,
-            key=lambda item: (
-                float(np.linalg.norm(item["center"] - previous_center)),
-                -float(item.get("lidar_score", 0.0)),
-            ),
+            key=lambda item: float(np.linalg.norm(item["center"] - previous_center)),
         )
 
-    return max(
+    return min(
         candidates,
         key=lambda item: (
-            float(item.get("lidar_score", 0.0)),
-            -abs(float(item["center"][1])),
-            -abs(float(item["center"][0] - observed_center[0])),
+            abs(float(item["center"][1])),
+            abs(float(item["center"][0] - observed_center[0])),
         ),
     )
 
@@ -698,9 +716,11 @@ def restore_target(frame, target, projector, ranges, args, previous_center):
 
     candidates = restore_square_candidates(ground_points, args.square_size)
     observed_center = np.mean(ground_points, axis=0)
+    observed_display_center = np.mean(pts_display, axis=0)
     candidates = filter_near_observed_candidates(candidates, observed_center, args)
     candidates = filter_border_candidates(candidates, target, projector, frame.shape, args)
     candidates = filter_plausible_candidates(candidates, projector, frame.shape, target[5], args)
+    candidates = filter_toward_frame_center(candidates, projector, frame.shape, observed_display_center)
 
     if not candidates:
         return None, [], "no plausible square"
