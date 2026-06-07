@@ -15,7 +15,7 @@ WINDOW_NAME = "Camera View"
 
 # 카메라를 반시계 방향 90도로 돌려 달았으므로,
 # 화면은 시계 방향 90도 회전해서 보정
-ROTATE_MODE = cv2.ROTATE_270_CLOCKWISE
+ROTATE_MODE = cv2.ROTATE_90_COUNTERCLOCKWISE
 
 
 def open_camera():
