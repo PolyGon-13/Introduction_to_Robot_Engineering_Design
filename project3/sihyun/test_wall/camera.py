@@ -4,6 +4,13 @@
 import cv2
 import numpy as np
 
+try:
+    from picamera2 import Picamera2
+
+    USE_PICAM = True
+except ImportError:
+    USE_PICAM = False
+
 
 MIN_AREA = 1000
 FOLLOW_MAX_V = 0.25
@@ -12,14 +19,9 @@ FOLLOW_KP = 1.5
 DEADBAND = 0.08
 CAMERA_ROTATION = cv2.ROTATE_90_COUNTERCLOCKWISE
 
-CAMERA_INDEX = 0  # USB 카메라 장치 번호
-CAMERA_WIDTH = 1280  # USB 카메라 캡처 가로 해상도(px) - 90도 회전 후 480x640 처리
-CAMERA_HEIGHT = 720  # USB 카메라 캡처 세로 해상도(px)
-CAMERA_FPS = 15  # USB 카메라 프레임 레이트(fps)
-
 HSV_RANGES = {
-    "RED": [([0, 60, 120], [5, 255, 255]), ([165, 60, 120], [179, 255, 255])],
-    "BLUE": [([104, 90, 90], [116, 255, 230])],
+    "RED": [([0, 160, 120], [5, 255, 255]), ([165, 160, 120], [179, 255, 255])],
+    "BLUE": [([104, 90, 90], [116, 255, 255])],
     "YELLOW": [([20, 55, 160], [35, 255, 255])],
 }
 HSV_RANGES = {
@@ -35,17 +37,23 @@ def clamp(value, low, high):
 
 
 def open_camera():
-    cam = cv2.VideoCapture(CAMERA_INDEX, cv2.CAP_V4L2)
-    if not cam.isOpened():
-        cam = cv2.VideoCapture(CAMERA_INDEX)
-    cam.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
-    cam.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
-    cam.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
-    cam.set(cv2.CAP_PROP_FPS, CAMERA_FPS)
+    if USE_PICAM:
+        cam = Picamera2()
+        cam.configure(cam.create_preview_configuration(main={"format": "RGB888", "size": (640, 480)}))
+        cam.start()
+        return cam
+
+    cam = cv2.VideoCapture(0)
+    cam.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+    cam.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
     return cam
 
 
 def read_frame(cam):
+    if USE_PICAM:
+        frame = cv2.cvtColor(cam.capture_array(), cv2.COLOR_RGB2BGR)
+        return True, rotate_frame(frame)
+
     ok, frame = cam.read()
     if not ok:
         return False, frame
@@ -64,7 +72,7 @@ def close_camera(cam):
     if cam is None:
         return
 
-    cam.release()
+    cam.stop() if USE_PICAM else cam.release()
     cv2.destroyAllWindows()
 
 
