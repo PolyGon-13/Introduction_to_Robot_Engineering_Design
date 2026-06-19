@@ -1,243 +1,181 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import threading
-import time
-
+import cv2
 import numpy as np
-import serial
+
+# USB(uvcvideo) 웹캠은 picamera2로 FPS 제어가 안 되므로 OpenCV(V4L2) 경로를 강제로 사용한다.
+FORCE_OPENCV = True
+
+try:
+    from picamera2 import Picamera2
+
+    USE_PICAM = not FORCE_OPENCV
+except ImportError:
+    USE_PICAM = False
+
+CAMERA_FPS = 15
 
 
+MIN_AREA = 1000
+FOLLOW_MAX_V = 0.25
+FOLLOW_MAX_W = 1.0
+FOLLOW_KP = 1.5
+DEADBAND = 0.08
+CAMERA_ROTATION = cv2.ROTATE_90_COUNTERCLOCKWISE
 
-LIDAR_PORT = "/dev/ttyUSB0"
-LIDAR_BAUD = 460800
-
-RESET = b"\xA5\x40"
-SCAN = b"\xA5\x20"
-LIDAR_STOP = b"\xA5\x25"
-
-ANGLE_OFFSET = 1.54
-DIST_OFFSET = 0.0
-ANGLE_SIGN = 1.0
-MIN_Q = 1
-MIN_D = 0.01
-MAX_D = 2.5
-
-ANG_MIN = -90.0
-ANG_MAX = 90.0
-ANG_STEP = 1.0
-FREE_D = 0.30
-MIN_GAP_DEG = 8.0
-OBSTACLE_FRONT_DEG = 90.0
-FRONT_HALF_DEG = 15.0
-
-AVOID_BASE_V = 0.18
-AVOID_MAX_W = 1.0
-AVOID_TURN_GAIN = 1.5
-AVOID_TURN_SIGN = -1.0
-SIDE_CLEAR_D = 0.20
-SIDE_CORRECT_MAX_DEG = 30.0
-COLOR_TO_LIDAR_DEG = 45.0
-
-GRID = np.arange(ANG_MIN, ANG_MAX + 0.5 * ANG_STEP, ANG_STEP, dtype=np.float32)
-LEFT_ZONE = (GRID >= ANG_MIN) & (GRID < -FRONT_HALF_DEG)
-FRONT_LOG_ZONE = (GRID >= -FRONT_HALF_DEG) & (GRID <= FRONT_HALF_DEG)
-RIGHT_ZONE = (GRID > FRONT_HALF_DEG) & (GRID <= ANG_MAX)
-OBSTACLE_ZONE = (GRID >= -OBSTACLE_FRONT_DEG) & (GRID <= OBSTACLE_FRONT_DEG)
-MIN_GAP_BINS = max(1, int(np.ceil(MIN_GAP_DEG / ANG_STEP)))
+HSV_RANGES = {
+    "RED": [([0, 120, 100], [8, 255, 255]), ([160, 120, 100], [179, 255, 255])],
+    "BLUE": [([100, 80, 80], [120, 255, 255])],
+    "YELLOW": [([20, 90, 150], [35, 255, 255])],
+}
+HSV_RANGES = {
+    name: [(np.array(lower, dtype=np.uint8), np.array(upper, dtype=np.uint8)) for lower, upper in ranges]
+    for name, ranges in HSV_RANGES.items()
+}
+BOX_COLORS = {"RED": (0, 0, 255), "BLUE": (255, 0, 0), "YELLOW": (0, 255, 255)}
+MORPH_KERNEL = np.ones((5, 5), np.uint8)
 
 
 def clamp(value, low, high):
     return float(max(low, min(value, high)))
 
 
-def norm_deg(angle):
-    return (angle + 180.0) % 360.0 - 180.0
+def open_camera():
+    if USE_PICAM:
+        cam = Picamera2()
+        cam.configure(
+            cam.create_preview_configuration(
+                main={"format": "RGB888", "size": (640, 360)},
+                # USB(uvcvideo) 웹캠은 FrameDurationLimits 미지원 → 프레임레이트 제어 불가, 기본값 사용
+            )
+        )
+        cam.start()
+        return cam
+
+    cam = cv2.VideoCapture(0, cv2.CAP_V4L2)
+    # 로그상 웹캠 기본 포맷이 MJPEG이므로 동일하게 맞춰야 set_fps가 먹는다.
+    cam.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+    cam.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+    cam.set(cv2.CAP_PROP_FRAME_HEIGHT, 360)
+    cam.set(cv2.CAP_PROP_FPS, CAMERA_FPS)
+    print(f"[CAMERA] OpenCV V4L2 / requested {CAMERA_FPS}fps, actual={cam.get(cv2.CAP_PROP_FPS):.1f}fps")
+    return cam
 
 
-class RPLidarC1:
-    def __init__(self):
-        self.ser = serial.Serial(LIDAR_PORT, LIDAR_BAUD, timeout=0.1)
-        self.lock = threading.Lock()
-        self.running = True
-        self.scan = None
-        self.scan_time = 0.0
-        self.scan_seq = 0
+def read_frame(cam):
+    if USE_PICAM:
+        frame = cv2.cvtColor(cam.capture_array(), cv2.COLOR_RGB2BGR)
+        return True, rotate_frame(frame)
 
-        self.ser.write(RESET)
-        time.sleep(2.0)
-        self.ser.reset_input_buffer()
-        self.ser.write(SCAN)
+    ok, frame = cam.read()
+    if not ok:
+        return False, frame
 
-        header = self.ser.read(7)
-        if len(header) != 7 or header[:2] != b"\xA5\x5A":
-            self.ser.close()
-            raise RuntimeError("[LIDAR] response header error")
-
-        self.thread = threading.Thread(target=self._read, daemon=True)
-        self.thread.start()
-
-    def _read(self):
-        angles, dists, qualities = [], [], []
-
-        while self.running:
-            try:
-                packet = self.ser.read(5)
-                if len(packet) != 5:
-                    continue
-
-                start = packet[0] & 1
-                if ((packet[0] & 2) >> 1) != (1 - start) or (packet[1] & 1) != 1:
-                    continue
-
-                quality = packet[0] >> 2
-                angle = ((packet[1] >> 1) | (packet[2] << 7)) / 64.0
-                dist = (packet[3] | (packet[4] << 8)) / 4.0
-
-                if start and len(angles) > 50:
-                    scan = (
-                        np.array(angles, dtype=np.float32),
-                        np.array(dists, dtype=np.float32),
-                        np.array(qualities, dtype=np.float32),
-                    )
-
-                    with self.lock:
-                        self.scan = scan
-                        self.scan_time = time.time()
-                        self.scan_seq += 1
-
-                    angles, dists, qualities = [], [], []
-
-                if dist > 0 and quality >= MIN_Q:
-                    angles.append(angle)
-                    dists.append(dist)
-                    qualities.append(quality)
-
-            except (serial.SerialException, OSError):
-                time.sleep(1.0)
-
-    def get(self):
-        with self.lock:
-            return self.scan, self.scan_time, self.scan_seq
-
-    def close(self):
-        self.running = False
-
-        try:
-            self.ser.write(LIDAR_STOP)
-        except Exception:
-            pass
-
-        self.thread.join(timeout=0.5)
-
-        if self.ser.is_open:
-            self.ser.close()
+    return True, rotate_frame(frame)
 
 
-def front_ranges(scan):
-    ranges = np.full(len(GRID), MAX_D, dtype=np.float32)
+def rotate_frame(frame):
+    if CAMERA_ROTATION is None:
+        return frame
 
-    if scan is None:
-        return ranges
-
-    angles, dists, qualities = scan
-    dist_m = (dists + DIST_OFFSET) / 1000.0
-    angle_deg = norm_deg(angles + ANGLE_OFFSET) * ANGLE_SIGN
-
-    valid = (dist_m >= MIN_D) & (dist_m <= MAX_D) & (qualities >= MIN_Q)
-    bins = np.rint((angle_deg[valid] - ANG_MIN) / ANG_STEP).astype(np.int32)
-    dists_valid = dist_m[valid]
-    in_grid = (bins >= 0) & (bins < len(ranges))
-
-    np.minimum.at(ranges, bins[in_grid], dists_valid[in_grid])
-    return ranges
+    return cv2.rotate(frame, CAMERA_ROTATION)
 
 
-def find_gaps(free):
-    gaps = []
-    start = None
+def close_camera(cam):
+    if cam is None:
+        return
 
-    for idx, ok in enumerate(free):
-        if ok and start is None:
-            start = idx
-        elif not ok and start is not None:
-            gaps.append((start, idx))
-            start = None
-
-    if start is not None:
-        gaps.append((start, len(free)))
-
-    return [(start, end) for start, end in gaps if end - start >= MIN_GAP_BINS]
+    cam.stop() if USE_PICAM else cam.release()
+    cv2.destroyAllWindows()
 
 
-def obstacle_detected(ranges):
-    if ranges is None:
-        return False
+def detect(frame):
+    hsv = cv2.cvtColor(cv2.GaussianBlur(frame, (5, 5), 0), cv2.COLOR_BGR2HSV)
+    found = []
 
-    return float(np.min(ranges[OBSTACLE_ZONE])) < FREE_D
+    for name, ranges in HSV_RANGES.items():
+        mask = None
+
+        for lower, upper in ranges:
+            part = cv2.inRange(hsv, lower, upper)
+            mask = part if mask is None else cv2.bitwise_or(mask, part)
+
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, MORPH_KERNEL)
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        for cnt in contours:
+            area = cv2.contourArea(cnt)
+
+            if area >= MIN_AREA:
+                x, y, w, h = cv2.boundingRect(cnt)
+                rect = cv2.minAreaRect(cnt)
+                approx = cv2.approxPolyDP(cnt, 0.03 * cv2.arcLength(cnt, True), True)
+                box = approx.reshape(-1, 2) if len(approx) >= 3 else cv2.boxPoints(rect).astype(np.int32)
+                moments = cv2.moments(cnt)
+
+                if moments["m00"] != 0:
+                    cx = moments["m10"] / moments["m00"]
+                    cy = moments["m01"] / moments["m00"]
+                else:
+                    cx = x + w / 2
+                    cy = y + h / 2
+
+                found.append((name, x, y, w, h, int(area), float(cx), float(cy), box, cnt))
+
+    return found
 
 
-def lidar_zone_distances(ranges):
-    if ranges is None:
-        return None
-
-    def zone_distance(zone):
-        values = ranges[zone]
-        measured = values[values < MAX_D]
-        if len(measured) == 0:
-            return MAX_D, 0
-        return float(np.min(measured)), len(measured)
-
-    return (
-        zone_distance(LEFT_ZONE),
-        zone_distance(FRONT_LOG_ZONE),
-        zone_distance(RIGHT_ZONE),
-    )
+def pick(found, target_name):
+    targets = found if target_name is None else [item for item in found if item[0] == target_name]
+    return max(targets, key=lambda item: item[5], default=None)
 
 
-def zone_min_distance(ranges, zone):
-    values = ranges[zone]
-    measured = values[values < MAX_D]
-    if len(measured) == 0:
-        return MAX_D
-    return float(np.min(measured))
+def bottom_center_error(target, frame_shape):
+    height, width = frame_shape[:2]
+    cx, cy = target[6], target[7]
+    dx = cx - width / 2
+    dy = max(1.0, height - cy)
+    angle = np.arctan2(dx, dy)
+    return clamp(angle / (np.pi / 2), -1.0, 1.0)
 
 
-def avoid_cmd(ranges, color_deg=None, base_v=AVOID_BASE_V):
-    if ranges is None:
-        return 0.0, 0.0, 0.0, 0
+def x_center_error(target, frame_shape):
+    _, width = frame_shape[:2]
+    cx = target[6]
+    return clamp((cx - width / 2) / (width / 2), -1.0, 1.0)
 
-    safe_gaps = find_gaps(ranges >= FREE_D)
 
-    if not safe_gaps:
-        return 0.0, 0.0, 0.0, 0
+def follow_cmd(target, frame_shape, max_v=FOLLOW_MAX_V):
+    if target is None:
+        return 0.0, 0.0
 
-    def gap_width(gap):
-        start, end = gap
-        return end - start
+    err = bottom_center_error(target, frame_shape)
+    err = 0.0 if abs(err) < DEADBAND else err
 
-    def gap_center(gap):
-        start, end = gap
-        return 0.5 * (GRID[start] + GRID[end - 1])
+    v = max_v * (1.0 - 0.45 * min(1.0, abs(err)))
+    w = clamp(-FOLLOW_KP * err, -FOLLOW_MAX_W, FOLLOW_MAX_W)
+    return v, w
 
-    front_blocked = float(np.min(ranges[FRONT_LOG_ZONE])) < FREE_D
 
-    if color_deg is not None and len(safe_gaps) >= 2 and not front_blocked:
-        start, end = min(safe_gaps, key=lambda gap: abs(norm_deg(gap_center(gap) - color_deg)))
-    else:
-        start, end = max(safe_gaps, key=lambda gap: (gap_width(gap), -abs(gap_center(gap))))
+def draw(frame, found, mode):
+    for name, x, y, w, h, area, cx, cy, box, cnt in found:
+        color = BOX_COLORS[name]
+        center = (int(round(cx)), int(round(cy)))
 
-    target_deg = float(0.5 * (GRID[start] + GRID[end - 1]))
-    left_d = zone_min_distance(ranges, LEFT_ZONE)
-    right_d = zone_min_distance(ranges, RIGHT_ZONE)
-    left_risk = max(0.0, SIDE_CLEAR_D - left_d)
-    right_risk = max(0.0, SIDE_CLEAR_D - right_d)
-    side_correct_deg = clamp(
-        (left_risk - right_risk) / SIDE_CLEAR_D * SIDE_CORRECT_MAX_DEG,
-        -SIDE_CORRECT_MAX_DEG,
-        SIDE_CORRECT_MAX_DEG,
-    )
-    target_deg = clamp(target_deg + side_correct_deg, ANG_MIN, ANG_MAX)
+        cv2.drawContours(frame, [cnt], -1, color, 2)
+        cv2.polylines(frame, [box], True, color, 2)
+        cv2.circle(frame, center, 5, color, -1)
+        cv2.putText(
+            frame,
+            f"{name} {center[0]},{center[1]} {area}",
+            (x, max(20, y - 8)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.55,
+            color,
+            2,
+        )
 
-    w = clamp(AVOID_TURN_SIGN * AVOID_TURN_GAIN * np.deg2rad(target_deg), -AVOID_MAX_W, AVOID_MAX_W)
-    return base_v, w, target_deg, len(safe_gaps)
+    cv2.putText(frame, mode, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+    cv2.imshow("project3", frame)
+    return cv2.waitKey(1) & 0xFF
