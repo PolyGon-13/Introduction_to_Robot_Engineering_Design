@@ -22,7 +22,7 @@ CAMERA_ROTATION = cv2.ROTATE_90_COUNTERCLOCKWISE
 HSV_RANGES = {
     "RED": [([0, 120, 100], [8, 255, 255]), ([160, 120, 100], [179, 255, 255])],
     "BLUE": [([100, 80, 80], [120, 255, 255])],
-    "YELLOW": [([18, 45, 150], [38, 255, 255])],
+    "YELLOW": [([20, 90, 150], [35, 255, 255])],
 }
 HSV_RANGES = {
     name: [(np.array(lower, dtype=np.uint8), np.array(upper, dtype=np.uint8)) for lower, upper in ranges]
