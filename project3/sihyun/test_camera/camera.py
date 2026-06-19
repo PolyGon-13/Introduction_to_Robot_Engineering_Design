@@ -42,7 +42,7 @@ def open_camera():
         cam.configure(
             cam.create_preview_configuration(
                 main={"format": "RGB888", "size": (640, 360)},
-                controls={"FrameRate": 15},
+                controls={"FrameDurationLimits": (66666, 66666)},  # 66666us = 15 FPS
             )
         )
         cam.start()
