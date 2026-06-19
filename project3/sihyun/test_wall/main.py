@@ -31,9 +31,7 @@ from lidar import (
     COLOR_TO_LIDAR_DEG,
     FREE_D,
     FRONT_LOG_ZONE,
-    GRID,
     LEFT_ZONE,
-    MAX_D,
     RPLidarC1,
     RIGHT_ZONE,
     SIDE_CLEAR_D,
@@ -77,7 +75,15 @@ POST_COLOR_FORWARD_M = 0.05  # Move forward after a color exits bottom before pa
 TURN_360_WHEEL_BASE_M = 0.18  # Distance between left/right wheels for encoder-based 360 turn(m)
 TURN_360_COUNTS = np.pi * TURN_360_WHEEL_BASE_M * ENC_COUNTS_PER_M
 AVOID_STOP_D = 0.15  # Stop avoid forward speed when a front obstacle is this close(m)
-VIRTUAL_WALL_RADIUS = 1.5  # 360도 탐색 실패 후 만드는 가상 벽 반지름(m)
+EXPLORE_MAX_RADIUS = 1.5  # 나선 탐색 최대 반경(m), 이 거리를 넘으면 중심으로 복귀
+EXPLORE_RETURN_RADIUS = 0.15  # 중심에 이 거리 이내로 들어오면 나선 재시작(m)
+SPIRAL_V = 0.18  # 나선 탐색 전진 속도(m/s)
+SPIRAL_START_RADIUS = 0.25  # 나선 시작 회전 반경(m)
+SPIRAL_GROWTH = 0.08  # 회전각 1rad당 늘어나는 나선 반경(m)
+SPIRAL_MAX_W = 1.0  # 나선/복귀 모드 최대 회전 속도
+SPIRAL_TURN_SIGN = 1.0  # 나선 회전 방향(+1: 좌회전, -1: 우회전)
+RETURN_KP = 1.5  # 복귀 시 원점 방향 정렬 비례 계수
+RETURN_FACING_DEG = 45.0  # 원점 방향과 이 각도 이내일 때만 전진
 
 
 def clamp(value, low, high):
@@ -99,7 +105,7 @@ def wait_ms(duration_ms):
 
 
 class PositionTracker:
-    """엔코더 누적값으로 가상 벽 중심(원점) 기준 현재 위치(x, y, heading)를 추정한다."""
+    """엔코더 누적값으로 나선 탐색 중심(원점) 기준 현재 위치(x, y, heading)를 추정한다."""
 
     def __init__(self, enc_l, enc_r):
         self.prev_l = enc_l
@@ -124,26 +130,48 @@ class PositionTracker:
         return float(np.hypot(self.x, self.y))
 
 
-def virtual_wall_ranges(tracker, radius=VIRTUAL_WALL_RADIUS):
-    """현재 위치에서 각 LiDAR 각도(GRID)별로 반지름 radius 가상 원까지의 거리를 계산한다."""
-    px, py = tracker.x, tracker.y
-    world_angles = tracker.heading + np.deg2rad(GRID)
-    cos_a = np.cos(world_angles)
-    sin_a = np.sin(world_angles)
-    b = px * cos_a + py * sin_a
-    c = px * px + py * py - radius * radius
-    discriminant = b * b - c
-    wall = np.full(len(GRID), float(MAX_D), dtype=np.float32)
-    valid = discriminant >= 0
-    t = -b + np.sqrt(np.maximum(discriminant, 0.0))
-    wall[valid] = np.clip(t[valid], 0.0, MAX_D).astype(np.float32)
-    return wall
+class SpiralExplorer:
+    """원점에서 점점 반경을 넓혀가며 회전(아르키메데스 나선)하고,
+    EXPLORE_MAX_RADIUS를 넘으면 원점으로 복귀했다가 다시 나선을 시작한다."""
 
+    def __init__(self, tracker):
+        self.tracker = tracker
+        self.returning = False
+        self.spiral_start_heading = tracker.heading
 
-def merge_virtual_wall(ranges, tracker):
-    """실제 LiDAR 거리와 가상 벽 거리 중 더 가까운 값을 합성한다."""
-    wall = virtual_wall_ranges(tracker)
-    return np.minimum(ranges, wall) if ranges is not None else wall
+    def command(self, ranges):
+        dist = self.tracker.distance_from_origin()
+
+        if not self.returning and dist >= EXPLORE_MAX_RADIUS:
+            self.returning = True  # 1.5m 넘으면 중심으로 복귀 시작
+        if self.returning and dist <= EXPLORE_RETURN_RADIUS:
+            self.returning = False  # 중심 근처 도달 → 나선 재시작
+            self.spiral_start_heading = self.tracker.heading
+
+        if self.returning:
+            mode = f"EXPLORE: return d={dist:.2f}m"
+            target_v, target_w = self._return_cmd()
+        else:
+            mode = f"EXPLORE: spiral d={dist:.2f}m"
+            target_v, target_w = self._spiral_cmd()
+
+        target_v = scale_avoid_speed_for_front_obstacle(target_v, ranges)
+        return mode, target_v, target_w
+
+    def _spiral_cmd(self):
+        # 시작 이후 누적 회전각이 커질수록 회전 반경을 키워 바깥으로 나선을 그린다.
+        turned = abs(self.tracker.heading - self.spiral_start_heading)
+        radius = SPIRAL_START_RADIUS + SPIRAL_GROWTH * turned
+        w = SPIRAL_TURN_SIGN * clamp(SPIRAL_V / radius, -SPIRAL_MAX_W, SPIRAL_MAX_W)
+        return SPIRAL_V, w
+
+    def _return_cmd(self):
+        # 원점 방향(월드 기준)으로 정렬한 뒤 전진한다.
+        bearing = float(np.arctan2(-self.tracker.y, -self.tracker.x))
+        err = (bearing - self.tracker.heading + np.pi) % (2.0 * np.pi) - np.pi
+        w = clamp(RETURN_KP * err, -SPIRAL_MAX_W, SPIRAL_MAX_W)
+        target_v = SPIRAL_V if abs(err) <= np.deg2rad(RETURN_FACING_DEG) else 0.0
+        return target_v, w
 
 
 class Motor:
@@ -415,8 +443,8 @@ def main():
     last_color_deg = last_color_time = last_color_center_ratio = last_color_x_err = 0.0
     last_odom_log_time = 0.0
     color_lost_during_avoid = False
-    virtual_wall_active = False
-    position_tracker = None
+    explore_active = False
+    explorer = None
     switch_search_active = False
     switch_search_start_odom = None
     target_index = 0
@@ -453,8 +481,8 @@ def main():
 
             if target is not None:
                 last_color_deg, last_color_time, last_color_center_ratio, last_color_x_err = update_color_memory(target, frame)
-                switch_search_active, virtual_wall_active, switch_search_start_odom = False, False, None
-                position_tracker = None
+                switch_search_active, explore_active, switch_search_start_odom = False, False, None
+                explorer = None
 
             if time.time() - last_odom_log_time >= ODOM_LOG_INTERVAL:
                 log_odom(elapsed, motor.get_odom())
@@ -512,8 +540,8 @@ def main():
                     target_v, target_w, last_v, last_w = 0.0, 0.0, 0.0, 0.0
                     last_color_deg, last_color_time, last_color_center_ratio, last_color_x_err = clear_color_memory()
                     color_lost_during_avoid, switch_search_active = False, False
-                    virtual_wall_active, switch_search_start_odom = False, None
-                    position_tracker = None
+                    explore_active, switch_search_start_odom = False, None
+                    explorer = None
                     print(f"[{elapsed:.2f}s] [COLOR] {current_target} done, mission complete")
                     break
 
@@ -526,15 +554,12 @@ def main():
                         target, frame, ranges, has_obstacle, last_color_deg, elapsed
                     )
 
-            elif target is None and virtual_wall_active:
+            elif target is None and explore_active:
                 enc_l, enc_r, _, odom_time = motor.get_odom()
                 if odom_time > 0.0 and time.time() - odom_time < 0.5:
-                    position_tracker.update(enc_l, enc_r)
-                merged = merge_virtual_wall(ranges, position_tracker)
-                target_v, target_w, target_deg, gap_count = avoid_cmd(merged, None, DRIVE_V)
-                target_v = scale_avoid_speed_for_front_obstacle(target_v, merged)
-                mode = f"EXPLORE: vwall d={position_tracker.distance_from_origin():.2f}m"
-                log_avoid(elapsed, "EXPLORE_VWALL", target_deg, target_v, target_w, gap_count)
+                    explorer.tracker.update(enc_l, enc_r)
+                mode, target_v, target_w = explorer.command(ranges)
+                print(f"[{elapsed:.2f}s] [{mode}] v={target_v:.2f} w={target_w:.2f}")
 
             elif color_exited_bottom:
                 color_lost_during_avoid = True
@@ -555,15 +580,12 @@ def main():
                 if completed_one_encoder_turn(motor, switch_search_start_odom):
                     switch_search_active = False
                     switch_search_start_odom = None
-                    virtual_wall_active = True
+                    explore_active = True
                     enc_l, enc_r, _, _ = motor.get_odom()
-                    position_tracker = PositionTracker(enc_l, enc_r)
-                    print(f"[{elapsed:.2f}s] [VWALL] 360 search failed, exploring within {VIRTUAL_WALL_RADIUS}m virtual wall")
-                    merged = merge_virtual_wall(ranges, position_tracker)
-                    target_v, target_w, target_deg, gap_count = avoid_cmd(merged, None, DRIVE_V)
-                    target_v = scale_avoid_speed_for_front_obstacle(target_v, merged)
-                    mode = "EXPLORE: vwall d=0.00m"
-                    log_avoid(elapsed, "EXPLORE_VWALL", target_deg, target_v, target_w, gap_count)
+                    explorer = SpiralExplorer(PositionTracker(enc_l, enc_r))
+                    print(f"[{elapsed:.2f}s] [EXPLORE] 360 search failed, spiral explore within {EXPLORE_MAX_RADIUS}m")
+                    mode, target_v, target_w = explorer.command(ranges)
+                    print(f"[{elapsed:.2f}s] [{mode}] v={target_v:.2f} w={target_w:.2f}")
                 else:
                     mode, target_v, target_w = search_next_cmd()
 
@@ -575,7 +597,7 @@ def main():
                     mode, target_v, target_w = search_last_cmd(last_color_deg)
                     color_lost_during_avoid, switch_search_active = True, False
                 else:
-                    if not switch_search_active and not virtual_wall_active:
+                    if not switch_search_active and not explore_active:
                         switch_search_active = True
                         switch_search_start_odom = get_turn_start_odom(motor)
                     mode, target_v, target_w = search_next_cmd()
