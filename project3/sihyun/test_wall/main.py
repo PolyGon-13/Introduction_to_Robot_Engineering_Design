@@ -77,7 +77,7 @@ POST_COLOR_FORWARD_M = 0.05  # Move forward after a color exits bottom before pa
 TURN_360_WHEEL_BASE_M = 0.18  # Distance between left/right wheels for encoder-based 360 turn(m)
 TURN_360_COUNTS = np.pi * TURN_360_WHEEL_BASE_M * ENC_COUNTS_PER_M
 AVOID_STOP_D = 0.15  # Stop avoid forward speed when a front obstacle is this close(m)
-VIRTUAL_WALL_RADIUS = 1.5  # 360도 탐색 실패 후 가상 벽 반지름(m)
+VIRTUAL_WALL_RADIUS = 1.5  # 360도 탐색 실패 후 만드는 가상 벽 반지름(m)
 
 
 def clamp(value, low, high):
@@ -99,6 +99,8 @@ def wait_ms(duration_ms):
 
 
 class PositionTracker:
+    """엔코더 누적값으로 가상 벽 중심(원점) 기준 현재 위치(x, y, heading)를 추정한다."""
+
     def __init__(self, enc_l, enc_r):
         self.prev_l = enc_l
         self.prev_r = enc_r
@@ -123,6 +125,7 @@ class PositionTracker:
 
 
 def virtual_wall_ranges(tracker, radius=VIRTUAL_WALL_RADIUS):
+    """현재 위치에서 각 LiDAR 각도(GRID)별로 반지름 radius 가상 원까지의 거리를 계산한다."""
     px, py = tracker.x, tracker.y
     world_angles = tracker.heading + np.deg2rad(GRID)
     cos_a = np.cos(world_angles)
@@ -135,6 +138,12 @@ def virtual_wall_ranges(tracker, radius=VIRTUAL_WALL_RADIUS):
     t = -b + np.sqrt(np.maximum(discriminant, 0.0))
     wall[valid] = np.clip(t[valid], 0.0, MAX_D).astype(np.float32)
     return wall
+
+
+def merge_virtual_wall(ranges, tracker):
+    """실제 LiDAR 거리와 가상 벽 거리 중 더 가까운 값을 합성한다."""
+    wall = virtual_wall_ranges(tracker)
+    return np.minimum(ranges, wall) if ranges is not None else wall
 
 
 class Motor:
@@ -521,8 +530,7 @@ def main():
                 enc_l, enc_r, _, odom_time = motor.get_odom()
                 if odom_time > 0.0 and time.time() - odom_time < 0.5:
                     position_tracker.update(enc_l, enc_r)
-                wall = virtual_wall_ranges(position_tracker)
-                merged = np.minimum(ranges, wall) if ranges is not None else wall
+                merged = merge_virtual_wall(ranges, position_tracker)
                 target_v, target_w, target_deg, gap_count = avoid_cmd(merged, None, DRIVE_V)
                 target_v = scale_avoid_speed_for_front_obstacle(target_v, merged)
                 mode = f"EXPLORE: vwall d={position_tracker.distance_from_origin():.2f}m"
@@ -545,17 +553,16 @@ def main():
                     switch_search_start_odom = get_turn_start_odom(motor)
 
                 if completed_one_encoder_turn(motor, switch_search_start_odom):
-                    virtual_wall_active = True
                     switch_search_active = False
                     switch_search_start_odom = None
+                    virtual_wall_active = True
                     enc_l, enc_r, _, _ = motor.get_odom()
                     position_tracker = PositionTracker(enc_l, enc_r)
-                    print(f"[{elapsed:.2f}s] [VWALL] 360 search failed, entering virtual wall explore (R={VIRTUAL_WALL_RADIUS}m)")
-                    wall = virtual_wall_ranges(position_tracker)
-                    merged = np.minimum(ranges, wall) if ranges is not None else wall
+                    print(f"[{elapsed:.2f}s] [VWALL] 360 search failed, exploring within {VIRTUAL_WALL_RADIUS}m virtual wall")
+                    merged = merge_virtual_wall(ranges, position_tracker)
                     target_v, target_w, target_deg, gap_count = avoid_cmd(merged, None, DRIVE_V)
                     target_v = scale_avoid_speed_for_front_obstacle(target_v, merged)
-                    mode = f"EXPLORE: vwall d=0.00m"
+                    mode = "EXPLORE: vwall d=0.00m"
                     log_avoid(elapsed, "EXPLORE_VWALL", target_deg, target_v, target_w, gap_count)
                 else:
                     mode, target_v, target_w = search_next_cmd()
