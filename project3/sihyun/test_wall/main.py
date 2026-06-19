@@ -75,7 +75,7 @@ POST_COLOR_FORWARD_M = 0.05  # Move forward after a color exits bottom before pa
 TURN_360_WHEEL_BASE_M = 0.18  # Distance between left/right wheels for encoder-based 360 turn(m)
 TURN_360_COUNTS = np.pi * TURN_360_WHEEL_BASE_M * ENC_COUNTS_PER_M
 AVOID_STOP_D = 0.15  # Stop avoid forward speed when a front obstacle is this close(m)
-EXPLORE_MAX_RADIUS = 1.5  # 나선 탐색 최대 반경(m), 이 거리를 넘으면 중심으로 복귀
+EXPLORE_MAX_RADIUS = 1.0  # 나선 탐색 최대 반경(m), 이 거리를 넘으면 중심으로 복귀
 EXPLORE_RETURN_RADIUS = 0.15  # 중심에 이 거리 이내로 들어오면 나선 재시작(m)
 SPIRAL_V = 0.18  # 나선 탐색 전진 속도(m/s)
 SPIRAL_START_RADIUS = 0.25  # 나선 시작 회전 반경(m)
@@ -137,7 +137,7 @@ class SpiralExplorer:
     def __init__(self, tracker):
         self.tracker = tracker
         self.returning = False
-        self.spiral_start_heading = tracker.heading
+        self.spiral_angle = 0.0  # 명령으로 누적한 회전각(rad) - 엔코더와 무관한 개루프 값
 
     def command(self, ranges):
         dist = self.tracker.distance_from_origin()
@@ -146,7 +146,7 @@ class SpiralExplorer:
             self.returning = True  # 1.5m 넘으면 중심으로 복귀 시작
         if self.returning and dist <= EXPLORE_RETURN_RADIUS:
             self.returning = False  # 중심 근처 도달 → 나선 재시작
-            self.spiral_start_heading = self.tracker.heading
+            self.spiral_angle = 0.0
 
         if self.returning:
             mode = f"EXPLORE: return d={dist:.2f}m"
@@ -159,10 +159,10 @@ class SpiralExplorer:
         return mode, target_v, target_w
 
     def _spiral_cmd(self):
-        # 시작 이후 누적 회전각이 커질수록 회전 반경을 키워 바깥으로 나선을 그린다.
-        turned = abs(self.tracker.heading - self.spiral_start_heading)
-        radius = SPIRAL_START_RADIUS + SPIRAL_GROWTH * turned
+        # 명령 회전각을 직접 누적해 반경을 키운다(엔코더 오차의 영향을 받지 않음).
+        radius = SPIRAL_START_RADIUS + SPIRAL_GROWTH * self.spiral_angle
         w = SPIRAL_TURN_SIGN * clamp(SPIRAL_V / radius, -SPIRAL_MAX_W, SPIRAL_MAX_W)
+        self.spiral_angle += abs(w) * LOOP_DT
         return SPIRAL_V, w
 
     def _return_cmd(self):
