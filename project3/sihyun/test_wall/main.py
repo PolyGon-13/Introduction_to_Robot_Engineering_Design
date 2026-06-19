@@ -77,7 +77,7 @@ POST_COLOR_FORWARD_M = 0.05  # Move forward after a color exits bottom before pa
 TURN_360_WHEEL_BASE_M = 0.18  # Distance between left/right wheels for encoder-based 360 turn(m)
 TURN_360_COUNTS = np.pi * TURN_360_WHEEL_BASE_M * ENC_COUNTS_PER_M
 AVOID_STOP_D = 0.15  # Stop avoid forward speed when a front obstacle is this close(m)
-VIRTUAL_WALL_RADIUS = 1.5  # 360도 탐색 실패 후 만드는 가상 벽 반지름(m)
+VIRTUAL_WALL_RADIUS = 0.5  # 360도 탐색 실패 후 만드는 가상 벽 반지름(m)
 
 
 def clamp(value, low, high):
