@@ -13,8 +13,8 @@ DEADBAND = 0.08
 CAMERA_ROTATION = cv2.ROTATE_90_COUNTERCLOCKWISE
 
 CAMERA_INDEX = 0  # USB 카메라 장치 번호
-CAMERA_WIDTH = 480  # USB 카메라 캡처 가로 해상도(px)
-CAMERA_HEIGHT = 640  # USB 카메라 캡처 세로 해상도(px)
+CAMERA_WIDTH = 1280  # USB 카메라 캡처 가로 해상도(px) - 90도 회전 후 480x640 처리
+CAMERA_HEIGHT = 720  # USB 카메라 캡처 세로 해상도(px)
 CAMERA_FPS = 15  # USB 카메라 프레임 레이트(fps)
 
 HSV_RANGES = {
@@ -35,7 +35,10 @@ def clamp(value, low, high):
 
 
 def open_camera():
-    cam = cv2.VideoCapture(CAMERA_INDEX)
+    cam = cv2.VideoCapture(CAMERA_INDEX, cv2.CAP_V4L2)
+    if not cam.isOpened():
+        cam = cv2.VideoCapture(CAMERA_INDEX)
+    cam.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
     cam.set(cv2.CAP_PROP_FRAME_WIDTH, CAMERA_WIDTH)
     cam.set(cv2.CAP_PROP_FRAME_HEIGHT, CAMERA_HEIGHT)
     cam.set(cv2.CAP_PROP_FPS, CAMERA_FPS)
