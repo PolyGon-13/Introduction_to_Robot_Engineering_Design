@@ -76,11 +76,12 @@ POST_COLOR_FORWARD_M = 0.05  # Move forward after a color exits bottom before pa
 TURN_360_WHEEL_BASE_M = 0.18  # Distance between left/right wheels for encoder-based 360 turn(m)
 TURN_360_COUNTS = np.pi * TURN_360_WHEEL_BASE_M * ENC_COUNTS_PER_M
 AVOID_STOP_D = 0.15  # Stop avoid forward speed when a front obstacle is this close(m)
-SPIRAL_START_RADIUS = 0.00  # 달팽이집 탐색 시작 회전 반경(m)
-SPIRAL_GROWTH = 0.02  # 엔코더 회전각 1rad당 늘어나는 반경(m)
+SPIRAL_START_RADIUS = 0.0  # 달팽이집 탐색 시작 회전 반경(m, 0이면 처음에 제자리만 돎)
+SPIRAL_GROWTH = 0.08  # 엔코더 회전각 1rad당 늘어나는 반경(m, 작을수록 촘촘)
 SPIRAL_MAX_RADIUS = 1.5  # 회전 반경 최대값(m)
 EXPLORE_MAX_W = 1.0  # 탐색 회전 속도 제한
 EXPLORE_TURN_SIGN = 1.0  # 탐색 회전 방향(+1: 좌회전, -1: 우회전)
+EXPLORE_AVOID_D = 0.30  # 나선 탐색 중 정면이 이 거리(m) 이내로 막히면 회피 발동
 
 
 
@@ -560,8 +561,8 @@ def main():
 
             elif target is None and explore_active:
                 enc_l, enc_r, _, odom_time = motor.get_odom()
-                if has_obstacle:
-                    # 나선 중 앞이 막히면 기존 회피로 빈 방향으로 틀고,
+                if front_obstacle_distance(ranges) <= EXPLORE_AVOID_D:
+                    # 나선 중 '정면'이 가까이 막혔을 때만 기존 회피로 빈 방향으로 틀고,
                     # 회피로 흐트러진 만큼 나선 기준 엔코더를 현재값으로 리셋한다.
                     mode, target_v, target_w = avoid_mode("AVOID: explore", "AVOID_EXPLORE", ranges, None, elapsed)
                     explorer.start_l, explorer.start_r = enc_l, enc_r
