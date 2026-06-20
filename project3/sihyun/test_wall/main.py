@@ -75,15 +75,11 @@ POST_COLOR_FORWARD_M = 0.05  # Move forward after a color exits bottom before pa
 TURN_360_WHEEL_BASE_M = 0.18  # Distance between left/right wheels for encoder-based 360 turn(m)
 TURN_360_COUNTS = np.pi * TURN_360_WHEEL_BASE_M * ENC_COUNTS_PER_M
 AVOID_STOP_D = 0.15  # Stop avoid forward speed when a front obstacle is this close(m)
-EXPLORE_MAX_RADIUS = 1.5  # 나선 탐색 최대 반경(m), 이 거리를 넘으면 중심으로 복귀
-EXPLORE_RETURN_RADIUS = 0.15  # 중심에 이 거리 이내로 들어오면 나선 재시작(m)
-SPIRAL_V = 0.18  # 나선 탐색 전진 속도(m/s)
-SPIRAL_START_RADIUS = 0.25  # 나선 시작 회전 반경(m)
-SPIRAL_GROWTH = 0.08  # 엔코더 회전각 1rad당 늘어나는 나선 반경(m)
-SPIRAL_MAX_W = 1.0  # 나선/복귀 모드 최대 회전 속도
-SPIRAL_TURN_SIGN = 1.0  # 나선 회전 방향(+1: 좌회전, -1: 우회전)
-RETURN_KP = 1.5  # 복귀 시 원점 방향 정렬 비례 계수
-RETURN_FACING_DEG = 45.0  # 원점 방향과 이 각도 이내일 때만 전진
+EXPLORE_RADIUS = 1.5  # 엔코더 폐루프로 유지할 탐색 회전 반경(m)
+EXPLORE_RADIUS_KP = 3.0  # 좌우 바퀴 이동거리 오차(m) → 회전속도 보정 비례계수
+EXPLORE_MAX_W = 1.0  # 탐색 회전 속도 제한
+EXPLORE_TURN_SIGN = 1.0  # 탐색 회전 방향(+1: 좌회전, -1: 우회전)
+
 
 
 def clamp(value, low, high):
@@ -104,76 +100,29 @@ def wait_ms(duration_ms):
         time.sleep(0.001)
 
 
-class PositionTracker:
-    """엔코더 누적값으로 나선 탐색 중심(원점) 기준 현재 위치(x, y, heading)를 추정한다."""
+class CircleExplorer:
+    """엔코더 폐루프로 반경 EXPLORE_RADIUS(m) 원을 그리며 탐색한다.
+    좌·우 바퀴 누적 이동거리 차이가 반경에 맞는 목표값을 따라가도록 회전(w)을 보정한다.
+    회전 속도를 직접 정하지 않고, 엔코더로 잰 실제 이동거리 오차로만 회전을 만든다."""
 
     def __init__(self, enc_l, enc_r):
-        self.prev_l = enc_l
-        self.prev_r = enc_r
-        self.x = 0.0
-        self.y = 0.0
-        self.heading = 0.0
-        self.total_turn = 0.0  # 엔코더로 측정한 누적 절대 회전각(rad)
+        self.start_l = enc_l
+        self.start_r = enc_r
 
-    def update(self, enc_l, enc_r):
-        dl = (enc_l - self.prev_l) / ENC_COUNTS_PER_M
-        dr = (enc_r - self.prev_r) / ENC_COUNTS_PER_M
-        self.prev_l = enc_l
-        self.prev_r = enc_r
-        d = (dl + dr) / 2.0
-        dtheta = (dr - dl) / TURN_360_WHEEL_BASE_M
-        mid_heading = self.heading + dtheta / 2.0
-        self.x += d * np.cos(mid_heading)
-        self.y += d * np.sin(mid_heading)
-        self.heading += dtheta
-        self.total_turn += abs(dtheta)
+    def command(self, enc_l, enc_r, ranges):
+        left_m = (enc_l - self.start_l) / ENC_COUNTS_PER_M
+        right_m = (enc_r - self.start_r) / ENC_COUNTS_PER_M
+        center_m = (left_m + right_m) / 2.0  # 중심 이동 거리
+        diff_m = right_m - left_m  # 실제 좌우 바퀴 이동거리 차이
 
-    def distance_from_origin(self):
-        return float(np.hypot(self.x, self.y))
+        # 반경 R 원에서는 (오른쪽-왼쪽) = (바퀴간격/R) * 중심이동거리 가 되어야 한다.
+        target_diff = EXPLORE_TURN_SIGN * (TURN_360_WHEEL_BASE_M / EXPLORE_RADIUS) * center_m
+        error = target_diff - diff_m
+        target_w = clamp(EXPLORE_RADIUS_KP * error, -EXPLORE_MAX_W, EXPLORE_MAX_W)
 
-
-class SpiralExplorer:
-    """원점에서 점점 반경을 넓혀가며 회전(아르키메데스 나선)하고,
-    EXPLORE_MAX_RADIUS를 넘으면 원점으로 복귀했다가 다시 나선을 시작한다."""
-
-    def __init__(self, tracker):
-        self.tracker = tracker
-        self.returning = False
-        self.spiral_start_turn = tracker.total_turn  # 나선 시작 시점의 엔코더 누적 회전각
-
-    def command(self, ranges):
-        dist = self.tracker.distance_from_origin()
-
-        if not self.returning and dist >= EXPLORE_MAX_RADIUS:
-            self.returning = True  # 1.5m 넘으면 중심으로 복귀 시작
-        if self.returning and dist <= EXPLORE_RETURN_RADIUS:
-            self.returning = False  # 중심 근처 도달 → 나선 재시작
-            self.spiral_start_turn = self.tracker.total_turn
-
-        if self.returning:
-            mode = f"EXPLORE: return d={dist:.2f}m"
-            target_v, target_w = self._return_cmd()
-        else:
-            mode = f"EXPLORE: spiral d={dist:.2f}m"
-            target_v, target_w = self._spiral_cmd()
-
-        target_v = scale_avoid_speed_for_front_obstacle(target_v, ranges)
+        target_v = scale_avoid_speed_for_front_obstacle(DRIVE_V, ranges)
+        mode = f"EXPLORE: circle r={EXPLORE_RADIUS:.1f}m err={error:+.2f}m"
         return mode, target_v, target_w
-
-    def _spiral_cmd(self):
-        # 엔코더로 측정한 실제 누적 회전각으로 반경을 키운다.
-        spiral_angle = self.tracker.total_turn - self.spiral_start_turn
-        radius = SPIRAL_START_RADIUS + SPIRAL_GROWTH * spiral_angle
-        w = SPIRAL_TURN_SIGN * clamp(SPIRAL_V / radius, -SPIRAL_MAX_W, SPIRAL_MAX_W)
-        return SPIRAL_V, w
-
-    def _return_cmd(self):
-        # 원점 방향(월드 기준)으로 정렬한 뒤 전진한다.
-        bearing = float(np.arctan2(-self.tracker.y, -self.tracker.x))
-        err = (bearing - self.tracker.heading + np.pi) % (2.0 * np.pi) - np.pi
-        w = clamp(RETURN_KP * err, -SPIRAL_MAX_W, SPIRAL_MAX_W)
-        target_v = SPIRAL_V if abs(err) <= np.deg2rad(RETURN_FACING_DEG) else 0.0
-        return target_v, w
 
 
 class Motor:
@@ -561,9 +510,10 @@ def main():
 
             elif target is None and explore_active:
                 enc_l, enc_r, _, odom_time = motor.get_odom()
-                if odom_time > 0.0 and time.time() - odom_time < 0.5:
-                    explorer.tracker.update(enc_l, enc_r)
-                mode, target_v, target_w = explorer.command(ranges)
+                if odom_time > 0.0:
+                    mode, target_v, target_w = explorer.command(enc_l, enc_r, ranges)
+                else:
+                    mode, target_v, target_w = "EXPLORE: wait odom", 0.0, 0.0
                 print(f"[{elapsed:.2f}s] [{mode}] v={target_v:.2f} w={target_w:.2f}")
 
             elif color_exited_bottom:
@@ -587,9 +537,9 @@ def main():
                     switch_search_start_odom = None
                     explore_active = True
                     enc_l, enc_r, _, _ = motor.get_odom()
-                    explorer = SpiralExplorer(PositionTracker(enc_l, enc_r))
-                    print(f"[{elapsed:.2f}s] [EXPLORE] 360 search failed, spiral explore within {EXPLORE_MAX_RADIUS}m")
-                    mode, target_v, target_w = explorer.command(ranges)
+                    explorer = CircleExplorer(enc_l, enc_r)
+                    print(f"[{elapsed:.2f}s] [EXPLORE] 360 search failed, circle explore r={EXPLORE_RADIUS}m")
+                    mode, target_v, target_w = explorer.command(enc_l, enc_r, ranges)
                     print(f"[{elapsed:.2f}s] [{mode}] v={target_v:.2f} w={target_w:.2f}")
                 else:
                     mode, target_v, target_w = search_next_cmd()
