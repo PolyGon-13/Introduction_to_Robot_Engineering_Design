@@ -75,12 +75,10 @@ POST_COLOR_FORWARD_M = 0.05  # Move forward after a color exits bottom before pa
 TURN_360_WHEEL_BASE_M = 0.18  # Distance between left/right wheels for encoder-based 360 turn(m)
 TURN_360_COUNTS = np.pi * TURN_360_WHEEL_BASE_M * ENC_COUNTS_PER_M
 AVOID_STOP_D = 0.15  # Stop avoid forward speed when a front obstacle is this close(m)
-SPIRAL_V = 0.12  # 나선 탐색 전진 속도(m/s) — DRIVE_V보다 낮아야 초반 작은 원 가능
-SPIRAL_START_RADIUS = 0.1  # 달팽이집 탐색 시작 회전 반경(m) — 실제 최소 반경 = SPIRAL_V / EXPLORE_MAX_W
-SPIRAL_GROWTH = 0.12  # 엔코더 회전각 1rad당 늘어나는 반경(m)
+SPIRAL_START_RADIUS = 0.1  # 달팽이집 탐색 시작 회전 반경(m)
+SPIRAL_GROWTH = 0.005  # 엔코더 회전각 1rad당 늘어나는 반경(m)
 SPIRAL_MAX_RADIUS = 1.5  # 회전 반경 최대값(m)
-EXPLORE_MAX_W = 1.5  # 탐색 회전 속도 제한 — 높을수록 초반 원이 작아짐
-EXPLORE_W_STEP = 0.5  # 나선 모드 회전속도 레이트 리미터(rad/s per loop)
+EXPLORE_MAX_W = 1.0  # 탐색 회전 속도 제한
 EXPLORE_TURN_SIGN = 1.0  # 탐색 회전 방향(+1: 좌회전, -1: 우회전)
 
 
@@ -116,15 +114,24 @@ class SpiralExplorer:
         left_m = (enc_l - self.start_l) / ENC_COUNTS_PER_M
         right_m = (enc_r - self.start_r) / ENC_COUNTS_PER_M
         diff_m = right_m - left_m  # 좌우 바퀴 이동거리 차이
+        center_m = (left_m + right_m) / 2.0  # 중심 이동 거리
 
         # 누적 회전각(rad) = 좌우 이동거리 차이 / 바퀴간격 (엔코더로 측정)
         turn_angle = abs(diff_m) / TURN_360_WHEEL_BASE_M
         # 회전각이 커질수록 반경을 키운다(달팽이집), 최대 SPIRAL_MAX_RADIUS
         radius = min(SPIRAL_START_RADIUS + SPIRAL_GROWTH * turn_angle, SPIRAL_MAX_RADIUS)
 
-        target_v = scale_avoid_speed_for_front_obstacle(SPIRAL_V, ranges)
+        front_d = front_obstacle_distance(ranges)
+        target_v = scale_avoid_speed_for_front_obstacle(DRIVE_V, ranges)
         target_w = EXPLORE_TURN_SIGN * clamp(target_v / radius, -EXPLORE_MAX_W, EXPLORE_MAX_W)
 
+        # 상세 로그용 문자열: 엔코더 카운트/이동거리/회전각/반경/전방거리/속도 전부
+        self.detail = (
+            f"encL={enc_l} encR={enc_r} "
+            f"L={left_m:.3f}m R={right_m:.3f}m diff={diff_m:+.3f}m center={center_m:.3f}m "
+            f"turn={np.degrees(turn_angle):.1f}deg radius={radius:.3f}m "
+            f"front={front_d:.2f}m v={target_v:.3f} w={target_w:+.3f}"
+        )
         mode = f"EXPLORE: spiral r={radius:.2f}m"
         return mode, target_v, target_w
 
@@ -516,9 +523,10 @@ def main():
                 enc_l, enc_r, _, odom_time = motor.get_odom()
                 if odom_time > 0.0:
                     mode, target_v, target_w = explorer.command(enc_l, enc_r, ranges)
+                    print(f"[{elapsed:.2f}s] [EXPLORE] {explorer.detail}")
                 else:
                     mode, target_v, target_w = "EXPLORE: wait odom", 0.0, 0.0
-                print(f"[{elapsed:.2f}s] [{mode}] v={target_v:.2f} w={target_w:.2f}")
+                    print(f"[{elapsed:.2f}s] [EXPLORE] odom 대기중 (v=0 w=0)")
 
             elif color_exited_bottom:
                 color_lost_during_avoid = True
@@ -544,7 +552,7 @@ def main():
                     explorer = SpiralExplorer(enc_l, enc_r)
                     print(f"[{elapsed:.2f}s] [EXPLORE] 360 search failed, spiral explore (max r={SPIRAL_MAX_RADIUS}m)")
                     mode, target_v, target_w = explorer.command(enc_l, enc_r, ranges)
-                    print(f"[{elapsed:.2f}s] [{mode}] v={target_v:.2f} w={target_w:.2f}")
+                    print(f"[{elapsed:.2f}s] [EXPLORE] {explorer.detail}")
                 else:
                     enc_l, enc_r, _, ot = motor.get_odom()
                     if switch_search_start_odom is not None:
@@ -570,7 +578,7 @@ def main():
 
             if motor_enabled.is_set() and (target is not None or mode.startswith("AVOID") or mode.startswith("SEARCH") or mode.startswith("EXPLORE")):
                 last_v = 0.0 if mode.startswith("ALIGN") else rate_limit(last_v, target_v, V_STEP)
-                w_step = EXPLORE_W_STEP if mode.startswith("EXPLORE") else (AVOID_W_STEP if mode.startswith("AVOID") else FOLLOW_W_STEP)
+                w_step = AVOID_W_STEP if (mode.startswith("AVOID") or mode.startswith("EXPLORE")) else FOLLOW_W_STEP
                 last_w = rate_limit(last_w, target_w, w_step)
                 motor.vw(last_v, last_w)
             elif not motor_enabled.is_set():
