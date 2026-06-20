@@ -511,8 +511,11 @@ def main():
                     )
 
             elif target is None and explore_active:
-                target_v = scale_avoid_speed_for_front_obstacle(DRIVE_V, ranges)
-                mode, target_w = "EXPLORE: forward", 0.0
+                enc_l, enc_r, _, odom_time = motor.get_odom()
+                if odom_time > 0.0:
+                    mode, target_v, target_w = explorer.command(enc_l, enc_r, ranges)
+                else:
+                    mode, target_v, target_w = "EXPLORE: wait odom", 0.0, 0.0
                 print(f"[{elapsed:.2f}s] [{mode}] v={target_v:.2f} w={target_w:.2f}")
 
             elif color_exited_bottom:
