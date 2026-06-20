@@ -101,6 +101,25 @@ def wait_ms(duration_ms):
         time.sleep(0.001)
 
 
+class Tee:
+    """터미널(stdout)에 출력하면서 동시에 같은 내용을 로그 파일에도 기록한다."""
+
+    def __init__(self, *streams):
+        self.streams = streams
+        self.lock = threading.Lock()
+
+    def write(self, data):
+        with self.lock:
+            for s in self.streams:
+                s.write(data)
+                s.flush()
+
+    def flush(self):
+        with self.lock:
+            for s in self.streams:
+                s.flush()
+
+
 class SpiralExplorer:
     """달팽이집(아르키메데스 나선)으로 탐색한다.
     엔코더로 잰 누적 회전각이 커질수록 회전 반경을 키워(작게 시작 → 점점 크게),
@@ -407,6 +426,10 @@ def avoid_mode(mode, tag, ranges, color_deg, elapsed):
 
 def main():
     cam = lidar = motor = None
+    original_stdout = sys.stdout
+    log_file = open(THIS_DIR / f"robot_log_{time.strftime('%Y%m%d_%H%M%S')}.txt", "w", encoding="utf-8")
+    sys.stdout = Tee(original_stdout, log_file)
+    print(f"[LOG] logging to {log_file.name}")
     last_v = last_w = 0.0
     last_color_deg = last_color_time = last_color_center_ratio = last_color_x_err = 0.0
     last_odom_log_time = 0.0
@@ -609,6 +632,9 @@ def main():
             lidar.close()
 
         close_camera(cam)
+
+        sys.stdout = original_stdout
+        log_file.close()
 
 
 if __name__ == "__main__":
