@@ -49,6 +49,7 @@ from lidar import (
 
 TARGET_SEQUENCE = ("RED", "YELLOW", "BLUE")  # Follow colors in this order.
 SHOW_WINDOW = True  # 카메라 인식 화면을 띄울지 여부
+DEBUG = True  # 디버그 로그 출력 켜고 끄기 (False면 상세 로그 전부 끔)
 BOTTOM_LOST_RATIO = 0.90  # 색상이 화면 아래 1/10 지점 아래에서 사라지면 정지로 판단
 COLOR_SWITCH_PAUSE_MS = 1000  # 다음 색 추적 전 정지 시간(ms)
 COLOR_FORWARD_CENTER_RATIO = 0.95  # 색상 중심이 화면 하단 1/20 구역에 들어오면 전진
@@ -81,6 +82,12 @@ SPIRAL_MAX_RADIUS = 1.5  # 회전 반경 최대값(m)
 EXPLORE_MAX_W = 1.0  # 탐색 회전 속도 제한
 EXPLORE_TURN_SIGN = 1.0  # 탐색 회전 방향(+1: 좌회전, -1: 우회전)
 
+
+
+def dbg(*args, **kwargs):
+    """DEBUG가 True일 때만 출력한다(디버그 로그 토글)."""
+    if DEBUG:
+        print(*args, **kwargs)
 
 
 def clamp(value, low, high):
@@ -427,9 +434,11 @@ def avoid_mode(mode, tag, ranges, color_deg, elapsed):
 def main():
     cam = lidar = motor = None
     original_stdout = sys.stdout
-    log_file = open(THIS_DIR / f"robot_log_{time.strftime('%Y%m%d_%H%M%S')}.txt", "w", encoding="utf-8")
-    sys.stdout = Tee(original_stdout, log_file)
-    print(f"[LOG] logging to {log_file.name}")
+    log_file = None
+    if DEBUG:  # 디버그가 켜져 있을 때만 터미널+txt 로그를 남긴다.
+        log_file = open(THIS_DIR / f"robot_log_{time.strftime('%Y%m%d_%H%M%S')}.txt", "w", encoding="utf-8")
+        sys.stdout = Tee(original_stdout, log_file)
+        print(f"[LOG] logging to {log_file.name}")
     last_v = last_w = 0.0
     last_color_deg = last_color_time = last_color_center_ratio = last_color_x_err = 0.0
     last_odom_log_time = 0.0
@@ -475,11 +484,12 @@ def main():
                 switch_search_active, explore_active, switch_search_start_odom = False, False, None
                 explorer = None
 
-            if time.time() - last_odom_log_time >= ODOM_LOG_INTERVAL:
+            if DEBUG and time.time() - last_odom_log_time >= ODOM_LOG_INTERVAL:
                 log_odom(elapsed, motor.get_odom())
                 last_odom_log_time = time.time()
 
-            log_lidar(elapsed, lidar_dist)
+            if DEBUG:
+                log_lidar(elapsed, lidar_dist)
 
             color_in_forward_zone = (
                 motor_enabled.is_set()
@@ -552,10 +562,10 @@ def main():
                 enc_l, enc_r, _, odom_time = motor.get_odom()
                 if odom_time > 0.0:
                     mode, target_v, target_w = explorer.command(enc_l, enc_r, ranges)
-                    print(f"[{elapsed:.2f}s] [EXPLORE] {explorer.detail}")
+                    dbg(f"[{elapsed:.2f}s] [EXPLORE] {explorer.detail}")
                 else:
                     mode, target_v, target_w = "EXPLORE: wait odom", 0.0, 0.0
-                    print(f"[{elapsed:.2f}s] [EXPLORE] odom 대기중 (v=0 w=0)")
+                    dbg(f"[{elapsed:.2f}s] [EXPLORE] odom 대기중 (v=0 w=0)")
 
             elif color_exited_bottom:
                 color_lost_during_avoid = True
@@ -581,15 +591,15 @@ def main():
                     explorer = SpiralExplorer(enc_l, enc_r)
                     print(f"[{elapsed:.2f}s] [EXPLORE] 360 search failed, spiral explore (max r={SPIRAL_MAX_RADIUS}m)")
                     mode, target_v, target_w = explorer.command(enc_l, enc_r, ranges)
-                    print(f"[{elapsed:.2f}s] [EXPLORE] {explorer.detail}")
+                    dbg(f"[{elapsed:.2f}s] [EXPLORE] {explorer.detail}")
                 else:
                     enc_l, enc_r, _, ot = motor.get_odom()
                     if switch_search_start_odom is not None:
                         sl, sr = switch_search_start_odom
                         avg = 0.5 * (abs(enc_l - sl) + abs(enc_r - sr))
-                        print(f"[{elapsed:.2f}s] [SPIN] {avg:.0f}/{TURN_360_COUNTS:.0f} odom_age={time.time() - ot:.2f}")
+                        dbg(f"[{elapsed:.2f}s] [SPIN] {avg:.0f}/{TURN_360_COUNTS:.0f} odom_age={time.time() - ot:.2f}")
                     else:
-                        print(f"[{elapsed:.2f}s] [SPIN] start_odom None (엔코더 대기중)")
+                        dbg(f"[{elapsed:.2f}s] [SPIN] start_odom None (엔코더 대기중)")
                     mode, target_v, target_w = search_next_cmd()
 
             elif target is None and color_lost_during_avoid:
@@ -614,6 +624,15 @@ def main():
                 last_v, last_w = 0.0, 0.0
                 motor.stop()
 
+            dbg(
+                f"[{elapsed:.2f}s] [STATE] mode={mode} "
+                f"target={current_target}:{'O' if target is not None else 'X'} "
+                f"cmd(v={target_v:+.2f} w={target_w:+.2f}) sent(v={last_v:+.2f} w={last_w:+.2f}) "
+                f"obstacle={has_obstacle} center_ratio={last_color_center_ratio:.2f} "
+                f"x_err={last_color_x_err:+.2f} last_deg={last_color_deg:+.0f} "
+                f"motor={'ON' if motor_enabled.is_set() else 'OFF'}"
+            )
+
             if SHOW_WINDOW:
                 if draw(frame, found, mode) == ord("q"):
                     break
@@ -634,7 +653,8 @@ def main():
         close_camera(cam)
 
         sys.stdout = original_stdout
-        log_file.close()
+        if log_file is not None:
+            log_file.close()
 
 
 if __name__ == "__main__":
