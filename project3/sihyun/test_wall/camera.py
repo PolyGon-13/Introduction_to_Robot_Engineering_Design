@@ -45,8 +45,8 @@ def open_camera():
         return cam
 
     cam = cv2.VideoCapture(0)
-    cam.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-    cam.set(cv2.CAP_PROP_FRAME_HEIGHT, 360)
+    cam.set(cv2.CAP_PROP_FRAME_WIDTH, 720)
+    cam.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
     return cam
 
 
