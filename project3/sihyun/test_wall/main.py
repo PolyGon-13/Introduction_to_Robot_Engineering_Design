@@ -542,6 +542,13 @@ def main():
                     mode, target_v, target_w = explorer.command(enc_l, enc_r, ranges)
                     print(f"[{elapsed:.2f}s] [{mode}] v={target_v:.2f} w={target_w:.2f}")
                 else:
+                    enc_l, enc_r, _, ot = motor.get_odom()
+                    if switch_search_start_odom is not None:
+                        sl, sr = switch_search_start_odom
+                        avg = 0.5 * (abs(enc_l - sl) + abs(enc_r - sr))
+                        print(f"[{elapsed:.2f}s] [SPIN] {avg:.0f}/{TURN_360_COUNTS:.0f} odom_age={time.time() - ot:.2f}")
+                    else:
+                        print(f"[{elapsed:.2f}s] [SPIN] start_odom None (엔코더 대기중)")
                     mode, target_v, target_w = search_next_cmd()
 
             elif target is None and color_lost_during_avoid:
