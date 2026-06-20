@@ -16,13 +16,14 @@ MIN_AREA = 1000
 FOLLOW_MAX_V = 0.25
 FOLLOW_MAX_W = 1.0
 FOLLOW_KP = 1.5
+ALIGN_KP = 1.0  # 하단 1/10 구역에서 속도 0으로 방향만 보정할 때 쓰는 회전 비례계수
 DEADBAND = 0.08
 CAMERA_ROTATION = cv2.ROTATE_90_COUNTERCLOCKWISE
 
 HSV_RANGES = {
-    "RED": [([0, 120, 100], [8, 255, 255]), ([160, 120, 100], [179, 255, 255])],
-    "BLUE": [([100, 80, 80], [120, 255, 255])],
-    "YELLOW": [([20, 90, 150], [35, 255, 255])],
+    "RED": [([0, 160, 120], [5, 255, 255]), ([165, 160, 120], [179, 255, 255])],
+    "BLUE": [([104, 90, 90], [116, 255, 255])],
+    "YELLOW": [([20, 55, 160], [35, 255, 255])],
 }
 HSV_RANGES = {
     name: [(np.array(lower, dtype=np.uint8), np.array(upper, dtype=np.uint8)) for lower, upper in ranges]
@@ -132,7 +133,7 @@ def x_center_error(target, frame_shape):
     return clamp((cx - width / 2) / (width / 2), -1.0, 1.0)
 
 
-def follow_cmd(target, frame_shape, max_v=FOLLOW_MAX_V):
+def follow_cmd(target, frame_shape, max_v=FOLLOW_MAX_V, kp=FOLLOW_KP):
     if target is None:
         return 0.0, 0.0
 
@@ -140,7 +141,7 @@ def follow_cmd(target, frame_shape, max_v=FOLLOW_MAX_V):
     err = 0.0 if abs(err) < DEADBAND else err
 
     v = max_v * (1.0 - 0.45 * min(1.0, abs(err)))
-    w = clamp(-FOLLOW_KP * err, -FOLLOW_MAX_W, FOLLOW_MAX_W)
+    w = clamp(-kp * err, -FOLLOW_MAX_W, FOLLOW_MAX_W)
     return v, w
 
 
