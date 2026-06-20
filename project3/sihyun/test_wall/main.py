@@ -149,14 +149,14 @@ class SpiralExplorer:
         radius = min(SPIRAL_START_RADIUS + SPIRAL_GROWTH * turn_angle, SPIRAL_MAX_RADIUS)
 
         front_d = front_obstacle_distance(ranges)
-        # 반경이 작을수록 전진속도를 줄인다(v = 최대회전속도 × 반경, DRIVE_V로 상한).
-        # → 반경 0이면 v=0으로 제자리 회전부터 시작해 중심에서부터 나선이 퍼진다.
-        nominal_v = min(EXPLORE_MAX_W * radius, DRIVE_V)
-        target_v = scale_avoid_speed_for_front_obstacle(nominal_v, ranges)
+        # 전진속도는 일정하게(DRIVE_V) 두고 회전 w = v/반경 으로 나선을 만든다.
+        # 반경이 작으면 w가 최대로 묶여 최소 반경(v/EXPLORE_MAX_W) 원으로 돌고,
+        # 반경이 커질수록 w가 줄어 나선이 바깥으로 퍼진다(제자리 회전 안 함).
+        target_v = scale_avoid_speed_for_front_obstacle(DRIVE_V, ranges)
         if radius > 1e-6:
-            target_w = EXPLORE_TURN_SIGN * clamp(target_v / radius, -EXPLORE_MAX_W, EXPLORE_MAX_W)
+            target_w = EXPLORE_TURN_SIGN * clamp(DRIVE_V / radius, -EXPLORE_MAX_W, EXPLORE_MAX_W)
         else:
-            target_w = EXPLORE_TURN_SIGN * EXPLORE_MAX_W  # 반경 0 → 제자리 최대 회전
+            target_w = EXPLORE_TURN_SIGN * EXPLORE_MAX_W  # 반경 0 → 최소 반경 원
 
         # 상세 로그용 문자열: 엔코더 카운트/이동거리/회전각/반경/전방거리/속도 전부
         self.detail = (
