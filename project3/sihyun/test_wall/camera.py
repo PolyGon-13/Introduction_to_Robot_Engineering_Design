@@ -40,13 +40,13 @@ def clamp(value, low, high):
 def open_camera():
     if USE_PICAM:
         cam = Picamera2()
-        cam.configure(cam.create_preview_configuration(main={"format": "RGB888", "size": (640, 480)}))
+        cam.configure(cam.create_preview_configuration(main={"format": "RGB888", "size": (640, 360)}))
         cam.start()
         return cam
 
     cam = cv2.VideoCapture(0)
     cam.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-    cam.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+    cam.set(cv2.CAP_PROP_FRAME_HEIGHT, 360)
     return cam
 
 
