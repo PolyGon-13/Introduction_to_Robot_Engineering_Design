@@ -75,8 +75,9 @@ POST_COLOR_FORWARD_M = 0.05  # Move forward after a color exits bottom before pa
 TURN_360_WHEEL_BASE_M = 0.18  # Distance between left/right wheels for encoder-based 360 turn(m)
 TURN_360_COUNTS = np.pi * TURN_360_WHEEL_BASE_M * ENC_COUNTS_PER_M
 AVOID_STOP_D = 0.15  # Stop avoid forward speed when a front obstacle is this close(m)
-EXPLORE_RADIUS = 1.5  # 엔코더 폐루프로 유지할 탐색 회전 반경(m)
-EXPLORE_RADIUS_KP = 3.0  # 좌우 바퀴 이동거리 오차(m) → 회전속도 보정 비례계수
+SPIRAL_START_RADIUS = 0.3  # 달팽이집 탐색 시작 회전 반경(m)
+SPIRAL_GROWTH = 0.12  # 엔코더 회전각 1rad당 늘어나는 반경(m)
+SPIRAL_MAX_RADIUS = 1.5  # 회전 반경 최대값(m)
 EXPLORE_MAX_W = 1.0  # 탐색 회전 속도 제한
 EXPLORE_TURN_SIGN = 1.0  # 탐색 회전 방향(+1: 좌회전, -1: 우회전)
 
@@ -100,10 +101,10 @@ def wait_ms(duration_ms):
         time.sleep(0.001)
 
 
-class CircleExplorer:
-    """엔코더 폐루프로 반경 EXPLORE_RADIUS(m) 원을 그리며 탐색한다.
-    좌·우 바퀴 누적 이동거리 차이가 반경에 맞는 목표값을 따라가도록 회전(w)을 보정한다.
-    회전 속도를 직접 정하지 않고, 엔코더로 잰 실제 이동거리 오차로만 회전을 만든다."""
+class SpiralExplorer:
+    """달팽이집(아르키메데스 나선)으로 탐색한다.
+    엔코더로 잰 누적 회전각이 커질수록 회전 반경을 키워(작게 시작 → 점점 크게),
+    반경은 SPIRAL_MAX_RADIUS(m)에서 멈춘다. 회전(w)은 v/반경 으로 만든다."""
 
     def __init__(self, enc_l, enc_r):
         self.start_l = enc_l
@@ -112,16 +113,17 @@ class CircleExplorer:
     def command(self, enc_l, enc_r, ranges):
         left_m = (enc_l - self.start_l) / ENC_COUNTS_PER_M
         right_m = (enc_r - self.start_r) / ENC_COUNTS_PER_M
-        center_m = (left_m + right_m) / 2.0  # 중심 이동 거리
-        diff_m = right_m - left_m  # 실제 좌우 바퀴 이동거리 차이
+        diff_m = right_m - left_m  # 좌우 바퀴 이동거리 차이
 
-        # 반경 R 원에서는 (오른쪽-왼쪽) = (바퀴간격/R) * 중심이동거리 가 되어야 한다.
-        target_diff = EXPLORE_TURN_SIGN * (TURN_360_WHEEL_BASE_M / EXPLORE_RADIUS) * center_m
-        error = target_diff - diff_m
-        target_w = clamp(EXPLORE_RADIUS_KP * error, -EXPLORE_MAX_W, EXPLORE_MAX_W)
+        # 누적 회전각(rad) = 좌우 이동거리 차이 / 바퀴간격 (엔코더로 측정)
+        turn_angle = abs(diff_m) / TURN_360_WHEEL_BASE_M
+        # 회전각이 커질수록 반경을 키운다(달팽이집), 최대 SPIRAL_MAX_RADIUS
+        radius = min(SPIRAL_START_RADIUS + SPIRAL_GROWTH * turn_angle, SPIRAL_MAX_RADIUS)
 
         target_v = scale_avoid_speed_for_front_obstacle(DRIVE_V, ranges)
-        mode = f"EXPLORE: circle r={EXPLORE_RADIUS:.1f}m err={error:+.2f}m"
+        target_w = EXPLORE_TURN_SIGN * clamp(target_v / radius, -EXPLORE_MAX_W, EXPLORE_MAX_W)
+
+        mode = f"EXPLORE: spiral r={radius:.2f}m"
         return mode, target_v, target_w
 
 
@@ -509,11 +511,8 @@ def main():
                     )
 
             elif target is None and explore_active:
-                enc_l, enc_r, _, odom_time = motor.get_odom()
-                if odom_time > 0.0:
-                    mode, target_v, target_w = explorer.command(enc_l, enc_r, ranges)
-                else:
-                    mode, target_v, target_w = "EXPLORE: wait odom", 0.0, 0.0
+                target_v = scale_avoid_speed_for_front_obstacle(DRIVE_V, ranges)
+                mode, target_w = "EXPLORE: forward", 0.0
                 print(f"[{elapsed:.2f}s] [{mode}] v={target_v:.2f} w={target_w:.2f}")
 
             elif color_exited_bottom:
@@ -537,8 +536,8 @@ def main():
                     switch_search_start_odom = None
                     explore_active = True
                     enc_l, enc_r, _, _ = motor.get_odom()
-                    explorer = CircleExplorer(enc_l, enc_r)
-                    print(f"[{elapsed:.2f}s] [EXPLORE] 360 search failed, circle explore r={EXPLORE_RADIUS}m")
+                    explorer = SpiralExplorer(enc_l, enc_r)
+                    print(f"[{elapsed:.2f}s] [EXPLORE] 360 search failed, spiral explore (max r={SPIRAL_MAX_RADIUS}m)")
                     mode, target_v, target_w = explorer.command(enc_l, enc_r, ranges)
                     print(f"[{elapsed:.2f}s] [{mode}] v={target_v:.2f} w={target_w:.2f}")
                 else:
