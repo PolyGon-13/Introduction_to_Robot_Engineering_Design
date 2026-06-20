@@ -15,7 +15,6 @@ if str(THIS_DIR) not in sys.path:
     sys.path.insert(0, str(THIS_DIR))
 
 from camera import (
-    ALIGN_KP,
     bottom_center_error,
     close_camera,
     detect,
@@ -80,7 +79,7 @@ EXPLORE_MAX_RADIUS = 1.5  # 나선 탐색 최대 반경(m), 이 거리를 넘으
 EXPLORE_RETURN_RADIUS = 0.15  # 중심에 이 거리 이내로 들어오면 나선 재시작(m)
 SPIRAL_V = 0.18  # 나선 탐색 전진 속도(m/s)
 SPIRAL_START_RADIUS = 0.25  # 나선 시작 회전 반경(m)
-SPIRAL_GROWTH = 0.08  # 회전각 1rad당 늘어나는 나선 반경(m)
+SPIRAL_GROWTH = 0.08  # 엔코더 회전각 1rad당 늘어나는 나선 반경(m)
 SPIRAL_MAX_W = 1.0  # 나선/복귀 모드 최대 회전 속도
 SPIRAL_TURN_SIGN = 1.0  # 나선 회전 방향(+1: 좌회전, -1: 우회전)
 RETURN_KP = 1.5  # 복귀 시 원점 방향 정렬 비례 계수
@@ -114,6 +113,7 @@ class PositionTracker:
         self.x = 0.0
         self.y = 0.0
         self.heading = 0.0
+        self.total_turn = 0.0  # 엔코더로 측정한 누적 절대 회전각(rad)
 
     def update(self, enc_l, enc_r):
         dl = (enc_l - self.prev_l) / ENC_COUNTS_PER_M
@@ -126,6 +126,7 @@ class PositionTracker:
         self.x += d * np.cos(mid_heading)
         self.y += d * np.sin(mid_heading)
         self.heading += dtheta
+        self.total_turn += abs(dtheta)
 
     def distance_from_origin(self):
         return float(np.hypot(self.x, self.y))
@@ -138,7 +139,7 @@ class SpiralExplorer:
     def __init__(self, tracker):
         self.tracker = tracker
         self.returning = False
-        self.spiral_angle = 0.0  # 명령으로 누적한 회전각(rad) - 엔코더와 무관한 개루프 값
+        self.spiral_start_turn = tracker.total_turn  # 나선 시작 시점의 엔코더 누적 회전각
 
     def command(self, ranges):
         dist = self.tracker.distance_from_origin()
@@ -147,7 +148,7 @@ class SpiralExplorer:
             self.returning = True  # 1.5m 넘으면 중심으로 복귀 시작
         if self.returning and dist <= EXPLORE_RETURN_RADIUS:
             self.returning = False  # 중심 근처 도달 → 나선 재시작
-            self.spiral_angle = 0.0
+            self.spiral_start_turn = self.tracker.total_turn
 
         if self.returning:
             mode = f"EXPLORE: return d={dist:.2f}m"
@@ -160,10 +161,10 @@ class SpiralExplorer:
         return mode, target_v, target_w
 
     def _spiral_cmd(self):
-        # 명령 회전각을 직접 누적해 반경을 키운다(엔코더 오차의 영향을 받지 않음).
-        radius = SPIRAL_START_RADIUS + SPIRAL_GROWTH * self.spiral_angle
+        # 엔코더로 측정한 실제 누적 회전각으로 반경을 키운다.
+        spiral_angle = self.tracker.total_turn - self.spiral_start_turn
+        radius = SPIRAL_START_RADIUS + SPIRAL_GROWTH * spiral_angle
         w = SPIRAL_TURN_SIGN * clamp(SPIRAL_V / radius, -SPIRAL_MAX_W, SPIRAL_MAX_W)
-        self.spiral_angle += abs(w) * LOOP_DT
         return SPIRAL_V, w
 
     def _return_cmd(self):
@@ -418,11 +419,11 @@ def color_cmd(target, frame, ranges, has_obstacle, color_deg, elapsed):
 
 
 def bottom_color_cmd(target, frame):
-    if abs(x_center_error(target, frame.shape)) > COLOR_EXIT_CENTER_ERR:
-        _, align_w = follow_cmd(target, frame.shape, DRIVE_V, ALIGN_KP)
-        return "ALIGN: bottom color", 0.0, align_w
-
     target_v, target_w = follow_cmd(target, frame.shape, DRIVE_V)
+
+    if abs(x_center_error(target, frame.shape)) > COLOR_EXIT_CENTER_ERR:
+        return "ALIGN: bottom color", 0.0, target_w
+
     return "FOLLOW: bottom color", target_v, target_w
 
 
@@ -524,6 +525,7 @@ def main():
                     if target is not None:
                         last_color_deg, last_color_time, last_color_center_ratio, last_color_x_err = update_color_memory(target, frame)
                         color_lost_during_avoid = False
+                        explore_active, explorer = False, None
                         if last_color_center_ratio >= BOTTOM_LOST_RATIO:
                             mode, target_v, target_w = bottom_color_cmd(target, frame)
                         else:
@@ -534,6 +536,7 @@ def main():
                         mode, target_v, target_w = search_next_cmd()
                         last_color_deg, last_color_time, last_color_center_ratio, last_color_x_err = clear_color_memory()
                         color_lost_during_avoid, switch_search_active = False, True
+                        explore_active, explorer = False, None
                         switch_search_start_odom = get_turn_start_odom(motor)
                 else:
                     mode = "STOP: color bottom"
@@ -548,6 +551,7 @@ def main():
 
             elif target is not None:
                 color_lost_during_avoid = False
+                explore_active, explorer = False, None
                 if color_in_bottom_zone:
                     mode, target_v, target_w = bottom_color_cmd(target, frame)
                 else:
