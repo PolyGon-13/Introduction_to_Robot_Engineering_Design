@@ -34,7 +34,7 @@ def clamp(value, low, high):
 
 def open_camera():
     cam = Picamera2()
-    cam.configure(cam.create_preview_configuration(main={"format": "RGB888", "size": (720, 360)}))
+    cam.configure(cam.create_preview_configuration(main={"format": "RGB888", "size": (640, 360)}))
     cam.start()
     return cam
 
@@ -146,5 +146,8 @@ def draw(frame, found, mode):
         )
 
     cv2.putText(frame, mode, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+    height, width = frame.shape[:2]
+    cv2.namedWindow("project3", cv2.WINDOW_NORMAL)
+    cv2.resizeWindow("project3", width, height)  # 창 크기를 프레임 화소와 동일하게 고정
     cv2.imshow("project3", frame)
     return cv2.waitKey(1) & 0xFF
