@@ -560,7 +560,12 @@ def main():
 
             elif target is None and explore_active:
                 enc_l, enc_r, _, odom_time = motor.get_odom()
-                if odom_time > 0.0:
+                if has_obstacle:
+                    # 나선 중 앞이 막히면 기존 회피로 빈 방향으로 틀고,
+                    # 회피로 흐트러진 만큼 나선 기준 엔코더를 현재값으로 리셋한다.
+                    mode, target_v, target_w = avoid_mode("AVOID: explore", "AVOID_EXPLORE", ranges, None, elapsed)
+                    explorer.start_l, explorer.start_r = enc_l, enc_r
+                elif odom_time > 0.0:
                     mode, target_v, target_w = explorer.command(enc_l, enc_r, ranges)
                     dbg(f"[{elapsed:.2f}s] [EXPLORE] {explorer.detail}")
                 else:
