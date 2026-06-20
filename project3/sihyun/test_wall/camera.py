@@ -4,12 +4,7 @@
 import cv2
 import numpy as np
 
-try:
-    from picamera2 import Picamera2
-
-    USE_PICAM = True
-except ImportError:
-    USE_PICAM = False
+from picamera2 import Picamera2
 
 
 MIN_AREA = 1000
@@ -38,27 +33,14 @@ def clamp(value, low, high):
 
 
 def open_camera():
-    if USE_PICAM:
-        cam = Picamera2()
-        cam.configure(cam.create_preview_configuration(main={"format": "RGB888", "size": (640, 480)}))
-        cam.start()
-        return cam
-
-    cam = cv2.VideoCapture(0)
-    cam.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-    cam.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+    cam = Picamera2()
+    cam.configure(cam.create_preview_configuration(main={"format": "RGB888", "size": (640, 360)}))
+    cam.start()
     return cam
 
 
 def read_frame(cam):
-    if USE_PICAM:
-        frame = cv2.cvtColor(cam.capture_array(), cv2.COLOR_RGB2BGR)
-        return True, rotate_frame(frame)
-
-    ok, frame = cam.read()
-    if not ok:
-        return False, frame
-
+    frame = cv2.cvtColor(cam.capture_array(), cv2.COLOR_RGB2BGR)
     return True, rotate_frame(frame)
 
 
@@ -73,7 +55,7 @@ def close_camera(cam):
     if cam is None:
         return
 
-    cam.stop() if USE_PICAM else cam.release()
+    cam.stop()
     cv2.destroyAllWindows()
 
 
