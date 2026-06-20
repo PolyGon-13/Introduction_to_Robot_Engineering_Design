@@ -610,10 +610,9 @@ def main():
                     mode, target_v, target_w = search_last_cmd(last_color_deg)
                     color_lost_during_avoid, switch_search_active = True, False
                 else:
-                    # 처음부터 빨간색을 한 번도 못 봤으면 직진하며 찾는다.
+                    # 처음부터 빨간색을 한 번도 못 봤으면 장애물 회피로 돌아다니며 찾는다.
                     switch_search_active, explore_active, switch_search_start_odom = False, False, None
-                    target_v, target_w = scale_avoid_speed_for_front_obstacle(DRIVE_V, ranges), 0.0
-                    mode = "FORWARD: find first color"
+                    mode, target_v, target_w = avoid_mode("AVOID: no initial color", "AVOID_INITIAL", ranges, None, elapsed)
 
             if motor_enabled.is_set() and (target is not None or mode.startswith("AVOID") or mode.startswith("SEARCH") or mode.startswith("EXPLORE") or mode.startswith("FORWARD")):
                 last_v = 0.0 if mode.startswith("ALIGN") else rate_limit(last_v, target_v, V_STEP)
