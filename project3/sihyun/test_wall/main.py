@@ -15,6 +15,7 @@ if str(THIS_DIR) not in sys.path:
     sys.path.insert(0, str(THIS_DIR))
 
 from camera import (
+    ALIGN_KP,
     bottom_center_error,
     close_camera,
     detect,
@@ -75,7 +76,7 @@ POST_COLOR_FORWARD_M = 0.05  # Move forward after a color exits bottom before pa
 TURN_360_WHEEL_BASE_M = 0.18  # Distance between left/right wheels for encoder-based 360 turn(m)
 TURN_360_COUNTS = np.pi * TURN_360_WHEEL_BASE_M * ENC_COUNTS_PER_M
 AVOID_STOP_D = 0.15  # Stop avoid forward speed when a front obstacle is this close(m)
-EXPLORE_MAX_RADIUS = 1.0  # 나선 탐색 최대 반경(m), 이 거리를 넘으면 중심으로 복귀
+EXPLORE_MAX_RADIUS = 1.5  # 나선 탐색 최대 반경(m), 이 거리를 넘으면 중심으로 복귀
 EXPLORE_RETURN_RADIUS = 0.15  # 중심에 이 거리 이내로 들어오면 나선 재시작(m)
 SPIRAL_V = 0.18  # 나선 탐색 전진 속도(m/s)
 SPIRAL_START_RADIUS = 0.25  # 나선 시작 회전 반경(m)
@@ -417,11 +418,11 @@ def color_cmd(target, frame, ranges, has_obstacle, color_deg, elapsed):
 
 
 def bottom_color_cmd(target, frame):
-    target_v, target_w = follow_cmd(target, frame.shape, DRIVE_V)
-
     if abs(x_center_error(target, frame.shape)) > COLOR_EXIT_CENTER_ERR:
-        return "ALIGN: bottom color", 0.0, target_w
+        _, align_w = follow_cmd(target, frame.shape, DRIVE_V, ALIGN_KP)
+        return "ALIGN: bottom color", 0.0, align_w
 
+    target_v, target_w = follow_cmd(target, frame.shape, DRIVE_V)
     return "FOLLOW: bottom color", target_v, target_w
 
 
