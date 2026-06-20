@@ -571,12 +571,12 @@ def main():
                     mode, target_v, target_w = search_last_cmd(last_color_deg)
                     color_lost_during_avoid, switch_search_active = True, False
                 else:
-                    if not switch_search_active and not explore_active:
-                        switch_search_active = True
-                        switch_search_start_odom = get_turn_start_odom(motor)
-                    mode, target_v, target_w = search_next_cmd()
+                    # 처음부터 빨간색을 한 번도 못 봤으면 직진하며 찾는다.
+                    switch_search_active, explore_active, switch_search_start_odom = False, False, None
+                    target_v, target_w = scale_avoid_speed_for_front_obstacle(DRIVE_V, ranges), 0.0
+                    mode = "FORWARD: find first color"
 
-            if motor_enabled.is_set() and (target is not None or mode.startswith("AVOID") or mode.startswith("SEARCH") or mode.startswith("EXPLORE")):
+            if motor_enabled.is_set() and (target is not None or mode.startswith("AVOID") or mode.startswith("SEARCH") or mode.startswith("EXPLORE") or mode.startswith("FORWARD")):
                 last_v = 0.0 if mode.startswith("ALIGN") else rate_limit(last_v, target_v, V_STEP)
                 w_step = AVOID_W_STEP if (mode.startswith("AVOID") or mode.startswith("EXPLORE")) else FOLLOW_W_STEP
                 last_w = rate_limit(last_w, target_w, w_step)
