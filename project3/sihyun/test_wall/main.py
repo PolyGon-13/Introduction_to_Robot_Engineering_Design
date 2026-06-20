@@ -81,7 +81,7 @@ SPIRAL_GROWTH = 0.02  # 엔코더 회전각 1rad당 늘어나는 반경(m, 작�
 SPIRAL_MAX_RADIUS = 1.5  # 회전 반경 최대값(m)
 EXPLORE_MAX_W = 1.0  # 탐색 회전 속도 제한
 EXPLORE_TURN_SIGN = 1.0  # 탐색 회전 방향(+1: 좌회전, -1: 우회전)
-EXPLORE_AVOID_D = 0.20  # 나선 탐색 중 정면/좌/우가 이 거리(m) 이내로 막히면 회피 발동
+EXPLORE_AVOID_D = 0.30  # 나선 탐색 중 정면/좌/우가 이 거리(m) 이내로 막히면 회피 발동
 
 
 
