@@ -15,7 +15,6 @@ if str(THIS_DIR) not in sys.path:
     sys.path.insert(0, str(THIS_DIR))
 
 from camera import (
-    ALIGN_KP,
     bottom_center_error,
     close_camera,
     detect,
@@ -68,6 +67,8 @@ AVOID_W_STEP = 0.20  # 장애물 회피 모드 회전 속도 명령의 루프당
 LOOP_DT = 0.05  # 메인 루프 대기 시간(초)
 SEARCH_MAX_W = 1.0  # 색 재탐색 모드 최대 회전 속도
 SWITCH_SEARCH_W = 1.0  # 다음 색이 안 보일 때 제자리 탐색 회전 속도
+SEARCH_RELOCATE_FORWARD_M = 0.30  # 한 바퀴 돌아도 색을 못 찾으면 직진할 거리(m)
+SEARCH_RELOCATE_TURN_DEG = 90.0  # 직진 후 회전할 각도(deg, +면 좌회전 방향)
 ODOM_LOG_INTERVAL = 0.5  # 엔코더 누적값 로그 출력 주기(초)
 WHEEL_R = 0.034  # Arduino encoder distance calculation wheel radius(m)
 ENC_PPR = 1012.0  # Arduino encoder counts per wheel revolution
@@ -76,15 +77,6 @@ POST_COLOR_FORWARD_M = 0.05  # Move forward after a color exits bottom before pa
 TURN_360_WHEEL_BASE_M = 0.18  # Distance between left/right wheels for encoder-based 360 turn(m)
 TURN_360_COUNTS = np.pi * TURN_360_WHEEL_BASE_M * ENC_COUNTS_PER_M
 AVOID_STOP_D = 0.15  # Stop avoid forward speed when a front obstacle is this close(m)
-EXPLORE_MAX_RADIUS = 1.5  # 나선 탐색 최대 반경(m), 이 거리를 넘으면 중심으로 복귀
-EXPLORE_RETURN_RADIUS = 0.15  # 중심에 이 거리 이내로 들어오면 나선 재시작(m)
-SPIRAL_V = 0.18  # 나선 탐색 전진 속도(m/s)
-SPIRAL_START_RADIUS = 0.25  # 나선 시작 회전 반경(m)
-SPIRAL_GROWTH = 0.08  # 회전각 1rad당 늘어나는 나선 반경(m)
-SPIRAL_MAX_W = 1.0  # 나선/복귀 모드 최대 회전 속도
-SPIRAL_TURN_SIGN = 1.0  # 나선 회전 방향(+1: 좌회전, -1: 우회전)
-RETURN_KP = 1.5  # 복귀 시 원점 방향 정렬 비례 계수
-RETURN_FACING_DEG = 45.0  # 원점 방향과 이 각도 이내일 때만 전진
 
 
 def clamp(value, low, high):
@@ -103,76 +95,6 @@ def wait_ms(duration_ms):
     deadline = millis() + int(duration_ms)
     while millis() < deadline:
         time.sleep(0.001)
-
-
-class PositionTracker:
-    """엔코더 누적값으로 나선 탐색 중심(원점) 기준 현재 위치(x, y, heading)를 추정한다."""
-
-    def __init__(self, enc_l, enc_r):
-        self.prev_l = enc_l
-        self.prev_r = enc_r
-        self.x = 0.0
-        self.y = 0.0
-        self.heading = 0.0
-
-    def update(self, enc_l, enc_r):
-        dl = (enc_l - self.prev_l) / ENC_COUNTS_PER_M
-        dr = (enc_r - self.prev_r) / ENC_COUNTS_PER_M
-        self.prev_l = enc_l
-        self.prev_r = enc_r
-        d = (dl + dr) / 2.0
-        dtheta = (dr - dl) / TURN_360_WHEEL_BASE_M
-        mid_heading = self.heading + dtheta / 2.0
-        self.x += d * np.cos(mid_heading)
-        self.y += d * np.sin(mid_heading)
-        self.heading += dtheta
-
-    def distance_from_origin(self):
-        return float(np.hypot(self.x, self.y))
-
-
-class SpiralExplorer:
-    """원점에서 점점 반경을 넓혀가며 회전(아르키메데스 나선)하고,
-    EXPLORE_MAX_RADIUS를 넘으면 원점으로 복귀했다가 다시 나선을 시작한다."""
-
-    def __init__(self, tracker):
-        self.tracker = tracker
-        self.returning = False
-        self.spiral_angle = 0.0  # 명령으로 누적한 회전각(rad) - 엔코더와 무관한 개루프 값
-
-    def command(self, ranges):
-        dist = self.tracker.distance_from_origin()
-
-        if not self.returning and dist >= EXPLORE_MAX_RADIUS:
-            self.returning = True  # 1.5m 넘으면 중심으로 복귀 시작
-        if self.returning and dist <= EXPLORE_RETURN_RADIUS:
-            self.returning = False  # 중심 근처 도달 → 나선 재시작
-            self.spiral_angle = 0.0
-
-        if self.returning:
-            mode = f"EXPLORE: return d={dist:.2f}m"
-            target_v, target_w = self._return_cmd()
-        else:
-            mode = f"EXPLORE: spiral d={dist:.2f}m"
-            target_v, target_w = self._spiral_cmd()
-
-        target_v = scale_avoid_speed_for_front_obstacle(target_v, ranges)
-        return mode, target_v, target_w
-
-    def _spiral_cmd(self):
-        # 명령 회전각을 직접 누적해 반경을 키운다(엔코더 오차의 영향을 받지 않음).
-        radius = SPIRAL_START_RADIUS + SPIRAL_GROWTH * self.spiral_angle
-        w = SPIRAL_TURN_SIGN * clamp(SPIRAL_V / radius, -SPIRAL_MAX_W, SPIRAL_MAX_W)
-        self.spiral_angle += abs(w) * LOOP_DT
-        return SPIRAL_V, w
-
-    def _return_cmd(self):
-        # 원점 방향(월드 기준)으로 정렬한 뒤 전진한다.
-        bearing = float(np.arctan2(-self.tracker.y, -self.tracker.x))
-        err = (bearing - self.tracker.heading + np.pi) % (2.0 * np.pi) - np.pi
-        w = clamp(RETURN_KP * err, -SPIRAL_MAX_W, SPIRAL_MAX_W)
-        target_v = SPIRAL_V if abs(err) <= np.deg2rad(RETURN_FACING_DEG) else 0.0
-        return target_v, w
 
 
 class Motor:
@@ -370,6 +292,71 @@ def drive_forward_by_encoder(motor, distance_m=POST_COLOR_FORWARD_M):
     return ok
 
 
+def turn_in_place_by_encoder(motor, angle_deg, turn_w=SWITCH_SEARCH_W):
+    while True:
+        odom = motor.get_odom()
+        if odom[3] != 0.0:
+            break
+        wait_ms(int(LOOP_DT * 1000))
+
+    start_l, start_r, _, _ = odom
+    # TURN_360_COUNTS는 제자리 360도 회전 시 한 바퀴 동안 각 바퀴가 구르는 카운트 수
+    target_counts = abs(angle_deg) / 360.0 * TURN_360_COUNTS
+    turn_w = abs(turn_w) if angle_deg >= 0.0 else -abs(turn_w)
+
+    print(f"[ODOM] turn {angle_deg:.0f}deg target_counts={target_counts:.0f}")
+
+    left_counts = right_counts = 0.0
+    while True:
+        enc_l, enc_r, _, odom_time = motor.get_odom()
+        if odom_time == 0.0 or time.time() - odom_time > 0.5:
+            motor.stop()
+            print("[ODOM] encoder data timeout during turn")
+            return False
+
+        left_counts = abs(enc_l - start_l)
+        right_counts = abs(enc_r - start_r)
+        if 0.5 * (left_counts + right_counts) >= target_counts:
+            break
+
+        motor.vw(0.0, turn_w)
+        wait_ms(int(LOOP_DT * 1000))
+
+    motor.stop()
+    print(f"[ODOM] turn done: left={left_counts:.0f} right={right_counts:.0f}")
+    return True
+
+
+def heading_deg_from_start(motor):
+    # 시작 시 엔코더를 0으로 리셋하므로 (enc_r - enc_l)로 시작 기준 누적 회전각을 계산
+    enc_l, enc_r, _, odom_time = motor.get_odom()
+    if odom_time == 0.0:
+        return None
+    return (enc_r - enc_l) / (2.0 * TURN_360_COUNTS) * 360.0
+
+
+def turn_to_angle_from_start(motor, target_angle_deg, turn_w=SWITCH_SEARCH_W):
+    current = heading_deg_from_start(motor)
+    if current is None:
+        print("[ODOM] heading unavailable, skip start-relative turn")
+        return False
+    # 시작 기준 절대각 target_angle_deg로 맞추기 위한 상대 회전량([-180,180]로 정규화)
+    delta = (target_angle_deg - current + 180.0) % 360.0 - 180.0
+    print(f"[ODOM] turn to start-relative {target_angle_deg:.0f}deg (current={current:.0f}, delta={delta:.0f})")
+    return turn_in_place_by_encoder(motor, delta, turn_w)
+
+
+def relocate_for_next_color(motor, elapsed, forward_m=SEARCH_RELOCATE_FORWARD_M, turn_deg=SEARCH_RELOCATE_TURN_DEG):
+    print(
+        f"[{elapsed:.2f}s] [SEARCH] color not found after full turn, "
+        f"relocating once: turn to start-relative {turn_deg:.0f}deg then forward {forward_m:.2f}m"
+    )
+    motor.stop()
+    turn_to_angle_from_start(motor, turn_deg)
+    drive_forward_by_encoder(motor, forward_m)
+    motor.stop()
+
+
 def log_lidar(elapsed, lidar_dist):
     if lidar_dist is None:
         print(f"[{elapsed:.2f}s] [LIDAR] waiting...")
@@ -418,11 +405,11 @@ def color_cmd(target, frame, ranges, has_obstacle, color_deg, elapsed):
 
 
 def bottom_color_cmd(target, frame):
-    if abs(x_center_error(target, frame.shape)) > COLOR_EXIT_CENTER_ERR:
-        _, align_w = follow_cmd(target, frame.shape, DRIVE_V, ALIGN_KP)
-        return "ALIGN: bottom color", 0.0, align_w
-
     target_v, target_w = follow_cmd(target, frame.shape, DRIVE_V)
+
+    if abs(x_center_error(target, frame.shape)) > COLOR_EXIT_CENTER_ERR:
+        return "ALIGN: bottom color", 0.0, target_w
+
     return "FOLLOW: bottom color", target_v, target_w
 
 
@@ -444,10 +431,10 @@ def main():
     last_color_deg = last_color_time = last_color_center_ratio = last_color_x_err = 0.0
     last_odom_log_time = 0.0
     color_lost_during_avoid = False
-    explore_active = False
-    explorer = None
+    search_failed_avoid_active = False
     switch_search_active = False
     switch_search_start_odom = None
+    relocate_done = False  # 한 바퀴 탐색 실패 시 직진 보정을 한 번만 수행하기 위한 플래그
     target_index = 0
     current_target = TARGET_SEQUENCE[target_index]
 
@@ -482,8 +469,8 @@ def main():
 
             if target is not None:
                 last_color_deg, last_color_time, last_color_center_ratio, last_color_x_err = update_color_memory(target, frame)
-                switch_search_active, explore_active, switch_search_start_odom = False, False, None
-                explorer = None
+                switch_search_active, search_failed_avoid_active, switch_search_start_odom = False, False, None
+                relocate_done = False
 
             if time.time() - last_odom_log_time >= ODOM_LOG_INTERVAL:
                 log_odom(elapsed, motor.get_odom())
@@ -524,6 +511,7 @@ def main():
                     if target is not None:
                         last_color_deg, last_color_time, last_color_center_ratio, last_color_x_err = update_color_memory(target, frame)
                         color_lost_during_avoid = False
+                        search_failed_avoid_active = False
                         if last_color_center_ratio >= BOTTOM_LOST_RATIO:
                             mode, target_v, target_w = bottom_color_cmd(target, frame)
                         else:
@@ -535,19 +523,20 @@ def main():
                         last_color_deg, last_color_time, last_color_center_ratio, last_color_x_err = clear_color_memory()
                         color_lost_during_avoid, switch_search_active = False, True
                         switch_search_start_odom = get_turn_start_odom(motor)
+                        relocate_done = False
                 else:
                     mode = "STOP: color bottom"
                     drive_forward_by_encoder(motor)
                     target_v, target_w, last_v, last_w = 0.0, 0.0, 0.0, 0.0
                     last_color_deg, last_color_time, last_color_center_ratio, last_color_x_err = clear_color_memory()
                     color_lost_during_avoid, switch_search_active = False, False
-                    explore_active, switch_search_start_odom = False, None
-                    explorer = None
+                    search_failed_avoid_active, switch_search_start_odom = False, None
                     print(f"[{elapsed:.2f}s] [COLOR] {current_target} done, mission complete")
                     break
 
             elif target is not None:
                 color_lost_during_avoid = False
+                search_failed_avoid_active = False
                 if color_in_bottom_zone:
                     mode, target_v, target_w = bottom_color_cmd(target, frame)
                 else:
@@ -555,12 +544,8 @@ def main():
                         target, frame, ranges, has_obstacle, last_color_deg, elapsed
                     )
 
-            elif target is None and explore_active:
-                enc_l, enc_r, _, odom_time = motor.get_odom()
-                if odom_time > 0.0 and time.time() - odom_time < 0.5:
-                    explorer.tracker.update(enc_l, enc_r)
-                mode, target_v, target_w = explorer.command(ranges)
-                print(f"[{elapsed:.2f}s] [{mode}] v={target_v:.2f} w={target_w:.2f}")
+            elif target is None and search_failed_avoid_active:
+                mode, target_v, target_w = avoid_mode("AVOID: search failed", "AVOID_SEARCH", ranges, last_color_deg if last_color_time > 0.0 else None, elapsed)
 
             elif color_exited_bottom:
                 color_lost_during_avoid = True
@@ -579,14 +564,16 @@ def main():
                     switch_search_start_odom = get_turn_start_odom(motor)
 
                 if completed_one_encoder_turn(motor, switch_search_start_odom):
-                    switch_search_active = False
-                    switch_search_start_odom = None
-                    explore_active = True
-                    enc_l, enc_r, _, _ = motor.get_odom()
-                    explorer = SpiralExplorer(PositionTracker(enc_l, enc_r))
-                    print(f"[{elapsed:.2f}s] [EXPLORE] 360 search failed, spiral explore within {EXPLORE_MAX_RADIUS}m")
-                    mode, target_v, target_w = explorer.command(ranges)
-                    print(f"[{elapsed:.2f}s] [{mode}] v={target_v:.2f} w={target_w:.2f}")
+                    if not relocate_done:
+                        # 한 바퀴 돌아도 색을 못 찾으면 (시작 기준 각도로 회전 + 직진)을 한 번만 수행
+                        relocate_for_next_color(motor, elapsed)
+                        relocate_done = True
+                        target_v, target_w, last_v, last_w = 0.0, 0.0, 0.0, 0.0
+                        mode = "SEARCH: relocated, keep searching"
+                    else:
+                        # 직진 보정은 끝났으므로 이후로는 제자리 회전하며 색만 계속 탐색
+                        mode, target_v, target_w = search_next_cmd()
+                    switch_search_start_odom = get_turn_start_odom(motor)
                 else:
                     mode, target_v, target_w = search_next_cmd()
 
@@ -598,14 +585,14 @@ def main():
                     mode, target_v, target_w = search_last_cmd(last_color_deg)
                     color_lost_during_avoid, switch_search_active = True, False
                 else:
-                    if not switch_search_active and not explore_active:
-                        switch_search_active = True
-                        switch_search_start_odom = get_turn_start_odom(motor)
-                    mode, target_v, target_w = search_next_cmd()
+                    mode, target_v, target_w = avoid_mode("AVOID: no initial color", "AVOID_INITIAL", ranges, None, elapsed)
+                    color_lost_during_avoid, switch_search_active = True, False
+                    search_failed_avoid_active = True
+                    switch_search_start_odom = None
 
-            if motor_enabled.is_set() and (target is not None or mode.startswith("AVOID") or mode.startswith("SEARCH") or mode.startswith("EXPLORE")):
+            if motor_enabled.is_set() and (target is not None or mode.startswith("AVOID") or mode.startswith("SEARCH")):
                 last_v = 0.0 if mode.startswith("ALIGN") else rate_limit(last_v, target_v, V_STEP)
-                w_step = AVOID_W_STEP if (mode.startswith("AVOID") or mode.startswith("EXPLORE")) else FOLLOW_W_STEP
+                w_step = AVOID_W_STEP if mode.startswith("AVOID") else FOLLOW_W_STEP
                 last_w = rate_limit(last_w, target_w, w_step)
                 motor.vw(last_v, last_w)
             elif not motor_enabled.is_set():
