@@ -79,7 +79,9 @@ TURN_360_COUNTS = np.pi * TURN_360_WHEEL_BASE_M * ENC_COUNTS_PER_M
 AVOID_STOP_D = 0.15  # Stop avoid forward speed when a front obstacle is this close(m)
 SPIRAL_START_RADIUS = 0.0  # 달팽이집 탐색 시작 회전 반경(m, 0이면 처음에 제자리만 돎)
 SPIRAL_GROWTH = 0.02  # 엔코더 회전각 1rad당 늘어나는 반경(m, 작을수록 촘촘)
-SPIRAL_MAX_RADIUS = 1.5  # 회전 반경 최대값(m)
+SPIRAL_MAX_RADIUS = 1.5  # 회전 반경 최대값(m), 원점에서 이 거리 넘으면 복귀
+RETURN_KP = 1.0  # 원점 복귀 시 헤딩 오차(rad)에 대한 회전 비례계수
+RETURN_DONE_M = 0.10  # 원점에 이 거리(m) 안으로 들어오면 복귀 완료로 보고 나선 재시작
 EXPLORE_MAX_W = 1.0  # 탐색 회전 속도 제한
 EXPLORE_TURN_SIGN = 1.0  # 탐색 회전 방향(+1: 좌회전, -1: 우회전)
 EXPLORE_AVOID_D = 0.30  # 나선 탐색 중 정면/좌/우가 이 거리(m) 이내로 막히면 회피 발동
@@ -137,6 +139,45 @@ class SpiralExplorer:
     def __init__(self, enc_l, enc_r):
         self.start_l = enc_l
         self.start_r = enc_r
+        # 원점 복귀용 오도메트리 위치 추적 (시작점이 원점 0,0, 헤딩 0)
+        self.prev_l = enc_l
+        self.prev_r = enc_r
+        self.x = 0.0
+        self.y = 0.0
+        self.theta = 0.0
+        self.returning = False  # True면 원점으로 복귀 중
+        self.detail = ""
+
+    def update_pose(self, enc_l, enc_r):
+        """엔코더 증분으로 원점 기준 위치(x, y)와 헤딩(theta)을 적산한다."""
+        dL = (enc_l - self.prev_l) / ENC_COUNTS_PER_M
+        dR = (enc_r - self.prev_r) / ENC_COUNTS_PER_M
+        self.prev_l = enc_l
+        self.prev_r = enc_r
+        d_center = 0.5 * (dL + dR)
+        d_theta = (dR - dL) / TURN_360_WHEEL_BASE_M
+        self.theta += d_theta
+        self.x += d_center * np.cos(self.theta)
+        self.y += d_center * np.sin(self.theta)
+
+    def distance_from_origin(self):
+        return float(np.hypot(self.x, self.y))
+
+    def return_command(self, ranges):
+        """원점(0,0)을 향해 방향을 맞추며 전진하는 복귀 명령."""
+        dist = self.distance_from_origin()
+        target_heading = np.arctan2(-self.y, -self.x)  # 원점을 가리키는 방향
+        err = (target_heading - self.theta + np.pi) % (2.0 * np.pi) - np.pi  # [-pi, pi]
+        target_w = clamp(RETURN_KP * err, -EXPLORE_MAX_W, EXPLORE_MAX_W)
+        # 방향이 많이 틀어졌으면 전진속도를 줄여 제자리에 가깝게 회전부터
+        nominal_v = DRIVE_V * max(0.0, 1.0 - abs(err) / (np.pi / 2.0))
+        target_v = scale_avoid_speed_for_front_obstacle(nominal_v, ranges)
+        self.detail = (
+            f"x={self.x:+.2f} y={self.y:+.2f} dist={dist:.2f}m "
+            f"head={np.degrees(target_heading):+.0f} theta={np.degrees(self.theta):+.0f} "
+            f"err={np.degrees(err):+.0f} v={target_v:.3f} w={target_w:+.3f}"
+        )
+        return f"RETURN: to origin d={dist:.2f}m", target_v, target_w
 
     def command(self, enc_l, enc_r, ranges):
         left_m = (enc_l - self.start_l) / ENC_COUNTS_PER_M
@@ -570,12 +611,36 @@ def main():
 
             elif target is None and explore_active:
                 enc_l, enc_r, _, odom_time = motor.get_odom()
+                if odom_time > 0.0:
+                    explorer.update_pose(enc_l, enc_r)  # 원점 기준 위치 적산
+                dist_origin = explorer.distance_from_origin()
+
                 explore_blocked = (
                     front_obstacle_distance(ranges) <= EXPLORE_AVOID_D
                     or obstacle_in_zone(ranges, LEFT_ZONE, EXPLORE_AVOID_D)
                     or obstacle_in_zone(ranges, RIGHT_ZONE, EXPLORE_AVOID_D)
                 )
-                if explore_blocked:
+
+                # 원점에서 1.5m를 벗어나면 원점 복귀 모드 진입
+                if not explorer.returning and dist_origin > SPIRAL_MAX_RADIUS:
+                    explorer.returning = True
+                    print(f"[{elapsed:.2f}s] [EXPLORE] left {SPIRAL_MAX_RADIUS}m (d={dist_origin:.2f}m), returning to origin")
+
+                if explorer.returning:
+                    if dist_origin <= RETURN_DONE_M:
+                        # 원점 도착 → 복귀 종료, 현재 위치를 새 원점으로 나선 재시작
+                        print(f"[{elapsed:.2f}s] [EXPLORE] origin reached (d={dist_origin:.2f}m), restart spiral")
+                        explorer = SpiralExplorer(enc_l, enc_r)
+                        mode, target_v, target_w = "EXPLORE: origin reached", 0.0, 0.0
+                    elif explore_blocked:
+                        # 복귀 중에도 장애물이 막으면 회피 우선
+                        mode, target_v, target_w = avoid_mode("AVOID: return", "AVOID_RETURN", ranges, None, elapsed)
+                    elif odom_time > 0.0:
+                        mode, target_v, target_w = explorer.return_command(ranges)
+                        dbg(f"[{elapsed:.2f}s] [RETURN] {explorer.detail}")
+                    else:
+                        mode, target_v, target_w = "RETURN: wait odom", 0.0, 0.0
+                elif explore_blocked:
                     # 나선 중 정면/좌/우가 EXPLORE_AVOID_D 이내로 막히면 회피.
                     # (나선 기준 엔코더는 유지 → 회피 후에도 반경이 0으로 안 떨어지고 이어짐)
                     mode, target_v, target_w = avoid_mode("AVOID: explore", "AVOID_EXPLORE", ranges, None, elapsed)
@@ -633,7 +698,7 @@ def main():
                     switch_search_active, explore_active, switch_search_start_odom = False, False, None
                     mode, target_v, target_w = avoid_mode("AVOID: no initial color", "AVOID_INITIAL", ranges, None, elapsed)
 
-            if motor_enabled.is_set() and (target is not None or mode.startswith("AVOID") or mode.startswith("SEARCH") or mode.startswith("EXPLORE") or mode.startswith("FORWARD")):
+            if motor_enabled.is_set() and (target is not None or mode.startswith("AVOID") or mode.startswith("SEARCH") or mode.startswith("EXPLORE") or mode.startswith("RETURN") or mode.startswith("FORWARD")):
                 last_v = 0.0 if mode.startswith("ALIGN") else rate_limit(last_v, target_v, V_STEP)
                 w_step = AVOID_W_STEP if (mode.startswith("AVOID") or mode.startswith("EXPLORE")) else FOLLOW_W_STEP
                 last_w = rate_limit(last_w, target_w, w_step)
