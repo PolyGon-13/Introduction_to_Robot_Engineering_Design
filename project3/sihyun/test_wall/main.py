@@ -370,7 +370,7 @@ def completed_one_encoder_turn(motor, start_odom):
     return 0.5 * (left_counts + right_counts) >= TURN_360_COUNTS
 
 
-def drive_forward_by_encoder(motor, distance_m=POST_COLOR_FORWARD_M):
+def drive_forward_by_encoder(motor, distance_m=POST_COLOR_FORWARD_M, start_v=0.0):
     while True:
         odom = motor.get_odom()
         if odom[3] != 0.0:
@@ -384,7 +384,7 @@ def drive_forward_by_encoder(motor, distance_m=POST_COLOR_FORWARD_M):
     print(f"[ODOM] move {distance_m:.2f}m target_counts={target_counts:.0f}")
 
     left_counts = right_counts = 0.0
-    current_v = 0.0
+    current_v = start_v  # 직전 속도에서 이어받아 램프(0으로 리셋하지 않아 불연속 제거)
     while True:
         enc_l, enc_r, _, odom_time = motor.get_odom()
         if odom_time == 0.0 or time.time() - odom_time > 0.5:
@@ -557,7 +557,7 @@ def main():
                     current_target = TARGET_SEQUENCE[target_index]
                     mode = f"SWITCH: {prev_target}->{current_target}"
                     print(f"[{elapsed:.2f}s] [COLOR] {prev_target} done, now tracking {current_target}")
-                    drive_forward_by_encoder(motor)
+                    drive_forward_by_encoder(motor, start_v=last_v)
                     target_v, target_w, last_v, last_w = 0.0, 0.0, 0.0, 0.0
                     wait_ms(COLOR_SWITCH_PAUSE_MS)
                     scan, _, _ = lidar.get()
@@ -590,7 +590,7 @@ def main():
                         switch_search_start_odom = get_turn_start_odom(motor)
                 else:
                     mode = "STOP: color bottom"
-                    drive_forward_by_encoder(motor)
+                    drive_forward_by_encoder(motor, start_v=last_v)
                     target_v, target_w, last_v, last_w = 0.0, 0.0, 0.0, 0.0
                     last_color_deg, last_color_time, last_color_center_ratio, last_color_x_err = clear_color_memory()
                     color_lost_during_avoid, switch_search_active = False, False
