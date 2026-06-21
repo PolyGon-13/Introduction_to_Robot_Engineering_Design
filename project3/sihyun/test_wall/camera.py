@@ -7,6 +7,7 @@ import numpy as np
 from picamera2 import Picamera2
 
 
+
 MIN_AREA = 1000
 FOLLOW_MAX_V = 0.25
 FOLLOW_MAX_W = 1.0
