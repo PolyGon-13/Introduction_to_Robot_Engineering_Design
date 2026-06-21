@@ -238,9 +238,8 @@ def avoid_cmd(ranges, color_deg=None, base_v=AVOID_BASE_V, color_follow=False):
         start, end = gap
         return 0.5 * (GRID[start] + GRID[end - 1])
 
-    front_blocked = zone_min_distance(ranges, FRONT_LOG_ZONE) < FREE_D
-
-    if color_deg is not None and len(safe_gaps) >= 2 and not front_blocked:
+    if color_deg is not None and len(safe_gaps) >= 2:
+        # 정면 막힘 여부와 무관하게 색 방향에 가장 가까운 갭으로 회피
         start, end = min(safe_gaps, key=lambda gap: abs(norm_deg(gap_center(gap) - color_deg)))
     else:
         start, end = max(safe_gaps, key=lambda gap: (gap_width(gap), -abs(gap_center(gap))))
