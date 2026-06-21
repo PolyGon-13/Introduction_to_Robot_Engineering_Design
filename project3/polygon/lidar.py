@@ -9,6 +9,7 @@ import serial
 
 
 
+
 LIDAR_PORT = "/dev/ttyUSB0"
 LIDAR_BAUD = 460800
 
@@ -35,13 +36,10 @@ AVOID_BASE_V = 0.18
 AVOID_MAX_W = 1.0
 AVOID_TURN_GAIN = 1.5
 AVOID_TURN_SIGN = -1.0
-AVOID_PIVOT_DEG = 70.0  # 회피 조향각이 이 각(deg)에 가까울수록 전진속도를 0까지 줄여 제자리회전에 가깝게(큰 각을 다 꺾기 전 직진 충돌 방지)
 SIDE_CLEAR_D = 0.28
 SIDE_CORRECT_MAX_DEG = 30.0
 COLOR_TO_LIDAR_DEG = 45.0
-OPPOSITE_WALL_GAIN = 1.0  # 색 추적 회피 시 양쪽 벽에서 멀어지는 대칭 반발 가중치(클수록 장애물을 더 세게 회피)
-COLOR_GAP_WEIGHT = 0.4  # 색 추적 회피 갭 선택에서 색 정렬을 폭 대비 얼마나 우선할지(0=폭만=순수회피, 클수록 색 쪽 갭 선호)
-COLOR_SIDE_CORRECT_MAX_DEG = 60.0  # 색 추적 회피의 측면 반발 상한(deg). 가까운 장애물이 색 방향 조향을 이기도록 일반(30°)보다 크게
+OPPOSITE_WALL_GAIN = 1.5  # 색 추적 회피 시 색 반대쪽 벽에서 멀어지는 반발 가중치
 MIN_OBSTACLE_BINS = 3  # 노이즈 제거: 가까운 측정이 이 개수 이상 모일 때만 장애물로 인정(단일 헛값 무시)
 
 GRID = np.arange(ANG_MIN, ANG_MAX + 0.5 * ANG_STEP, ANG_STEP, dtype=np.float32)
@@ -241,19 +239,9 @@ def avoid_cmd(ranges, color_deg=None, base_v=AVOID_BASE_V, color_follow=False):
         start, end = gap
         return 0.5 * (GRID[start] + GRID[end - 1])
 
-    front_blocked = zone_min_distance(ranges, FRONT_LOG_ZONE) < FREE_D
-
-    if color_deg is not None and not front_blocked:
-        # 색 쪽을 선호하되, 더 넓고 안전한 갭을 버리고 빠듯한 갭으로 돌진하지 않도록
-        # 갭 폭과 색 정렬도를 함께 점수화해서 가장 좋은 갭을 고른다(COLOR_GAP_WEIGHT로 균형).
-        span = ANG_MAX - ANG_MIN
-
-        def gap_score(gap):
-            width_norm = gap_width(gap) / len(ranges)
-            color_align = 1.0 - abs(norm_deg(gap_center(gap) - color_deg)) / span
-            return width_norm + COLOR_GAP_WEIGHT * color_align
-
-        start, end = max(safe_gaps, key=gap_score)
+    if color_deg is not None and len(safe_gaps) >= 2:
+        # 정면 막힘 여부와 무관하게 색 방향에 가장 가까운 갭으로 회피
+        start, end = min(safe_gaps, key=lambda gap: abs(norm_deg(gap_center(gap) - color_deg)))
     else:
         start, end = max(safe_gaps, key=lambda gap: (gap_width(gap), -abs(gap_center(gap))))
 
@@ -263,17 +251,18 @@ def avoid_cmd(ranges, color_deg=None, base_v=AVOID_BASE_V, color_follow=False):
     left_risk = max(0.0, SIDE_CLEAR_D - left_d)
     right_risk = max(0.0, SIDE_CLEAR_D - right_d)
     if color_follow and color_deg is not None:
-        # 색 추적 회피도 양쪽 벽 모두에서 멀어진다(색 쪽이라고 반발을 끄지 않음).
-        # 가까운 장애물이 갭이 잡은 색 방향 조향을 이길 수 있도록 더 큰 상한(±COLOR_SIDE_CORRECT_MAX_DEG)을 둔다.
-        side_correct_deg = OPPOSITE_WALL_GAIN * (left_risk - right_risk) / SIDE_CLEAR_D * SIDE_CORRECT_MAX_DEG
-        side_correct_deg = clamp(side_correct_deg, -COLOR_SIDE_CORRECT_MAX_DEG, COLOR_SIDE_CORRECT_MAX_DEG)
+        # 색 추적 회피: 색 반대쪽 벽에서만 멀어지도록 비대칭 반발(색 쪽은 보정 안 함).
+        # target_deg는 양수=오른쪽. 색이 오른쪽(>=0)이면 반대쪽 왼쪽 벽 → 오른쪽(+)으로 밀기.
+        if color_deg >= 0.0:
+            side_correct_deg = OPPOSITE_WALL_GAIN * left_risk / SIDE_CLEAR_D * SIDE_CORRECT_MAX_DEG
+        else:
+            side_correct_deg = -OPPOSITE_WALL_GAIN * right_risk / SIDE_CLEAR_D * SIDE_CORRECT_MAX_DEG
     else:
         # 일반 회피: 양쪽 벽 거리 차이에 따른 대칭 보정
         side_correct_deg = (left_risk - right_risk) / SIDE_CLEAR_D * SIDE_CORRECT_MAX_DEG
-        side_correct_deg = clamp(side_correct_deg, -SIDE_CORRECT_MAX_DEG, SIDE_CORRECT_MAX_DEG)
+    side_correct_deg = clamp(side_correct_deg, -SIDE_CORRECT_MAX_DEG, SIDE_CORRECT_MAX_DEG)
     target_deg = clamp(target_deg + side_correct_deg, ANG_MIN, ANG_MAX)
 
     w = clamp(AVOID_TURN_SIGN * AVOID_TURN_GAIN * np.deg2rad(target_deg), -AVOID_MAX_W, AVOID_MAX_W)
     sel_clearance = gap_clearance((start, end))  # 선택한 갭의 실제 통과 폭(m)
-    pivot_scale = max(0.0, 1.0 - abs(target_deg) / AVOID_PIVOT_DEG)  # 많이 꺾을수록 전진을 줄여 제자리회전에 가깝게
-    return base_v * pivot_scale, w, target_deg, len(safe_gaps), sel_clearance
+    return base_v, w, target_deg, len(safe_gaps), sel_clearance

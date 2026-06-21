@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 
+
 import numpy as np
 import serial
 
@@ -36,6 +37,7 @@ from lidar import (
     FREE_D,
     FRONT_LOG_ZONE,
     LEFT_ZONE,
+    OPPOSITE_WALL_GAIN,
     RPLidarC1,
     RIGHT_ZONE,
     SIDE_CLEAR_D,
@@ -54,8 +56,9 @@ from lidar import (
 # ==============================
 
 TARGET_SEQUENCE = ("RED", "YELLOW", "BLUE")  # Follow colors in this order.
-SHOW_WINDOW = True  # 카메라 인식 화면을 띄울지 여부
-DEBUG = True  # 디버그 로그 출력 켜고 끄기 (False면 상세 로그 전부 끔)
+log_control = False  # True면 로그·화면 출력 그대로, False면 로그·화면 출력 전부 끔(동작 로직은 동일)
+SHOW_WINDOW = log_control  # 카메라 인식 화면을 띄울지 여부
+DEBUG = log_control  # 디버그 로그 출력 켜고 끄기 (False면 상세 로그 전부 끔)
 BOTTOM_LOST_RATIO = 0.90  # 색상이 화면 아래 1/10 지점 아래에서 사라지면 정지로 판단
 COLOR_SWITCH_PAUSE_MS = 1000  # 다음 색 추적 전 정지 시간(ms)
 COLOR_FORWARD_CENTER_RATIO = 0.95  # 색상 중심이 화면 하단 1/20 구역에 들어오면 전진
@@ -71,10 +74,8 @@ DRIVE_V = 0.25  # 색 추적, 장애물 회피, 색 완료 후 추가 전진에 
 V_STEP = 0.04  # 전진 속도 명령의 루프당 최대 변화량
 FOLLOW_W_STEP = 0.25  # 색 추적 모드 회전 속도 명령의 루프당 최대 변화량
 AVOID_W_STEP = 0.20  # 장애물 회피 모드 회전 속도 명령의 루프당 최대 변화량
-CENTER_GAIN = 10.0  # 좌우 벽 중심 정렬(대칭 반발) 세기 배수. 클수록 통로 중앙으로 강하게 끌어당김
 LOOP_DT = 0.05  # 메인 루프 대기 시간(초)
 SEARCH_MAX_W = 1.0  # 색 재탐색 모드 최대 회전 속도
-SEARCH_CLEAR_KP = 2.0  # 색 놓친 방향 장애물과 FREE_D 거리 유지용 전진 비례계수(거리-FREE_D에 비례해 전진)
 SWITCH_SEARCH_W = 1.5  # 다음 색이 안 보일 때 제자리 탐색 회전 속도
 ODOM_LOG_INTERVAL = 0.5  # 엔코더 누적값 로그 출력 주기(초)
 WHEEL_R = 0.034  # Arduino encoder distance calculation wheel radius(m)
@@ -139,6 +140,16 @@ class Tee:
         with self.lock:
             for s in self.streams:
                 s.flush()
+
+
+class NullWriter:
+    """log_control이 False일 때 모든 print 출력을 버리는 stdout 대체."""
+
+    def write(self, data):
+        pass
+
+    def flush(self):
+        pass
 
 
 class SpiralExplorer:
@@ -390,10 +401,26 @@ def color_path_clear(ranges, color_deg, clear_d=FREE_D):
     return front_clear and side_clear
 
 
-def apply_symmetric_side_repulsion(target_w, ranges, gain=1.0):
-    """대칭 측면 반발 조향. 좌/우 벽이 SIDE_CLEAR_D 안으로 들어오면 가까운 쪽에서
-    멀어지는 방향으로 회전량을 더한다(양쪽 위험 차이로 보정). gain으로 세기 조절
-    (복귀 주행은 기본 1.0, 색 추종은 CENTER_GAIN으로 더 강하게)."""
+def apply_color_side_repulsion(target_w, ranges, color_deg):
+    if ranges is None:
+        return target_w
+
+    left_d = zone_min_distance(ranges, LEFT_ZONE)
+    right_d = zone_min_distance(ranges, RIGHT_ZONE)
+    left_risk = max(0.0, SIDE_CLEAR_D - left_d)
+    right_risk = max(0.0, SIDE_CLEAR_D - right_d)
+    if color_deg >= 0.0:
+        side_correct_deg = OPPOSITE_WALL_GAIN * left_risk / SIDE_CLEAR_D * SIDE_CORRECT_MAX_DEG
+    else:
+        side_correct_deg = -OPPOSITE_WALL_GAIN * right_risk / SIDE_CLEAR_D * SIDE_CORRECT_MAX_DEG
+    side_correct_deg = clamp(side_correct_deg, -SIDE_CORRECT_MAX_DEG, SIDE_CORRECT_MAX_DEG)
+    repel_w = AVOID_TURN_SIGN * AVOID_TURN_GAIN * np.deg2rad(side_correct_deg)
+    return clamp(target_w + repel_w, -AVOID_MAX_W, AVOID_MAX_W)
+
+
+def apply_symmetric_side_repulsion(target_w, ranges):
+    """복귀 주행용 대칭 측면 반발 조향. 좌/우 벽이 SIDE_CLEAR_D 안으로 들어오면
+    가까운 쪽에서 멀어지는 방향으로 회전량을 더한다(양쪽 위험 차이로 보정)."""
     if ranges is None:
         return target_w
 
@@ -403,7 +430,7 @@ def apply_symmetric_side_repulsion(target_w, ranges, gain=1.0):
     right_risk = max(0.0, SIDE_CLEAR_D - right_d)
     side_correct_deg = (left_risk - right_risk) / SIDE_CLEAR_D * SIDE_CORRECT_MAX_DEG
     side_correct_deg = clamp(side_correct_deg, -SIDE_CORRECT_MAX_DEG, SIDE_CORRECT_MAX_DEG)
-    repel_w = AVOID_TURN_SIGN * AVOID_TURN_GAIN * gain * np.deg2rad(side_correct_deg)
+    repel_w = AVOID_TURN_SIGN * AVOID_TURN_GAIN * np.deg2rad(side_correct_deg)
     return clamp(target_w + repel_w, -AVOID_MAX_W, AVOID_MAX_W)
 
 
@@ -542,7 +569,7 @@ def color_cmd(target, frame, ranges, has_obstacle, color_deg, elapsed):
     if has_obstacle:
         if color_path_clear(ranges, color_deg):
             target_v, target_w = follow_cmd(target, frame.shape, DRIVE_V)
-            target_w = apply_symmetric_side_repulsion(target_w, ranges, CENTER_GAIN)  # 좌우 거리 차로 통로 중심 정렬(강하게)
+            target_w = apply_color_side_repulsion(target_w, ranges, color_deg)
             return "FOLLOW: color path clear + repulse", target_v, target_w
 
         target_v, target_w, target_deg, gap_count, gap_clear = avoid_cmd(ranges, color_deg, DRIVE_V, color_follow=True)
@@ -551,7 +578,7 @@ def color_cmd(target, frame, ranges, has_obstacle, color_deg, elapsed):
         return "AVOID: color + obstacle", target_v, target_w
 
     target_v, target_w = follow_cmd(target, frame.shape, DRIVE_V)
-    target_w = apply_symmetric_side_repulsion(target_w, ranges, CENTER_GAIN)  # 좌우 거리 차로 통로 중심 정렬(강하게)
+    target_w = apply_color_side_repulsion(target_w, ranges, color_deg)
     return "FOLLOW: color only", target_v, target_w
 
 
@@ -570,20 +597,6 @@ def search_last_cmd(last_color_deg):
     return "SEARCH: last color direction", 0.0, w
 
 
-def search_last_keep_clear_cmd(ranges, last_color_deg):
-    """색 놓친 방향에 장애물이 있을 때: 그 방향(정면+색쪽)의 장애물과 FREE_D 거리를
-    유지하면서 색 방향으로 회전한다. 장애물이 FREE_D보다 멀면 다가가고(전진),
-    FREE_D 이내로 가까우면 전진을 멈춰(회전만) 거리를 지킨다."""
-    w = -SEARCH_MAX_W if last_color_deg >= 0.0 else SEARCH_MAX_W
-    color_side_zone = RIGHT_ZONE if last_color_deg >= 0.0 else LEFT_ZONE
-    obstacle_d = min(
-        front_obstacle_distance(ranges),
-        zone_min_distance(ranges, color_side_zone),
-    )
-    v = clamp(SEARCH_CLEAR_KP * (obstacle_d - FREE_D), 0.0, DRIVE_V)
-    return "SEARCH: last color keep-clear", v, w
-
-
 def avoid_mode(mode, tag, ranges, color_deg, elapsed):
     target_v, target_w, target_deg, gap_count, gap_clear = avoid_cmd(ranges, color_deg, DRIVE_V)
     target_v = scale_avoid_speed_for_front_obstacle(target_v, ranges)
@@ -595,12 +608,14 @@ def main():
     cam = lidar = motor = None
     original_stdout = sys.stdout
     log_file = None
-    if DEBUG:  # 디버그가 켜져 있을 때만 터미널+txt 로그를 남긴다.
+    if log_control:  # 로그가 켜져 있을 때만 터미널+txt 로그를 남긴다.
         log_dir = THIS_DIR / "log"
         log_dir.mkdir(exist_ok=True)
         log_file = open(log_dir / f"robot_log_{time.strftime('%Y%m%d_%H%M%S')}.txt", "w", encoding="utf-8")
         sys.stdout = Tee(original_stdout, log_file)
         print(f"[LOG] logging to {log_file.name}")
+    else:  # 로그가 꺼져 있으면 모든 print 출력을 버린다(DEBUG로 안 거르는 출력까지 전부).
+        sys.stdout = NullWriter()
     last_v = last_w = 0.0
     last_color_deg = last_color_time = last_color_center_ratio = last_color_x_err = 0.0
     last_odom_log_time = 0.0
@@ -618,13 +633,11 @@ def main():
         motor = Motor()
         motor.stop()
         motor.reset_encoders()
-        motor_enabled = threading.Event()
-
-        def wait_for_motor_start():
-            input("[READY] Press Enter to enable motor...")
-            motor_enabled.set()
-
-        threading.Thread(target=wait_for_motor_start, daemon=True).start()
+        # 엔터를 누르기 전까지는 장치만 준비하고 로직(색 인식·주행)은 시작하지 않는다.
+        # 프롬프트/입력 대기는 log_control과 무관하게 항상 동작한다.
+        original_stdout.write("[READY] Press Enter to start...")
+        original_stdout.flush()
+        input()
         start_time = time.time()  # 로그 출력용 시작 시각
 
         while True:
@@ -654,8 +667,7 @@ def main():
                 log_lidar(elapsed, lidar_dist)
 
             color_in_forward_zone = (
-                motor_enabled.is_set()
-                and target is not None
+                target is not None
                 and last_color_center_ratio >= COLOR_FORWARD_CENTER_RATIO
                 and abs(last_color_x_err) <= COLOR_EXIT_CENTER_ERR
             )
@@ -777,15 +789,13 @@ def main():
                 color_lost_during_avoid = True
                 switch_search_active = False
                 if not lost_color_obstacle_passed(ranges, last_color_deg):
-                    # 색 사라진 방향에 장애물 → FREE_D 거리 유지하며 색 방향으로 회전
-                    mode, target_v, target_w = search_last_keep_clear_cmd(ranges, last_color_deg)
+                    mode, target_v, target_w = avoid_mode("AVOID: lost color", "AVOID_LOST", ranges, last_color_deg, elapsed)
                 else:
                     mode, target_v, target_w = search_last_cmd(last_color_deg)
 
             elif target is None and last_color_time > 0.0 and not lost_color_obstacle_passed(ranges, last_color_deg):
                 color_lost_during_avoid = True
-                # 색 사라진 방향에 장애물 → FREE_D 거리 유지하며 색 방향으로 회전
-                mode, target_v, target_w = search_last_keep_clear_cmd(ranges, last_color_deg)
+                mode, target_v, target_w = avoid_mode("AVOID: lost color", "AVOID_LOST", ranges, last_color_deg, elapsed)
 
             elif target is None and switch_search_active:
                 if switch_search_start_odom is None:
@@ -822,7 +832,7 @@ def main():
                     switch_search_active, explore_active, switch_search_start_odom = False, False, None
                     mode, target_v, target_w = avoid_mode("AVOID: no initial color", "AVOID_INITIAL", ranges, None, elapsed)
 
-            if motor_enabled.is_set() and (target is not None or mode.startswith("AVOID") or mode.startswith("SEARCH") or mode.startswith("EXPLORE") or mode.startswith("RETURN") or mode.startswith("ESCAPE") or mode.startswith("FORWARD")):
+            if target is not None or mode.startswith("AVOID") or mode.startswith("SEARCH") or mode.startswith("EXPLORE") or mode.startswith("RETURN") or mode.startswith("ESCAPE") or mode.startswith("FORWARD"):
                 last_v = 0.0 if mode.startswith("ALIGN") else rate_limit(last_v, target_v, V_STEP)
                 w_step = AVOID_W_STEP if (mode.startswith("AVOID") or mode.startswith("EXPLORE") or mode.startswith("ESCAPE")) else FOLLOW_W_STEP
                 last_w = rate_limit(last_w, target_w, w_step)
@@ -831,9 +841,6 @@ def main():
                     motor.pivot(last_w)
                 else:
                     motor.vw(last_v, last_w)
-            elif not motor_enabled.is_set():
-                last_v, last_w = 0.0, 0.0
-                motor.stop()
 
             dbg(
                 f"[{elapsed:.2f}s] [STATE] mode={mode} "
@@ -841,7 +848,7 @@ def main():
                 f"cmd(v={target_v:+.2f} w={target_w:+.2f}) sent(v={last_v:+.2f} w={last_w:+.2f}) "
                 f"obstacle={has_obstacle} center_ratio={last_color_center_ratio:.2f} "
                 f"x_err={last_color_x_err:+.2f} last_deg={last_color_deg:+.0f} "
-                f"motor={'ON' if motor_enabled.is_set() else 'OFF'}"
+                f"motor=ON"
             )
 
             if SHOW_WINDOW:
