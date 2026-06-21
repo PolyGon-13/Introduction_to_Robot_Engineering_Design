@@ -9,6 +9,7 @@ import serial
 
 
 
+
 LIDAR_PORT = "/dev/ttyUSB0"
 LIDAR_BAUD = 460800
 
