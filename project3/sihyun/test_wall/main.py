@@ -535,6 +535,7 @@ def main():
                 if draw(frame, found, mode) == ord("q"):
                     break
 
+            
             time.sleep(LOOP_DT)
 
     except KeyboardInterrupt:
