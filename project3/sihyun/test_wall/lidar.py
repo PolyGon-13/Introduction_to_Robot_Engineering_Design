@@ -38,7 +38,7 @@ AVOID_TURN_SIGN = -1.0
 SIDE_CLEAR_D = 0.30  # 측면 반발이 시작되는 거리(m) - 색 추종 중에도 이 안쪽이면 반대로 밀어냄
 SIDE_CORRECT_MAX_DEG = 30.0
 SIDE_ROBUST_K = 3  # 측면 거리 측정 시 무시할 노이즈 스파이크 개수(k번째로 작은 값 사용)
-FOLLOW_REPULSION_GAIN = 0.5  # 색 추종 중 측면 반발 세기 배율(1.0=기본, 0.5=절반)
+FOLLOW_REPULSION_GAIN = 0.1  # 색 추종 중 측면 반발 세기 배율(1.0=기본, 0.1=10%)
 COLOR_TO_LIDAR_DEG = 45.0
 
 GRID = np.arange(ANG_MIN, ANG_MAX + 0.5 * ANG_STEP, ANG_STEP, dtype=np.float32)
