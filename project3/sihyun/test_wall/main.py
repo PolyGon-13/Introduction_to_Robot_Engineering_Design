@@ -71,6 +71,7 @@ DRIVE_V = 0.25  # 색 추적, 장애물 회피, 색 완료 후 추가 전진에 
 V_STEP = 0.04  # 전진 속도 명령의 루프당 최대 변화량
 FOLLOW_W_STEP = 0.25  # 색 추적 모드 회전 속도 명령의 루프당 최대 변화량
 AVOID_W_STEP = 0.20  # 장애물 회피 모드 회전 속도 명령의 루프당 최대 변화량
+CENTER_GAIN = 2.0  # 좌우 벽 중심 정렬(대칭 반발) 세기 배수. 클수록 통로 중앙으로 강하게 끌어당김
 LOOP_DT = 0.05  # 메인 루프 대기 시간(초)
 SEARCH_MAX_W = 1.0  # 색 재탐색 모드 최대 회전 속도
 SEARCH_CLEAR_KP = 2.0  # 색 놓친 방향 장애물과 FREE_D 거리 유지용 전진 비례계수(거리-FREE_D에 비례해 전진)
@@ -389,9 +390,10 @@ def color_path_clear(ranges, color_deg, clear_d=FREE_D):
     return front_clear and side_clear
 
 
-def apply_symmetric_side_repulsion(target_w, ranges):
-    """복귀 주행용 대칭 측면 반발 조향. 좌/우 벽이 SIDE_CLEAR_D 안으로 들어오면
-    가까운 쪽에서 멀어지는 방향으로 회전량을 더한다(양쪽 위험 차이로 보정)."""
+def apply_symmetric_side_repulsion(target_w, ranges, gain=1.0):
+    """대칭 측면 반발 조향. 좌/우 벽이 SIDE_CLEAR_D 안으로 들어오면 가까운 쪽에서
+    멀어지는 방향으로 회전량을 더한다(양쪽 위험 차이로 보정). gain으로 세기 조절
+    (복귀 주행은 기본 1.0, 색 추종은 CENTER_GAIN으로 더 강하게)."""
     if ranges is None:
         return target_w
 
@@ -401,7 +403,7 @@ def apply_symmetric_side_repulsion(target_w, ranges):
     right_risk = max(0.0, SIDE_CLEAR_D - right_d)
     side_correct_deg = (left_risk - right_risk) / SIDE_CLEAR_D * SIDE_CORRECT_MAX_DEG
     side_correct_deg = clamp(side_correct_deg, -SIDE_CORRECT_MAX_DEG, SIDE_CORRECT_MAX_DEG)
-    repel_w = AVOID_TURN_SIGN * AVOID_TURN_GAIN * np.deg2rad(side_correct_deg)
+    repel_w = AVOID_TURN_SIGN * AVOID_TURN_GAIN * gain * np.deg2rad(side_correct_deg)
     return clamp(target_w + repel_w, -AVOID_MAX_W, AVOID_MAX_W)
 
 
@@ -540,7 +542,7 @@ def color_cmd(target, frame, ranges, has_obstacle, color_deg, elapsed):
     if has_obstacle:
         if color_path_clear(ranges, color_deg):
             target_v, target_w = follow_cmd(target, frame.shape, DRIVE_V)
-            target_w = apply_symmetric_side_repulsion(target_w, ranges)  # 좌우 거리 차로 통로 중심 정렬
+            target_w = apply_symmetric_side_repulsion(target_w, ranges, CENTER_GAIN)  # 좌우 거리 차로 통로 중심 정렬(강하게)
             return "FOLLOW: color path clear + repulse", target_v, target_w
 
         target_v, target_w, target_deg, gap_count, gap_clear = avoid_cmd(ranges, color_deg, DRIVE_V, color_follow=True)
@@ -549,7 +551,7 @@ def color_cmd(target, frame, ranges, has_obstacle, color_deg, elapsed):
         return "AVOID: color + obstacle", target_v, target_w
 
     target_v, target_w = follow_cmd(target, frame.shape, DRIVE_V)
-    target_w = apply_symmetric_side_repulsion(target_w, ranges)  # 좌우 거리 차로 통로 중심 정렬
+    target_w = apply_symmetric_side_repulsion(target_w, ranges, CENTER_GAIN)  # 좌우 거리 차로 통로 중심 정렬(강하게)
     return "FOLLOW: color only", target_v, target_w
 
 
