@@ -31,6 +31,7 @@ from lidar import (
     ANG_MIN,
     COLOR_TO_LIDAR_DEG,
     FREE_D,
+    FRONT_BRAKE_ZONE,
     FRONT_LOG_ZONE,
     LEFT_ZONE,
     RPLidarC1,
@@ -91,6 +92,9 @@ EXPLORE_AVOID_D = 0.30  # 나선 탐색 중 정면/좌/우가 이 거리(m) 이�
 EXPLORE_REPULSE_GAIN = 1.8  # 나선 추종 중 장애물 척력 가중치(클수록 장애물에서 멀리 비켜감)
 EXPLORE_REPULSE_DEG = 60.0  # 좌/우 장애물 척력의 대표 방향각(deg, 로봇 정면=0)
 EXPLORE_BRAKE_D = 0.22  # 나선 중 정면이 이 거리(m) 이내면 포텐셜필드 대신 gap 회피로 폴백
+STUCK_MOVE_M = 0.08  # 갇힘 판정: 이 거리(m) 이상 이동하면 정상 진행으로 보고 타이머 리셋
+STUCK_TIME_S = 2.5  # 위 거리만큼 못 움직인 채 이 시간(초) 지나면 갇힘으로 보고 탈출 발동
+# 탈출 회전은 시간 고정이 아니라 전방 콘이 EXPLORE_AVOID_D 이상으로 트일 때까지 계속한다.
 
 
 
@@ -153,6 +157,12 @@ class SpiralExplorer:
         self.spiral_theta = 0.0  # 원점 고정 나선 경로상의 진행 각도(rad)
         self.returning = False  # True면 원점으로 복귀 중
         self.detail = ""
+        # 갇힘 탈출(stuck escape) 상태
+        self.ref_x = 0.0
+        self.ref_y = 0.0
+        self.ref_time = None  # 마지막으로 진행을 확인한 시각
+        self.escape_phase = None  # None / "turn"
+        self.escape_w = 0.0
 
     def update_pose(self, enc_l, enc_r):
         """엔코더 증분으로 원점 기준 위치(x, y)와 헤딩(theta)을 적산한다."""
@@ -184,6 +194,40 @@ class SpiralExplorer:
             f"err={np.degrees(err):+.0f} v={target_v:.3f} w={target_w:+.3f}"
         )
         return f"RETURN: to origin d={dist:.2f}m", target_v, target_w
+
+    def escape_command(self, now, ranges):
+        """일정 시간 제자리에 갇히면 전방이 트일 때까지 트인 쪽으로 제자리 회전한다.
+        (회전 시간 고정이 아니라 전방 콘이 비면 종료)
+        탈출 동작 중이면 (mode, v, w)를 반환, 아니면 None(평소 나선 추종)."""
+        if self.ref_time is None:
+            self.ref_x, self.ref_y, self.ref_time = self.x, self.y, now
+
+        moved = np.hypot(self.x - self.ref_x, self.y - self.ref_y)
+
+        if self.escape_phase is None:
+            if moved > STUCK_MOVE_M:
+                # 충분히 이동 → 정상 진행, 기준점 갱신
+                self.ref_x, self.ref_y, self.ref_time = self.x, self.y, now
+                return None
+            if now - self.ref_time < STUCK_TIME_S:
+                return None
+            # 갇힘 감지 → 탈출 시작. 더 트인 쪽으로 돌도록 회전부호 결정
+            left_d = zone_min_distance(ranges, LEFT_ZONE) if ranges is not None else FREE_D
+            right_d = zone_min_distance(ranges, RIGHT_ZONE) if ranges is not None else FREE_D
+            self.escape_w = EXPLORE_MAX_W if left_d >= right_d else -EXPLORE_MAX_W
+            self.escape_phase = "turn"
+
+        if self.escape_phase == "turn":
+            front_d = nearest_obstacle_distance(ranges)  # 전방 ±콘 최단거리
+            if front_d < EXPLORE_AVOID_D:
+                # 아직 앞이 막힘 → 트인 쪽으로 계속 회전
+                self.detail = f"ESCAPE turn w={self.escape_w:+.2f} front={front_d:.2f}m"
+                return "ESCAPE: turn", 0.0, self.escape_w
+            # 전방이 트임 → 탈출 종료, 기준점 리셋 후 평소 동작 복귀
+            self.escape_phase = None
+            self.ref_x, self.ref_y, self.ref_time = self.x, self.y, now
+
+        return None
 
     def spiral_point(self, theta):
         """원점(0,0) 중심 아르키메데스 나선 위의 점. r = b·theta, 최대 반경 제한."""
@@ -373,15 +417,12 @@ def obstacle_repulsion(ranges):
 
 
 def nearest_obstacle_distance(ranges):
-    """정면 + 좌/우 측면을 통틀어 가장 가까운 장애물 거리(m)."""
+    """전방 콘(±BRAKE_HALF_DEG) 안에서 가장 가까운 장애물 거리(m).
+    옆구리(90°)에 나란한 벽은 제외 → 평행벽 옆을 지날 때 v가 0으로 죽지 않게 한다."""
     if ranges is None:
         return FREE_D
 
-    return min(
-        front_obstacle_distance(ranges),
-        zone_min_distance(ranges, LEFT_ZONE),
-        zone_min_distance(ranges, RIGHT_ZONE),
-    )
+    return zone_min_distance(ranges, FRONT_BRAKE_ZONE)
 
 
 def scale_speed_for_obstacle(target_v, dist):
@@ -689,7 +730,12 @@ def main():
                     explorer.returning = True
                     print(f"[{elapsed:.2f}s] [EXPLORE] left {SPIRAL_MAX_RADIUS}m (d={dist_origin:.2f}m), returning to origin")
 
-                if explorer.returning:
+                # 갇힘 탈출이 최우선: 일정 시간 제자리에 갇히면 후진→회전으로 빠져나온다.
+                escape = explorer.escape_command(time.time(), ranges) if odom_time > 0.0 else None
+                if escape is not None:
+                    mode, target_v, target_w = escape
+                    dbg(f"[{elapsed:.2f}s] [EXPLORE] {explorer.detail}")
+                elif explorer.returning:
                     if dist_origin <= RETURN_DONE_M:
                         # 원점 도착 → 복귀 종료, 현재 위치를 새 원점으로 나선 재시작
                         print(f"[{elapsed:.2f}s] [EXPLORE] origin reached (d={dist_origin:.2f}m), restart spiral")
@@ -760,9 +806,9 @@ def main():
                     switch_search_active, explore_active, switch_search_start_odom = False, False, None
                     mode, target_v, target_w = avoid_mode("AVOID: no initial color", "AVOID_INITIAL", ranges, None, elapsed)
 
-            if motor_enabled.is_set() and (target is not None or mode.startswith("AVOID") or mode.startswith("SEARCH") or mode.startswith("EXPLORE") or mode.startswith("RETURN") or mode.startswith("FORWARD")):
+            if motor_enabled.is_set() and (target is not None or mode.startswith("AVOID") or mode.startswith("SEARCH") or mode.startswith("EXPLORE") or mode.startswith("RETURN") or mode.startswith("ESCAPE") or mode.startswith("FORWARD")):
                 last_v = 0.0 if mode.startswith("ALIGN") else rate_limit(last_v, target_v, V_STEP)
-                w_step = AVOID_W_STEP if (mode.startswith("AVOID") or mode.startswith("EXPLORE")) else FOLLOW_W_STEP
+                w_step = AVOID_W_STEP if (mode.startswith("AVOID") or mode.startswith("EXPLORE") or mode.startswith("ESCAPE")) else FOLLOW_W_STEP
                 last_w = rate_limit(last_w, target_w, w_step)
                 if mode.startswith("ALIGN"):
                     # 색 정렬은 한 바퀴 정지 + 한 바퀴 후진 피벗으로 회전
