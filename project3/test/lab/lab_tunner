@@ -1,0 +1,115 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""LAB 색 보정 도구.
+
+카메라 화면을 띄우고, 마우스로 클릭한 지점의 LAB / BGR 값을 출력한다.
+클릭 지점 주변 5x5 평균을 함께 보여줘 단일 픽셀 노이즈를 줄인다.
+camera.py의 open_camera / read_frame(회전 포함)을 그대로 재사용하므로
+실제 detect()가 보는 프레임과 동일한 기준으로 값을 잰다.
+
+사용법:
+    python lab_picker.py
+  - 마우스 왼쪽 클릭: 그 지점 LAB/BGR 출력 (화면 + 터미널)
+  - r: 누적 샘플 범위(min/max) 초기화
+  - q 또는 ESC: 종료
+
+여러 번 클릭하면 샘플들의 LAB min/max를 모아서 출력하므로,
+같은 색 물체의 여러 지점을 찍으면 camera.py의 LAB_RANGES lower/upper 후보가 바로 나온다.
+"""
+
+import cv2
+import numpy as np
+
+from camera import open_camera, read_frame, close_camera
+
+
+SAMPLE_HALF = 2  # 클릭 지점 주변 (2*HALF+1)x(2*HALF+1) 평균
+
+
+state = {
+    "frame": None,   # 최신 BGR 프레임
+    "lab": None,     # 최신 LAB 프레임
+    "last": None,    # 마지막 클릭 결과 텍스트
+    "lo": None,      # 누적 LAB 최소값 [L,A,B]
+    "hi": None,      # 누적 LAB 최대값 [L,A,B]
+}
+
+
+def sample_region(img, x, y, half=SAMPLE_HALF):
+    """(x,y) 주변 영역 평균값(채널별)."""
+    h, w = img.shape[:2]
+    x0, x1 = max(0, x - half), min(w, x + half + 1)
+    y0, y1 = max(0, y - half), min(h, y + half + 1)
+    region = img[y0:y1, x0:x1].reshape(-1, 3).astype(np.float32)
+    return region.mean(axis=0)
+
+
+def on_mouse(event, x, y, flags, param):
+    if event != cv2.EVENT_LBUTTONDOWN:
+        return
+    if state["lab"] is None:
+        return
+
+    bgr = sample_region(state["frame"], x, y)
+    lab = sample_region(state["lab"], x, y)
+    L, A, B = (int(round(v)) for v in lab)
+    b, g, r = (int(round(v)) for v in bgr)
+
+    # 누적 min/max 갱신 (LAB_RANGES 후보 산출용)
+    lab_i = np.array([L, A, B])
+    state["lo"] = lab_i.copy() if state["lo"] is None else np.minimum(state["lo"], lab_i)
+    state["hi"] = lab_i.copy() if state["hi"] is None else np.maximum(state["hi"], lab_i)
+
+    state["last"] = f"LAB=({L},{A},{B})  BGR=({b},{g},{r})  @({x},{y})"
+    print(f"[PICK] {state['last']}")
+    print(f"       range so far: lower=[{state['lo'][0]},{state['lo'][1]},{state['lo'][2]}] "
+          f"upper=[{state['hi'][0]},{state['hi'][1]},{state['hi'][2]}]")
+
+
+def main():
+    cam = None
+    try:
+        cam = open_camera()
+        cv2.namedWindow("lab_picker", cv2.WINDOW_NORMAL)
+        cv2.setMouseCallback("lab_picker", on_mouse)
+
+        while True:
+            ok, frame = read_frame(cam)
+            if not ok:
+                break
+
+            state["frame"] = frame
+            state["lab"] = cv2.cvtColor(cv2.GaussianBlur(frame, (5, 5), 0), cv2.COLOR_BGR2LAB)
+
+            view = frame.copy()
+            cv2.putText(view, "L-click: pick LAB / r: reset / q: quit",
+                        (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+            if state["last"] is not None:
+                cv2.putText(view, state["last"], (10, 50),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+            if state["lo"] is not None:
+                rng = (f"lower=[{state['lo'][0]},{state['lo'][1]},{state['lo'][2]}] "
+                       f"upper=[{state['hi'][0]},{state['hi'][1]},{state['hi'][2]}]")
+                cv2.putText(view, rng, (10, 75),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+
+            h, w = view.shape[:2]
+            cv2.resizeWindow("lab_picker", w, h)
+            cv2.imshow("lab_picker", view)
+
+            key = cv2.waitKey(1) & 0xFF
+            if key in (ord("q"), 27):  # q 또는 ESC
+                break
+            if key == ord("r"):
+                state["lo"] = state["hi"] = None
+                state["last"] = None
+                print("[RESET] 누적 범위 초기화")
+
+    except KeyboardInterrupt:
+        pass
+    finally:
+        close_camera(cam)
+
+
+if __name__ == "__main__":
+    main()
