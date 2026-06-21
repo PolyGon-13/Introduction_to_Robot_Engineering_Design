@@ -27,7 +27,7 @@ ANG_MIN = -100.0
 ANG_MAX = 100.0
 ANG_STEP = 1.0
 FREE_D = 0.28
-MIN_GAP_DEG = 8.0
+ROBOT_PASS_WIDTH = 0.22  # 로봇이 통과 가능한 최소 갭 실제 폭(m). 갭 각폭×가장자리거리로 환산해 이 폭 미만 갭은 버림
 OBSTACLE_FRONT_DEG = 100.0
 FRONT_HALF_DEG = 15.0
 
@@ -46,7 +46,6 @@ LEFT_ZONE = (GRID >= ANG_MIN) & (GRID < -FRONT_HALF_DEG)
 FRONT_LOG_ZONE = (GRID >= -FRONT_HALF_DEG) & (GRID <= FRONT_HALF_DEG)
 RIGHT_ZONE = (GRID > FRONT_HALF_DEG) & (GRID <= ANG_MAX)
 OBSTACLE_ZONE = (GRID >= -OBSTACLE_FRONT_DEG) & (GRID <= OBSTACLE_FRONT_DEG)
-MIN_GAP_BINS = max(1, int(np.ceil(MIN_GAP_DEG / ANG_STEP)))
 
 
 def clamp(value, low, high):
@@ -169,7 +168,7 @@ def find_gaps(free):
     if start is not None:
         gaps.append((start, len(free)))
 
-    return [(start, end) for start, end in gaps if end - start >= MIN_GAP_BINS]
+    return gaps
 
 
 def obstacle_detected(ranges):
@@ -211,7 +210,21 @@ def avoid_cmd(ranges, color_deg=None, base_v=AVOID_BASE_V, color_follow=False):
     if ranges is None:
         return 0.0, 0.0, 0.0, 0
 
+    def gap_clearance(gap):
+        # 갭의 실제 통과 폭(m) ≈ 2·d·sin(Δθ/2). d는 갭을 막은 양옆 장애물까지 거리 중
+        # 가까운 쪽(가장 좁아지는 지점). FOV 끝이라 한쪽이 트였으면 반대쪽 거리만 사용.
+        start, end = gap
+        edge_dists = []
+        if start - 1 >= 0:
+            edge_dists.append(ranges[start - 1])
+        if end < len(ranges):
+            edge_dists.append(ranges[end])
+        edge_d = min(edge_dists) if edge_dists else MAX_D
+        width_rad = np.deg2rad(GRID[end - 1] - GRID[start])
+        return 2.0 * float(edge_d) * np.sin(0.5 * width_rad)
+
     safe_gaps = find_gaps(ranges >= FREE_D)
+    safe_gaps = [gap for gap in safe_gaps if gap_clearance(gap) >= ROBOT_PASS_WIDTH]
 
     if not safe_gaps:
         return 0.0, 0.0, 0.0, 0
