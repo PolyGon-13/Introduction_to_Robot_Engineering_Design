@@ -16,9 +16,9 @@ DEADBAND = 0.08
 CAMERA_ROTATION = cv2.ROTATE_90_COUNTERCLOCKWISE
 
 HSV_RANGES = {
-    "RED": [([0, 120, 90], [8, 255, 255]), ([163, 120, 90], [179, 255, 255])],  # 측정 H=173 S=204 V=176
-    "YELLOW": [([15, 75, 210], [33, 255, 255])],
-    "BLUE": [([100, 100, 140], [120, 255, 255])],
+    "RED": [([165, 160, 120], [179, 255, 255])],
+    "BLUE": [([104, 90, 100], [116, 255, 255])],
+    "YELLOW": [([19, 125, 180], [25, 255, 255])],
 }
 HSV_RANGES = {
     name: [(np.array(lower, dtype=np.uint8), np.array(upper, dtype=np.uint8)) for lower, upper in ranges]
