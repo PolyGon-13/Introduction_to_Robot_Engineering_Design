@@ -35,6 +35,7 @@ AVOID_BASE_V = 0.18
 AVOID_MAX_W = 1.0
 AVOID_TURN_GAIN = 1.5
 AVOID_TURN_SIGN = -1.0
+AVOID_PIVOT_DEG = 70.0  # 회피 조향각이 이 각(deg)에 가까울수록 전진속도를 0까지 줄여 제자리회전에 가깝게(큰 각을 다 꺾기 전 직진 충돌 방지)
 SIDE_CLEAR_D = 0.28
 SIDE_CORRECT_MAX_DEG = 30.0
 COLOR_TO_LIDAR_DEG = 45.0
@@ -274,4 +275,5 @@ def avoid_cmd(ranges, color_deg=None, base_v=AVOID_BASE_V, color_follow=False):
 
     w = clamp(AVOID_TURN_SIGN * AVOID_TURN_GAIN * np.deg2rad(target_deg), -AVOID_MAX_W, AVOID_MAX_W)
     sel_clearance = gap_clearance((start, end))  # 선택한 갭의 실제 통과 폭(m)
-    return base_v, w, target_deg, len(safe_gaps), sel_clearance
+    pivot_scale = max(0.0, 1.0 - abs(target_deg) / AVOID_PIVOT_DEG)  # 많이 꺾을수록 전진을 줄여 제자리회전에 가깝게
+    return base_v * pivot_scale, w, target_deg, len(safe_gaps), sel_clearance
