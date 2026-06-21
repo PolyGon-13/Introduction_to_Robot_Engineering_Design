@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""LAB 색 보정 도구.
+"""LAB 색 보정 도구 (단독 실행).
 
 카메라 화면을 띄우고, 마우스로 클릭한 지점의 LAB / BGR 값을 출력한다.
 클릭 지점 주변 5x5 평균을 함께 보여줘 단일 픽셀 노이즈를 줄인다.
-camera.py의 open_camera / read_frame(회전 포함)을 그대로 재사용하므로
-실제 detect()가 보는 프레임과 동일한 기준으로 값을 잰다.
+카메라 열기/읽기/회전 코드를 이 파일에 직접 포함해 camera.py 없이도 돌아간다.
+(회전 등은 camera.py와 동일하게 맞춰 detect()가 보는 프레임과 같은 기준으로 측정)
 
 사용법:
-    python lab_picker.py
+    python3 lab_picker.py
   - 마우스 왼쪽 클릭: 그 지점 LAB/BGR 출력 (화면 + 터미널)
   - r: 누적 샘플 범위(min/max) 초기화
   - q 또는 ESC: 종료
@@ -20,10 +20,39 @@ camera.py의 open_camera / read_frame(회전 포함)을 그대로 재사용하�
 import cv2
 import numpy as np
 
-from camera import open_camera, read_frame, close_camera
+from picamera2 import Picamera2
 
+
+# ==== camera.py와 동일하게 맞춘 카메라 설정 ====
+CAMERA_ROTATION = cv2.ROTATE_90_COUNTERCLOCKWISE  # camera.py와 같은 회전
+CAMERA_SIZE = (640, 400)
 
 SAMPLE_HALF = 2  # 클릭 지점 주변 (2*HALF+1)x(2*HALF+1) 평균
+
+
+def open_camera():
+    cam = Picamera2()
+    cam.configure(cam.create_preview_configuration(main={"format": "RGB888", "size": CAMERA_SIZE}))
+    cam.start()
+    return cam
+
+
+def rotate_frame(frame):
+    if CAMERA_ROTATION is None:
+        return frame
+    return cv2.rotate(frame, CAMERA_ROTATION)
+
+
+def read_frame(cam):
+    frame = cv2.cvtColor(cam.capture_array(), cv2.COLOR_RGB2BGR)
+    return True, rotate_frame(frame)
+
+
+def close_camera(cam):
+    if cam is None:
+        return
+    cam.stop()
+    cv2.destroyAllWindows()
 
 
 state = {
