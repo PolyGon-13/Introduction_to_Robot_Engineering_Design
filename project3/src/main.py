@@ -93,6 +93,7 @@ SPIRAL_LOOKAHEAD_M = 0.15  # 나선 경로에서 바라볼 목표점까지의 �
 SPIRAL_MAX_ADVANCE = 0.5  # 한 루프에 나선 각도를 최대 이만큼(rad)만 전진(목표점 점프 방지)
 SPIRAL_HEADING_KP = 1.5  # 나선 목표점 방향으로 향하는 회전 비례계수
 SPIRAL_SKIP_ON_BLOCK = 1.0  # 장애물로 막힐 때마다 나선 진행각을 이만큼(rad) 앞으로 건너뜀(같은 장애물 왕복 방지)
+SPIRAL_AVOID_ADVANCE = 0.025  # 회피·앵커복귀 중 한 루프에 나선 진행각을 늘리는 양(rad). 정상 나선 진행(루프당 약 0.05rad)의 1/2로, 회피 중에도 반경이 계속 커지게 함
 RETURN_KP = 1.0  # 원점 복귀 시 헤딩 오차(rad)에 대한 회전 비례계수
 RETURN_DONE_M = 0.10  # 원점에 이 거리(m) 안으로 들어오면 복귀 완료로 보고 나선 재시작
 EXPLORE_MAX_W = 1.0  # 탐색 회전 속도 제한
@@ -260,6 +261,20 @@ class SpiralExplorer:
 
         self.spiral_theta = self.avoid_anchor["spiral_theta"]
         self.clear_avoid_anchor()
+
+    def grow_spiral_while_avoiding(self):
+        """장애물 회피·앵커 복귀 중에도 나선을 정상의 1/2 속도로 진행시켜 반경을 키운다.
+        앵커(복귀 목표)도 같이 바깥으로 드리프트시켜 같은 막힌 영역에 갇히지 않게 한다."""
+        self.spiral_theta += SPIRAL_AVOID_ADVANCE
+        if self.avoid_anchor is not None:
+            resume_theta = self.avoid_anchor["spiral_theta"] + SPIRAL_AVOID_ADVANCE
+            tx, ty, radius = self.spiral_point(resume_theta)
+            self.avoid_anchor = {
+                "x": tx,
+                "y": ty,
+                "spiral_theta": resume_theta,
+                "radius": radius,
+            }
 
     def spiral_point(self, theta):
         """원점(0,0) 중심 아르키메데스 나선 위의 점. r = b·theta, 최대 반경 제한."""
@@ -793,6 +808,7 @@ def main():
                         mode, target_v, target_w = "RETURN: wait odom", 0.0, 0.0
                 elif explore_blocked:
                     explorer.save_avoid_anchor()
+                    explorer.grow_spiral_while_avoiding()  # 회피 중에도 반경을 1/2 속도로 키움
                     mode, target_v, target_w = avoid_mode("AVOID: explore", "AVOID_EXPLORE", ranges, None, elapsed)
                 elif explorer.has_avoid_anchor():
                     if explorer.reached_avoid_anchor():
@@ -800,6 +816,7 @@ def main():
                         mode, target_v, target_w = "EXPLORE: resume spiral", 0.0, 0.0
                         dbg(f"[{elapsed:.2f}s] [EXPLORE] resumed at saved spiral radius")
                     elif odom_time > 0.0:
+                        explorer.grow_spiral_while_avoiding()  # 앵커 복귀 중에도 반경을 1/2 속도로 키움
                         mode, target_v, target_w = explorer.return_to_avoid_anchor_command(ranges)
                         dbg(f"[{elapsed:.2f}s] [ANCHOR] {explorer.detail}")
                     else:
