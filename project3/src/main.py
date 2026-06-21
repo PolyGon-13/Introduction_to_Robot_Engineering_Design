@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import argparse
+import os
 import threading
 import time
 import sys
@@ -56,8 +58,9 @@ from lidar import (
 # ==============================
 
 TARGET_SEQUENCE = ("RED", "YELLOW", "BLUE")  # Follow colors in this order.
-SHOW_WINDOW = True  # 카메라 인식 화면을 띄울지 여부
-DEBUG = True  # 디버그 로그 출력 켜고 끄기 (False면 상세 로그 전부 끔)
+log_control = False  # True면 로그·화면 출력 그대로, False면 로그·화면 출력 전부 끔(동작 로직은 동일)
+SHOW_WINDOW = log_control  # 카메라 인식 화면을 띄울지 여부
+DEBUG = log_control  # 디버그 로그 출력 켜고 끄기 (False면 상세 로그 전부 끔)
 BOTTOM_LOST_RATIO = 0.90  # 색상이 화면 아래 1/10 지점 아래에서 사라지면 정지로 판단
 COLOR_SWITCH_PAUSE_MS = 1000  # 다음 색 추적 전 정지 시간(ms)
 COLOR_FORWARD_CENTER_RATIO = 0.95  # 색상 중심이 화면 하단 1/20 구역에 들어오면 전진
@@ -90,6 +93,7 @@ SPIRAL_LOOKAHEAD_M = 0.15  # 나선 경로에서 바라볼 목표점까지의 �
 SPIRAL_MAX_ADVANCE = 0.5  # 한 루프에 나선 각도를 최대 이만큼(rad)만 전진(목표점 점프 방지)
 SPIRAL_HEADING_KP = 1.5  # 나선 목표점 방향으로 향하는 회전 비례계수
 SPIRAL_SKIP_ON_BLOCK = 1.0  # 장애물로 막힐 때마다 나선 진행각을 이만큼(rad) 앞으로 건너뜀(같은 장애물 왕복 방지)
+SPIRAL_AVOID_ADVANCE = 0.025  # 회피·앵커복귀 중 한 루프에 나선 진행각을 늘리는 양(rad). 정상 나선 진행(루프당 약 0.05rad)의 1/2로, 회피 중에도 반경이 계속 커지게 함
 RETURN_KP = 1.0  # 원점 복귀 시 헤딩 오차(rad)에 대한 회전 비례계수
 RETURN_DONE_M = 0.10  # 원점에 이 거리(m) 안으로 들어오면 복귀 완료로 보고 나선 재시작
 EXPLORE_MAX_W = 1.0  # 탐색 회전 속도 제한
@@ -139,6 +143,16 @@ class Tee:
         with self.lock:
             for s in self.streams:
                 s.flush()
+
+
+class NullWriter:
+    """log_control이 False일 때 모든 print 출력을 버리는 stdout 대체."""
+
+    def write(self, data):
+        pass
+
+    def flush(self):
+        pass
 
 
 class SpiralExplorer:
@@ -248,6 +262,20 @@ class SpiralExplorer:
 
         self.spiral_theta = self.avoid_anchor["spiral_theta"]
         self.clear_avoid_anchor()
+
+    def grow_spiral_while_avoiding(self):
+        """장애물 회피·앵커 복귀 중에도 나선을 정상의 1/2 속도로 진행시켜 반경을 키운다.
+        앵커(복귀 목표)도 같이 바깥으로 드리프트시켜 같은 막힌 영역에 갇히지 않게 한다."""
+        self.spiral_theta += SPIRAL_AVOID_ADVANCE
+        if self.avoid_anchor is not None:
+            resume_theta = self.avoid_anchor["spiral_theta"] + SPIRAL_AVOID_ADVANCE
+            tx, ty, radius = self.spiral_point(resume_theta)
+            self.avoid_anchor = {
+                "x": tx,
+                "y": ty,
+                "spiral_theta": resume_theta,
+                "radius": radius,
+            }
 
     def spiral_point(self, theta):
         """원점(0,0) 중심 아르키메데스 나선 위의 점. r = b·theta, 최대 반경 제한."""
@@ -598,12 +626,17 @@ def main():
     cam = lidar = motor = None
     original_stdout = sys.stdout
     log_file = None
-    if DEBUG:  # 디버그가 켜져 있을 때만 터미널+txt 로그를 남긴다.
+    if log_control:  # 로그가 켜져 있을 때만 터미널+txt 로그를 남긴다.
         log_dir = THIS_DIR / "log"
         log_dir.mkdir(exist_ok=True)
         log_file = open(log_dir / f"robot_log_{time.strftime('%Y%m%d_%H%M%S')}.txt", "w", encoding="utf-8")
         sys.stdout = Tee(original_stdout, log_file)
         print(f"[LOG] logging to {log_file.name}")
+    else:  # 로그가 꺼져 있으면 모든 print 출력을 버린다(DEBUG로 안 거르는 출력까지 전부).
+        sys.stdout = NullWriter()
+        # libcamera(C++)가 stderr로 찍는 INFO 로그는 stdout 리다이렉트로 못 막으므로
+        # 카메라 매니저 생성 전에 환경변수로 로그 레벨을 올려 INFO 출력을 끈다.
+        os.environ["LIBCAMERA_LOG_LEVELS"] = "*:4"
     last_v = last_w = 0.0
     last_color_deg = last_color_time = last_color_center_ratio = last_color_x_err = 0.0
     last_odom_log_time = 0.0
@@ -622,13 +655,33 @@ def main():
         motor = Motor()
         motor.stop()
         motor.reset_encoders()
-        motor_enabled = threading.Event()
+        # 엔터를 누르기 전까지는 장치만 준비하고 로직(색 인식·주행)은 시작하지 않는다.
+        # 입력 대기(input)는 log_control과 무관하게 항상 하되, 안내 프롬프트는 log_control일 때만 출력한다.
+        if log_control:
+            original_stdout.write("[READY] Press Enter to start...")
+            original_stdout.flush()
 
-        def wait_for_motor_start():
-            input("[READY] Press Enter to enable motor...")
-            motor_enabled.set()
+        if SHOW_WINDOW:
+            # 로그가 켜져 있으면 엔터 전부터 카메라 화면을 미리 띄운다(주행 로직은 시작 안 함).
+            start_pressed = threading.Event()
 
-        threading.Thread(target=wait_for_motor_start, daemon=True).start()
+            def wait_enter():
+                input()
+                start_pressed.set()
+
+            threading.Thread(target=wait_enter, daemon=True).start()
+            while not start_pressed.is_set():
+                ok, frame = read_frame(cam)
+                if ok:
+                    found = detect(frame)
+                    target = pick(found, current_target)
+                    found = [target] if target is not None else []
+                    if draw(frame, found, "READY: press Enter") == ord("q"):
+                        return
+                time.sleep(LOOP_DT)
+        else:
+            input()
+
         start_time = time.time()  # 로그 출력용 시작 시각
 
         while True:
@@ -658,8 +711,7 @@ def main():
                 log_lidar(elapsed, lidar_dist)
 
             color_in_forward_zone = (
-                motor_enabled.is_set()
-                and target is not None
+                target is not None
                 and last_color_center_ratio >= COLOR_FORWARD_CENTER_RATIO
                 and abs(last_color_x_err) <= COLOR_EXIT_CENTER_ERR
             )
@@ -758,6 +810,7 @@ def main():
                         mode, target_v, target_w = "RETURN: wait odom", 0.0, 0.0
                 elif explore_blocked:
                     explorer.save_avoid_anchor()
+                    explorer.grow_spiral_while_avoiding()  # 회피 중에도 반경을 1/2 속도로 키움
                     mode, target_v, target_w = avoid_mode("AVOID: explore", "AVOID_EXPLORE", ranges, None, elapsed)
                 elif explorer.has_avoid_anchor():
                     if explorer.reached_avoid_anchor():
@@ -765,6 +818,7 @@ def main():
                         mode, target_v, target_w = "EXPLORE: resume spiral", 0.0, 0.0
                         dbg(f"[{elapsed:.2f}s] [EXPLORE] resumed at saved spiral radius")
                     elif odom_time > 0.0:
+                        explorer.grow_spiral_while_avoiding()  # 앵커 복귀 중에도 반경을 1/2 속도로 키움
                         mode, target_v, target_w = explorer.return_to_avoid_anchor_command(ranges)
                         dbg(f"[{elapsed:.2f}s] [ANCHOR] {explorer.detail}")
                     else:
@@ -846,7 +900,7 @@ def main():
             else:
                 last_search_start_odom = None  # 다른 모드로 빠지면 회전 카운트 리셋
 
-            if motor_enabled.is_set() and (target is not None or mode.startswith("AVOID") or mode.startswith("SEARCH") or mode.startswith("EXPLORE") or mode.startswith("RETURN") or mode.startswith("ESCAPE") or mode.startswith("FORWARD")):
+            if target is not None or mode.startswith("AVOID") or mode.startswith("SEARCH") or mode.startswith("EXPLORE") or mode.startswith("RETURN") or mode.startswith("ESCAPE") or mode.startswith("FORWARD"):
                 last_v = 0.0 if mode.startswith("ALIGN") else rate_limit(last_v, target_v, V_STEP)
                 w_step = AVOID_W_STEP if (mode.startswith("AVOID") or mode.startswith("EXPLORE") or mode.startswith("ESCAPE")) else FOLLOW_W_STEP
                 last_w = rate_limit(last_w, target_w, w_step)
@@ -855,9 +909,6 @@ def main():
                     motor.pivot(last_w)
                 else:
                     motor.vw(last_v, last_w)
-            elif not motor_enabled.is_set():
-                last_v, last_w = 0.0, 0.0
-                motor.stop()
 
             dbg(
                 f"[{elapsed:.2f}s] [STATE] mode={mode} "
@@ -865,7 +916,7 @@ def main():
                 f"cmd(v={target_v:+.2f} w={target_w:+.2f}) sent(v={last_v:+.2f} w={last_w:+.2f}) "
                 f"obstacle={has_obstacle} center_ratio={last_color_center_ratio:.2f} "
                 f"x_err={last_color_x_err:+.2f} last_deg={last_color_deg:+.0f} "
-                f"motor={'ON' if motor_enabled.is_set() else 'OFF'}"
+                f"motor=ON"
             )
 
             if SHOW_WINDOW:
@@ -893,4 +944,14 @@ def main():
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="색상영역 추적 로봇")
+    parser.add_argument(
+        "--log",
+        action="store_true",
+        help="로그·화면 출력 켜기 (지정하지 않으면 기본값: 꺼짐)",
+    )
+    args = parser.parse_args()
+    log_control = args.log  # 명령단 인자로 로그/화면 출력 토글(기본 False)
+    SHOW_WINDOW = log_control
+    DEBUG = log_control
     main()
