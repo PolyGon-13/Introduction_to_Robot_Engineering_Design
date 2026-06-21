@@ -208,26 +208,27 @@ def zone_min_distance(ranges, zone):
 
 def avoid_cmd(ranges, color_deg=None, base_v=AVOID_BASE_V, color_follow=False):
     if ranges is None:
-        return 0.0, 0.0, 0.0, 0
+        return 0.0, 0.0, 0.0, 0, 0.0
 
     def gap_clearance(gap):
-        # 갭의 실제 통과 폭(m) ≈ 2·d·sin(Δθ/2). d는 갭을 막은 양옆 장애물까지 거리 중
-        # 가까운 쪽(가장 좁아지는 지점). FOV 끝이라 한쪽이 트였으면 반대쪽 거리만 사용.
+        # 갭을 막은 양옆 장애물 점 사이의 실제 직선 거리(코사인법칙):
+        #   width = sqrt(da² + db² - 2·da·db·cos(Δθ))
+        # da, db = 양쪽 가장자리 장애물까지 거리, Δθ = 두 장애물 사이 각도.
+        # 한쪽이 FOV 끝으로 트였으면 벽 제약이 없으므로 통과 가능(inf).
         start, end = gap
-        edge_dists = []
-        if start - 1 >= 0:
-            edge_dists.append(ranges[start - 1])
-        if end < len(ranges):
-            edge_dists.append(ranges[end])
-        edge_d = min(edge_dists) if edge_dists else MAX_D
-        width_rad = np.deg2rad(GRID[end - 1] - GRID[start])
-        return 2.0 * float(edge_d) * np.sin(0.5 * width_rad)
+        if start - 1 < 0 or end >= len(ranges):
+            return float("inf")
+        a_idx, b_idx = start - 1, end
+        d_a = float(ranges[a_idx])
+        d_b = float(ranges[b_idx])
+        dtheta = np.deg2rad(float(GRID[b_idx] - GRID[a_idx]))
+        return float(np.sqrt(max(0.0, d_a * d_a + d_b * d_b - 2.0 * d_a * d_b * np.cos(dtheta))))
 
     safe_gaps = find_gaps(ranges >= FREE_D)
     safe_gaps = [gap for gap in safe_gaps if gap_clearance(gap) >= ROBOT_PASS_WIDTH]
 
     if not safe_gaps:
-        return 0.0, 0.0, 0.0, 0
+        return 0.0, 0.0, 0.0, 0, 0.0
 
     def gap_width(gap):
         start, end = gap
@@ -263,4 +264,5 @@ def avoid_cmd(ranges, color_deg=None, base_v=AVOID_BASE_V, color_follow=False):
     target_deg = clamp(target_deg + side_correct_deg, ANG_MIN, ANG_MAX)
 
     w = clamp(AVOID_TURN_SIGN * AVOID_TURN_GAIN * np.deg2rad(target_deg), -AVOID_MAX_W, AVOID_MAX_W)
-    return base_v, w, target_deg, len(safe_gaps)
+    sel_clearance = gap_clearance((start, end))  # 선택한 갭의 실제 통과 폭(m)
+    return base_v, w, target_deg, len(safe_gaps), sel_clearance
