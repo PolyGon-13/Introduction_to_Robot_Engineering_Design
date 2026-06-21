@@ -27,7 +27,7 @@ ANG_MIN = -100.0
 ANG_MAX = 100.0
 ANG_STEP = 1.0
 FREE_D = 0.28
-ROBOT_PASS_WIDTH = 0.22  # 로봇이 통과 가능한 최소 갭 실제 폭(m). 갭 각폭×가장자리거리로 환산해 이 폭 미만 갭은 버림
+ROBOT_PASS_WIDTH = 0.24  # 로봇이 통과 가능한 최소 갭 실제 폭(m). 갭 각폭×가장자리거리로 환산해 이 폭 미만 갭은 버림
 OBSTACLE_FRONT_DEG = 100.0
 FRONT_HALF_DEG = 15.0
 
