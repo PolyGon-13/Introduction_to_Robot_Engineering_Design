@@ -38,7 +38,7 @@ AVOID_TURN_SIGN = -1.0
 SIDE_CLEAR_D = 0.28
 SIDE_CORRECT_MAX_DEG = 30.0
 COLOR_TO_LIDAR_DEG = 45.0
-OPPOSITE_WALL_GAIN = 1.5  # 색 추적 회피 시 색 반대쪽 벽에서 멀어지는 반발 가중치
+OPPOSITE_WALL_GAIN = 1.0  # 색 추적 회피 시 색 반대쪽 벽에서 멀어지는 반발 가중치
 MIN_OBSTACLE_BINS = 3  # 노이즈 제거: 가까운 측정이 이 개수 이상 모일 때만 장애물로 인정(단일 헛값 무시)
 
 GRID = np.arange(ANG_MIN, ANG_MAX + 0.5 * ANG_STEP, ANG_STEP, dtype=np.float32)
@@ -241,6 +241,7 @@ def avoid_cmd(ranges, color_deg=None, base_v=AVOID_BASE_V, color_follow=False):
     front_blocked = zone_min_distance(ranges, FRONT_LOG_ZONE) < FREE_D
 
     if color_deg is not None and len(safe_gaps) >= 2 and not front_blocked:
+        # 색 방향에 가장 가까운 갭만 선택(후보는 모두 통과 가능 폭이라 폭 비교 불필요)
         start, end = min(safe_gaps, key=lambda gap: abs(norm_deg(gap_center(gap) - color_deg)))
     else:
         start, end = max(safe_gaps, key=lambda gap: (gap_width(gap), -abs(gap_center(gap))))
