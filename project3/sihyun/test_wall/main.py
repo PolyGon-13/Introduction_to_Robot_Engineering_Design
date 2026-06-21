@@ -77,16 +77,14 @@ POST_COLOR_FORWARD_M = 0.03  # Move forward after a color exits bottom before pa
 TURN_360_WHEEL_BASE_M = 0.18  # Distance between left/right wheels for encoder-based 360 turn(m)
 TURN_360_COUNTS = np.pi * TURN_360_WHEEL_BASE_M * ENC_COUNTS_PER_M
 AVOID_STOP_D = 0.15  # Stop avoid forward speed when a front obstacle is this close(m)
-SPIRAL_GROWTH = 0.10  # 아르키메데스 나선 계수 b: 각도 1rad당 반경 증가량(m, 작을수록 촘촘)
-SPIRAL_MAX_RADIUS = 1.5  # 나선 최대 반경(m), 원점에서 이 거리 넘으면 복귀
-SPIRAL_LOOKAHEAD_M = 0.15  # 나선 경로에서 바라볼 목표점까지의 전방주시 거리(m)
-SPIRAL_MAX_ADVANCE = 0.6  # 한 루프에 나선 각도를 최대 이만큼(rad)만 전진(목표점 점프 방지)
-SPIRAL_HEADING_KP = 1.5  # 나선 목표점 방향으로 향하는 회전 비례계수
+SPIRAL_START_RADIUS = 0.0  # 달팽이집 탐색 시작 회전 반경(m, 0이면 처음에 제자리만 돎)
+SPIRAL_GROWTH = 0.02  # 엔코더 회전각 1rad당 늘어나는 반경(m, 작을수록 촘촘)
+SPIRAL_MAX_RADIUS = 1.5  # 회전 반경 최대값(m), 원점에서 이 거리 넘으면 복귀
 RETURN_KP = 1.0  # 원점 복귀 시 헤딩 오차(rad)에 대한 회전 비례계수
 RETURN_DONE_M = 0.10  # 원점에 이 거리(m) 안으로 들어오면 복귀 완료로 보고 나선 재시작
 EXPLORE_MAX_W = 1.0  # 탐색 회전 속도 제한
 EXPLORE_TURN_SIGN = 1.0  # 탐색 회전 방향(+1: 좌회전, -1: 우회전)
-EXPLORE_AVOID_D = 0.20  # 나선 탐색 중 정면/좌/우가 이 거리(m) 이내로 막히면 회피 발동
+EXPLORE_AVOID_D = 0.30  # 나선 탐색 중 정면/좌/우가 이 거리(m) 이내로 막히면 회피 발동
 
 
 
@@ -135,18 +133,18 @@ class Tee:
 
 class SpiralExplorer:
     """달팽이집(아르키메데스 나선)으로 탐색한다.
-    오도메트리로 추적한 위치(x, y)를 기준으로, 원점(0,0)에 중심이 고정된
-    나선 경로 r = SPIRAL_GROWTH·theta 위의 전방주시 목표점을 추종한다.
-    반경은 SPIRAL_MAX_RADIUS(m)에서 멈추고, 회피로 밀려나도 원래 중심 나선으로 복귀한다."""
+    엔코더로 잰 누적 회전각이 커질수록 회전 반경을 키워(작게 시작 → 점점 크게),
+    반경은 SPIRAL_MAX_RADIUS(m)에서 멈춘다. 회전(w)은 v/반경 으로 만든다."""
 
     def __init__(self, enc_l, enc_r):
-        # 오도메트리 위치 추적 (시작점이 원점 0,0, 헤딩 0)
+        self.start_l = enc_l
+        self.start_r = enc_r
+        # 원점 복귀용 오도메트리 위치 추적 (시작점이 원점 0,0, 헤딩 0)
         self.prev_l = enc_l
         self.prev_r = enc_r
         self.x = 0.0
         self.y = 0.0
         self.theta = 0.0
-        self.spiral_theta = 0.0  # 원점 고정 나선 경로상의 진행 각도(rad)
         self.returning = False  # True면 원점으로 복귀 중
         self.detail = ""
 
@@ -181,36 +179,33 @@ class SpiralExplorer:
         )
         return f"RETURN: to origin d={dist:.2f}m", target_v, target_w
 
-    def spiral_point(self, theta):
-        """원점(0,0) 중심 아르키메데스 나선 위의 점. r = b·theta, 최대 반경 제한."""
-        r = min(SPIRAL_GROWTH * theta, SPIRAL_MAX_RADIUS)
-        ang = EXPLORE_TURN_SIGN * theta  # 회전 방향(+1 좌, -1 우)
-        return r * np.cos(ang), r * np.sin(ang), r
-
     def command(self, enc_l, enc_r, ranges):
-        # 현재 위치(원점 기준 x, y)에서 나선 경로상 전방주시 목표점을 추종한다.
-        # 목표점이 현재 위치에서 SPIRAL_LOOKAHEAD_M 이상 떨어질 때까지 나선 각도를 전진.
-        theta = self.spiral_theta
-        advanced = 0.0
-        tx, ty, radius = self.spiral_point(theta)
-        while np.hypot(tx - self.x, ty - self.y) < SPIRAL_LOOKAHEAD_M and advanced < SPIRAL_MAX_ADVANCE:
-            theta += 0.05
-            advanced += 0.05
-            tx, ty, radius = self.spiral_point(theta)
-        self.spiral_theta = theta
+        left_m = (enc_l - self.start_l) / ENC_COUNTS_PER_M
+        right_m = (enc_r - self.start_r) / ENC_COUNTS_PER_M
+        diff_m = right_m - left_m  # 좌우 바퀴 이동거리 차이
+        center_m = (left_m + right_m) / 2.0  # 중심 이동 거리
 
-        # 목표점 방향과 현재 헤딩의 오차로 회전, 오차 크면 전진속도 줄여 회전 우선
-        desired_heading = np.arctan2(ty - self.y, tx - self.x)
-        err = (desired_heading - self.theta + np.pi) % (2.0 * np.pi) - np.pi  # [-pi, pi]
-        target_w = clamp(SPIRAL_HEADING_KP * err, -EXPLORE_MAX_W, EXPLORE_MAX_W)
-        nominal_v = DRIVE_V * max(0.0, 1.0 - abs(err) / (np.pi / 2.0))
-        target_v = scale_avoid_speed_for_front_obstacle(nominal_v, ranges)
+        # 누적 회전각(rad) = 좌우 이동거리 차이 / 바퀴간격 (엔코더로 측정)
+        turn_angle = abs(diff_m) / TURN_360_WHEEL_BASE_M
+        # 회전각이 커질수록 반경을 키운다(달팽이집), 최대 SPIRAL_MAX_RADIUS
+        radius = min(SPIRAL_START_RADIUS + SPIRAL_GROWTH * turn_angle, SPIRAL_MAX_RADIUS)
 
         front_d = front_obstacle_distance(ranges)
+        # 반경이 작을수록 전진속도를 줄인다(v = 최대회전속도 × 반경, DRIVE_V로 상한).
+        # → 반경 0이면 v=0으로 제자리 회전부터 시작해 중심에서부터 나선이 퍼진다.
+        nominal_v = min(EXPLORE_MAX_W * radius, DRIVE_V)
+        target_v = scale_avoid_speed_for_front_obstacle(nominal_v, ranges)
+        if radius > 1e-6:
+            target_w = EXPLORE_TURN_SIGN * clamp(target_v / radius, -EXPLORE_MAX_W, EXPLORE_MAX_W)
+        else:
+            target_w = EXPLORE_TURN_SIGN * EXPLORE_MAX_W  # 반경 0 → 제자리 최대 회전
+
+        # 상세 로그용 문자열: 엔코더 카운트/이동거리/회전각/반경/전방거리/속도 전부
         self.detail = (
-            f"pos=({self.x:+.2f},{self.y:+.2f}) tgt=({tx:+.2f},{ty:+.2f}) "
-            f"sp_theta={np.degrees(theta):.0f}deg radius={radius:.3f}m "
-            f"err={np.degrees(err):+.0f} front={front_d:.2f}m v={target_v:.3f} w={target_w:+.3f}"
+            f"encL={enc_l} encR={enc_r} "
+            f"L={left_m:.3f}m R={right_m:.3f}m diff={diff_m:+.3f}m center={center_m:.3f}m "
+            f"turn={np.degrees(turn_angle):.1f}deg radius={radius:.3f}m "
+            f"front={front_d:.2f}m v={target_v:.3f} w={target_w:+.3f}"
         )
         mode = f"EXPLORE: spiral r={radius:.2f}m"
         return mode, target_v, target_w
@@ -492,9 +487,7 @@ def main():
     original_stdout = sys.stdout
     log_file = None
     if DEBUG:  # 디버그가 켜져 있을 때만 터미널+txt 로그를 남긴다.
-        log_dir = THIS_DIR / "log"
-        log_dir.mkdir(exist_ok=True)
-        log_file = open(log_dir / f"robot_log_{time.strftime('%Y%m%d_%H%M%S')}.txt", "w", encoding="utf-8")
+        log_file = open(THIS_DIR / f"robot_log_{time.strftime('%Y%m%d_%H%M%S')}.txt", "w", encoding="utf-8")
         sys.stdout = Tee(original_stdout, log_file)
         print(f"[LOG] logging to {log_file.name}")
     last_v = last_w = 0.0
