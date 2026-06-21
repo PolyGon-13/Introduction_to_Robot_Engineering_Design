@@ -96,6 +96,20 @@ EXPLORE_MAX_W = 1.0  # 탐색 회전 속도 제한
 EXPLORE_TURN_SIGN = 1.0  # 탐색 회전 방향(+1: 좌회전, -1: 우회전)
 EXPLORE_AVOID_D = 0.28  # 원점 복귀 중 정면/좌/우가 이 거리(m) 이내로 막히면 회피 발동
 
+# ==============================
+# Detour (wall-follow) settings
+# ==============================
+
+WALL_FOLLOW_D = 0.22        # 따라가는 벽과 유지할 목표 측면 간격(m)
+WALL_FOLLOW_KP_DEG = 220.0  # 측면 거리 오차(m)당 조향각(deg)
+WALL_FOLLOW_MAX_DEG = 45.0  # 벽 추종 측면 보정 조향각 제한(deg)
+WALL_DETACH_D = 0.40        # 고정 측면 거리가 이 값을 넘으면 장애물이 끝난 것으로 보고 이탈
+WALL_COMMIT_D = 0.30        # 진입 시 이 거리 이내에 장애물이 있는 쪽을 따라갈 벽으로 고정
+DETOUR_MAX_DEG = 80.0       # detour 최종 조향각 제한(deg)
+DETOUR_FRONT_BLOCK_D = 0.33 # 정면이 이 거리 안으로 막히면(안쪽 코너) 벽 반대쪽으로 더 튼다
+DETOUR_FRONT_PUSH_DEG = 70.0  # 정면 막힘 시 벽 반대쪽으로 미는 최대 조향각(deg)
+DETOUR_CLEAR_FRAMES = 4     # 장애물이 이만큼 연속 프레임 안 잡혀야 detour 종료(깜빡임 디바운스)
+
 
 
 def dbg(*args, **kwargs):
@@ -110,6 +124,10 @@ def clamp(value, low, high):
 
 def rate_limit(prev, target, step):
     return prev + clamp(target - prev, -step, step)
+
+
+def wrap_deg(angle):
+    return (angle + 180.0) % 360.0 - 180.0
 
 
 def millis():
@@ -445,15 +463,45 @@ def scale_avoid_speed_for_front_obstacle(target_v, ranges):
     return scale_speed_for_obstacle(target_v, front_obstacle_distance(ranges))
 
 
-def lost_color_obstacle_passed(ranges, last_color_deg):
-    if last_color_deg >= 0.0:
-        color_side_zone = RIGHT_ZONE
-    else:
-        color_side_zone = LEFT_ZONE
+def commit_detour_wall(ranges, color_deg):
+    """detour 진입 시 따라갈 벽(측면)을 고정한다(+1=오른쪽, -1=왼쪽).
+    좌/우 중 WALL_COMMIT_D 이내에 장애물이 있는 가까운 쪽을 고른다."""
+    if ranges is None:
+        return -1 if color_deg >= 0.0 else 1
+    left_d = zone_min_distance(ranges, LEFT_ZONE)
+    right_d = zone_min_distance(ranges, RIGHT_ZONE)
+    if min(left_d, right_d) <= WALL_COMMIT_D:
+        return -1 if left_d <= right_d else 1
+    return -1 if color_deg >= 0.0 else 1
 
-    front_clear = not obstacle_in_zone(ranges, FRONT_LOG_ZONE, FREE_D)
-    side_clear = not obstacle_in_zone(ranges, color_side_zone, SIDE_CLEAR_D)
-    return front_clear and side_clear
+
+def detour_cmd(ranges, color_deg, wall_sign, elapsed):
+    """색을 놓친 채 장애물을 만났을 때의 벽 추종 우회 주행.
+    고정한 측면(wall_sign)의 장애물을 WALL_FOLLOW_D로 유지하며 접선 방향으로 끼고 돈다."""
+    if ranges is None:
+        return "DETOUR: no lidar", 0.0, 0.0
+    side_zone = RIGHT_ZONE if wall_sign > 0 else LEFT_ZONE
+    side_d = zone_min_distance(ranges, side_zone)
+    front_d = front_obstacle_distance(ranges)
+    if side_d > WALL_DETACH_D and front_d > DETOUR_FRONT_BLOCK_D:
+        target_deg = clamp(color_deg, -DETOUR_MAX_DEG, DETOUR_MAX_DEG)
+        tag = "detach"
+    else:
+        side_err = side_d - WALL_FOLLOW_D
+        target_deg = wall_sign * clamp(WALL_FOLLOW_KP_DEG * side_err, -WALL_FOLLOW_MAX_DEG, WALL_FOLLOW_MAX_DEG)
+        if front_d < DETOUR_FRONT_BLOCK_D:
+            front_push = (DETOUR_FRONT_BLOCK_D - front_d) / DETOUR_FRONT_BLOCK_D * DETOUR_FRONT_PUSH_DEG
+            target_deg -= wall_sign * front_push
+        tag = "wall"
+    target_deg = clamp(target_deg, -DETOUR_MAX_DEG, DETOUR_MAX_DEG)
+    target_w = clamp(AVOID_TURN_SIGN * AVOID_TURN_GAIN * np.deg2rad(target_deg), -AVOID_MAX_W, AVOID_MAX_W)
+    target_v = scale_avoid_speed_for_front_obstacle(DRIVE_V, ranges)
+    dbg(
+        f"[{elapsed:.2f}s] [DETOUR:{tag}] wall={'R' if wall_sign > 0 else 'L'} "
+        f"side={side_d:.2f}m(tgt {WALL_FOLLOW_D:.2f}) front={front_d:.2f}m color_deg={color_deg:+.0f} "
+        f"deg={target_deg:+.0f} v={target_v:.2f} w={target_w:+.2f}"
+    )
+    return "DETOUR: wall follow to color", target_v, target_w
 
 
 def get_turn_start_odom(motor):
@@ -606,7 +654,9 @@ def main():
     last_v = last_w = 0.0
     last_color_deg = last_color_time = last_color_center_ratio = last_color_x_err = 0.0
     last_odom_log_time = 0.0
-    color_lost_during_avoid = False
+    detour_active = False
+    detour_wall_sign = 0
+    detour_clear_frames = 0
     explore_active = False
     explorer = None
     switch_search_active = False
@@ -647,6 +697,7 @@ def main():
                 last_color_deg, last_color_time, last_color_center_ratio, last_color_x_err = update_color_memory(target, frame)
                 switch_search_active, explore_active, switch_search_start_odom = False, False, None
                 explorer = None
+                detour_active, detour_wall_sign, detour_clear_frames = False, 0, 0
 
             if DEBUG and time.time() - last_odom_log_time >= ODOM_LOG_INTERVAL:
                 log_odom(elapsed, motor.get_odom())
@@ -662,7 +713,6 @@ def main():
                 and abs(last_color_x_err) <= COLOR_EXIT_CENTER_ERR
             )
             color_in_bottom_zone = target is not None and last_color_center_ratio >= BOTTOM_LOST_RATIO
-            color_exited_bottom = target is None and last_color_time > 0.0 and last_color_center_ratio >= BOTTOM_LOST_RATIO
             if color_in_forward_zone:
                 if target_index + 1 < len(TARGET_SEQUENCE):
                     prev_target = current_target
@@ -687,7 +737,6 @@ def main():
 
                     if target is not None:
                         last_color_deg, last_color_time, last_color_center_ratio, last_color_x_err = update_color_memory(target, frame)
-                        color_lost_during_avoid = False
                         explore_active, explorer = False, None
                         if last_color_center_ratio >= BOTTOM_LOST_RATIO:
                             mode, target_v, target_w = bottom_color_cmd(target, frame)
@@ -698,7 +747,7 @@ def main():
                     else:
                         mode, target_v, target_w = search_next_cmd()
                         last_color_deg, last_color_time, last_color_center_ratio, last_color_x_err = clear_color_memory()
-                        color_lost_during_avoid, switch_search_active = False, True
+                        switch_search_active = True
                         explore_active, explorer = False, None
                         switch_search_start_odom = get_turn_start_odom(motor)
                 else:
@@ -706,14 +755,13 @@ def main():
                     drive_forward_by_encoder(motor, start_v=last_v)
                     target_v, target_w, last_v, last_w = 0.0, 0.0, 0.0, 0.0
                     last_color_deg, last_color_time, last_color_center_ratio, last_color_x_err = clear_color_memory()
-                    color_lost_during_avoid, switch_search_active = False, False
+                    switch_search_active = False
                     explore_active, switch_search_start_odom = False, None
                     explorer = None
                     print(f"[{elapsed:.2f}s] [COLOR] {current_target} done, mission complete")
                     break
 
             elif target is not None:
-                color_lost_during_avoid = False
                 explore_active, explorer = False, None
                 if color_in_bottom_zone:
                     mode, target_v, target_w = bottom_color_cmd(target, frame)
@@ -775,17 +823,21 @@ def main():
                     mode, target_v, target_w = "EXPLORE: wait odom", 0.0, 0.0
                     dbg(f"[{elapsed:.2f}s] [EXPLORE] odom 대기중 (v=0 w=0)")
 
-            elif color_exited_bottom:
-                color_lost_during_avoid = True
+            elif target is None and last_color_time > 0.0:
                 switch_search_active = False
-                if not lost_color_obstacle_passed(ranges, last_color_deg):
-                    mode, target_v, target_w = avoid_mode("AVOID: lost color", "AVOID_LOST", ranges, last_color_deg, elapsed)
+                if has_obstacle or detour_active:
+                    if not detour_active:
+                        detour_active = True
+                        detour_wall_sign = commit_detour_wall(ranges, last_color_deg)
+                    detour_clear_frames = 0 if has_obstacle else detour_clear_frames + 1
+                    if detour_clear_frames >= DETOUR_CLEAR_FRAMES:
+                        detour_active, detour_wall_sign, detour_clear_frames = False, 0, 0
+                        mode, target_v, target_w = search_last_cmd(last_color_deg)
+                    else:
+                        mode, target_v, target_w = detour_cmd(ranges, last_color_deg, detour_wall_sign, elapsed)
                 else:
+                    detour_active, detour_wall_sign, detour_clear_frames = False, 0, 0
                     mode, target_v, target_w = search_last_cmd(last_color_deg)
-
-            elif target is None and last_color_time > 0.0 and not lost_color_obstacle_passed(ranges, last_color_deg):
-                color_lost_during_avoid = True
-                mode, target_v, target_w = avoid_mode("AVOID: lost color", "AVOID_LOST", ranges, last_color_deg, elapsed)
 
             elif target is None and switch_search_active:
                 if switch_search_start_odom is None:
@@ -810,21 +862,14 @@ def main():
                         dbg(f"[{elapsed:.2f}s] [SPIN] start_odom None (엔코더 대기중)")
                     mode, target_v, target_w = search_next_cmd()
 
-            elif target is None and color_lost_during_avoid:
-                mode, target_v, target_w = search_last_cmd(last_color_deg)
-
             elif target is None:
-                if last_color_time > 0.0:
-                    mode, target_v, target_w = search_last_cmd(last_color_deg)
-                    color_lost_during_avoid, switch_search_active = True, False
-                else:
-                    # 처음부터 빨간색을 한 번도 못 봤으면 장애물 회피로 돌아다니며 찾는다.
-                    switch_search_active, explore_active, switch_search_start_odom = False, False, None
-                    mode, target_v, target_w = avoid_mode("AVOID: no initial color", "AVOID_INITIAL", ranges, None, elapsed)
+                # 처음부터 색을 한 번도 못 봤으면 장애물 회피로 돌아다니며 찾는다.
+                switch_search_active, explore_active, switch_search_start_odom = False, False, None
+                mode, target_v, target_w = avoid_mode("AVOID: no initial color", "AVOID_INITIAL", ranges, None, elapsed)
 
-            if motor_enabled.is_set() and (target is not None or mode.startswith("AVOID") or mode.startswith("SEARCH") or mode.startswith("EXPLORE") or mode.startswith("RETURN") or mode.startswith("ESCAPE") or mode.startswith("FORWARD")):
+            if motor_enabled.is_set() and (target is not None or mode.startswith("AVOID") or mode.startswith("SEARCH") or mode.startswith("EXPLORE") or mode.startswith("RETURN") or mode.startswith("ESCAPE") or mode.startswith("FORWARD") or mode.startswith("DETOUR")):
                 last_v = 0.0 if mode.startswith("ALIGN") else rate_limit(last_v, target_v, V_STEP)
-                w_step = AVOID_W_STEP if (mode.startswith("AVOID") or mode.startswith("EXPLORE") or mode.startswith("ESCAPE")) else FOLLOW_W_STEP
+                w_step = AVOID_W_STEP if (mode.startswith("AVOID") or mode.startswith("EXPLORE") or mode.startswith("ESCAPE") or mode.startswith("DETOUR")) else FOLLOW_W_STEP
                 last_w = rate_limit(last_w, target_w, w_step)
                 if mode.startswith("ALIGN"):
                     # 색 정렬은 한 바퀴 정지 + 한 바퀴 후진 피벗으로 회전
