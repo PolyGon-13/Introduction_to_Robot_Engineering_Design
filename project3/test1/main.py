@@ -30,14 +30,13 @@ from lidar import (
     ANG_MAX,
     ANG_MIN,
     AVOID_MAX_W,
-    AVOID_SIDE_GAIN,
-    AVOID_SIDE_MAX_DEG,
     AVOID_TURN_GAIN,
     AVOID_TURN_SIGN,
     COLOR_TO_LIDAR_DEG,
     FREE_D,
     FRONT_LOG_ZONE,
     LEFT_ZONE,
+    OPPOSITE_WALL_GAIN,
     RPLidarC1,
     RIGHT_ZONE,
     SIDE_CLEAR_D,
@@ -75,7 +74,6 @@ FOLLOW_W_STEP = 0.25  # 색 추적 모드 회전 속도 명령의 루프당 최�
 AVOID_W_STEP = 0.20  # 장애물 회피 모드 회전 속도 명령의 루프당 최대 변화량
 LOOP_DT = 0.05  # 메인 루프 대기 시간(초)
 SEARCH_MAX_W = 1.0  # 색 재탐색 모드 최대 회전 속도
-SEARCH_CLEAR_KP = 2.0  # 색 놓친 방향 장애물과 FREE_D 거리 유지용 전진 비례계수(거리-FREE_D에 비례해 전진)
 SWITCH_SEARCH_W = 1.5  # 다음 색이 안 보일 때 제자리 탐색 회전 속도
 ODOM_LOG_INTERVAL = 0.5  # 엔코더 누적값 로그 출력 주기(초)
 WHEEL_R = 0.034  # Arduino encoder distance calculation wheel radius(m)
@@ -392,26 +390,34 @@ def color_path_clear(ranges, color_deg, clear_d=FREE_D):
 
 
 def apply_color_side_repulsion(target_w, ranges, color_deg):
-    # 색 추적 회피도 좌우 양쪽 벽 반발로 통일(색 쪽 벽도 포함해 갭 가장자리 충돌 방지)
-    return apply_symmetric_side_repulsion(target_w, ranges)
-
-
-def apply_symmetric_side_repulsion(target_w, ranges):
-    """좌우 양쪽 벽 반발 조향. 좌/우 벽이 SIDE_CLEAR_D 안으로 들어오면 위험도를
-    정규화·제곱해 가까운 쪽에서 멀어지는 방향으로 회전량을 더한다(가까울수록 급격히 강해짐,
-    양쪽이 똑같이 가까우면 상쇄되어 그대로 직진)."""
     if ranges is None:
         return target_w
 
     left_d = zone_min_distance(ranges, LEFT_ZONE)
     right_d = zone_min_distance(ranges, RIGHT_ZONE)
-    left_risk = max(0.0, SIDE_CLEAR_D - left_d) / SIDE_CLEAR_D
-    right_risk = max(0.0, SIDE_CLEAR_D - right_d) / SIDE_CLEAR_D
-    side_correct_deg = clamp(
-        (left_risk * left_risk - right_risk * right_risk) * SIDE_CORRECT_MAX_DEG * AVOID_SIDE_GAIN,
-        -AVOID_SIDE_MAX_DEG,
-        AVOID_SIDE_MAX_DEG,
-    )
+    left_risk = max(0.0, SIDE_CLEAR_D - left_d)
+    right_risk = max(0.0, SIDE_CLEAR_D - right_d)
+    if color_deg >= 0.0:
+        side_correct_deg = OPPOSITE_WALL_GAIN * left_risk / SIDE_CLEAR_D * SIDE_CORRECT_MAX_DEG
+    else:
+        side_correct_deg = -OPPOSITE_WALL_GAIN * right_risk / SIDE_CLEAR_D * SIDE_CORRECT_MAX_DEG
+    side_correct_deg = clamp(side_correct_deg, -SIDE_CORRECT_MAX_DEG, SIDE_CORRECT_MAX_DEG)
+    repel_w = AVOID_TURN_SIGN * AVOID_TURN_GAIN * np.deg2rad(side_correct_deg)
+    return clamp(target_w + repel_w, -AVOID_MAX_W, AVOID_MAX_W)
+
+
+def apply_symmetric_side_repulsion(target_w, ranges):
+    """복귀 주행용 대칭 측면 반발 조향. 좌/우 벽이 SIDE_CLEAR_D 안으로 들어오면
+    가까운 쪽에서 멀어지는 방향으로 회전량을 더한다(양쪽 위험 차이로 보정)."""
+    if ranges is None:
+        return target_w
+
+    left_d = zone_min_distance(ranges, LEFT_ZONE)
+    right_d = zone_min_distance(ranges, RIGHT_ZONE)
+    left_risk = max(0.0, SIDE_CLEAR_D - left_d)
+    right_risk = max(0.0, SIDE_CLEAR_D - right_d)
+    side_correct_deg = (left_risk - right_risk) / SIDE_CLEAR_D * SIDE_CORRECT_MAX_DEG
+    side_correct_deg = clamp(side_correct_deg, -SIDE_CORRECT_MAX_DEG, SIDE_CORRECT_MAX_DEG)
     repel_w = AVOID_TURN_SIGN * AVOID_TURN_GAIN * np.deg2rad(side_correct_deg)
     return clamp(target_w + repel_w, -AVOID_MAX_W, AVOID_MAX_W)
 
@@ -577,20 +583,6 @@ def bottom_color_cmd(target, frame):
 def search_last_cmd(last_color_deg):
     w = -SEARCH_MAX_W if last_color_deg >= 0.0 else SEARCH_MAX_W
     return "SEARCH: last color direction", 0.0, w
-
-
-def search_last_keep_clear_cmd(ranges, last_color_deg):
-    """색 놓친 방향에 장애물이 있을 때: 그 방향(정면+색쪽)의 장애물과 FREE_D 거리를
-    유지하면서 색 방향으로 회전한다. 장애물이 FREE_D보다 멀면 다가가고(전진),
-    FREE_D 이내로 가까우면 전진을 멈춰(회전만) 거리를 지킨다."""
-    w = -SEARCH_MAX_W if last_color_deg >= 0.0 else SEARCH_MAX_W
-    color_side_zone = RIGHT_ZONE if last_color_deg >= 0.0 else LEFT_ZONE
-    obstacle_d = min(
-        front_obstacle_distance(ranges),
-        zone_min_distance(ranges, color_side_zone),
-    )
-    v = clamp(SEARCH_CLEAR_KP * (obstacle_d - FREE_D), 0.0, DRIVE_V)
-    return "SEARCH: last color keep-clear", v, w
 
 
 def avoid_mode(mode, tag, ranges, color_deg, elapsed):
@@ -786,15 +778,13 @@ def main():
                 color_lost_during_avoid = True
                 switch_search_active = False
                 if not lost_color_obstacle_passed(ranges, last_color_deg):
-                    # 색 사라진 방향에 장애물 → FREE_D 거리 유지하며 색 방향으로 회전
-                    mode, target_v, target_w = search_last_keep_clear_cmd(ranges, last_color_deg)
+                    mode, target_v, target_w = avoid_mode("AVOID: lost color", "AVOID_LOST", ranges, last_color_deg, elapsed)
                 else:
                     mode, target_v, target_w = search_last_cmd(last_color_deg)
 
             elif target is None and last_color_time > 0.0 and not lost_color_obstacle_passed(ranges, last_color_deg):
                 color_lost_during_avoid = True
-                # 색 사라진 방향에 장애물 → FREE_D 거리 유지하며 색 방향으로 회전
-                mode, target_v, target_w = search_last_keep_clear_cmd(ranges, last_color_deg)
+                mode, target_v, target_w = avoid_mode("AVOID: lost color", "AVOID_LOST", ranges, last_color_deg, elapsed)
 
             elif target is None and switch_search_active:
                 if switch_search_start_odom is None:
@@ -879,4 +869,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
