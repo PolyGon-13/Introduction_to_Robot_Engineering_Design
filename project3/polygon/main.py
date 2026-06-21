@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import argparse
+import os
 import threading
 import time
 import sys
@@ -616,6 +618,9 @@ def main():
         print(f"[LOG] logging to {log_file.name}")
     else:  # 로그가 꺼져 있으면 모든 print 출력을 버린다(DEBUG로 안 거르는 출력까지 전부).
         sys.stdout = NullWriter()
+        # libcamera(C++)가 stderr로 찍는 INFO 로그는 stdout 리다이렉트로 못 막으므로
+        # 카메라 매니저 생성 전에 환경변수로 로그 레벨을 올려 INFO 출력을 끈다.
+        os.environ["LIBCAMERA_LOG_LEVELS"] = "*:4"
     last_v = last_w = 0.0
     last_color_deg = last_color_time = last_color_center_ratio = last_color_x_err = 0.0
     last_odom_log_time = 0.0
@@ -634,9 +639,10 @@ def main():
         motor.stop()
         motor.reset_encoders()
         # 엔터를 누르기 전까지는 장치만 준비하고 로직(색 인식·주행)은 시작하지 않는다.
-        # 프롬프트/입력 대기는 log_control과 무관하게 항상 동작한다.
-        original_stdout.write("[READY] Press Enter to start...")
-        original_stdout.flush()
+        # 입력 대기(input)는 log_control과 무관하게 항상 하되, 안내 프롬프트는 log_control일 때만 출력한다.
+        if log_control:
+            original_stdout.write("[READY] Press Enter to start...")
+            original_stdout.flush()
         input()
         start_time = time.time()  # 로그 출력용 시작 시각
 
@@ -876,4 +882,14 @@ def main():
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="색상영역 추적 로봇")
+    parser.add_argument(
+        "--log",
+        action="store_true",
+        help="로그·화면 출력 켜기 (지정하지 않으면 기본값: 꺼짐)",
+    )
+    args = parser.parse_args()
+    log_control = args.log  # 명령단 인자로 로그/화면 출력 토글(기본 False)
+    SHOW_WINDOW = log_control
+    DEBUG = log_control
     main()
