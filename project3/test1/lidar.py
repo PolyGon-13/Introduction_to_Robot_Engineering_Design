@@ -38,9 +38,7 @@ AVOID_TURN_SIGN = -1.0
 SIDE_CLEAR_D = 0.28
 SIDE_CORRECT_MAX_DEG = 30.0
 COLOR_TO_LIDAR_DEG = 45.0
-OPPOSITE_WALL_GAIN = 1.0  # (구) 색 반대쪽 벽만 반발하던 가중치 - 현재 좌우 양쪽 반발로 대체됨
-AVOID_SIDE_GAIN = 1.5  # 갭 통과 중 좌우 벽 반발 세기 배율 - 클수록 갭 중앙으로 강하게 유지
-AVOID_SIDE_MAX_DEG = 60.0  # 갭 통과 중 측면 보정 최대 각도(한쪽 벽이 매우 가까울 때 허용 한계)
+OPPOSITE_WALL_GAIN = 1.5  # 색 추적 회피 시 색 반대쪽 벽에서 멀어지는 반발 가중치
 MIN_OBSTACLE_BINS = 3  # 노이즈 제거: 가까운 측정이 이 개수 이상 모일 때만 장애물로 인정(단일 헛값 무시)
 
 GRID = np.arange(ANG_MIN, ANG_MAX + 0.5 * ANG_STEP, ANG_STEP, dtype=np.float32)
@@ -240,10 +238,9 @@ def avoid_cmd(ranges, color_deg=None, base_v=AVOID_BASE_V, color_follow=False):
         start, end = gap
         return 0.5 * (GRID[start] + GRID[end - 1])
 
-    front_blocked = zone_min_distance(ranges, FRONT_LOG_ZONE) < FREE_D
-
-    if color_deg is not None and len(safe_gaps) >= 2 and not front_blocked:
-        # 색 방향에 가장 가까운 갭만 선택(후보는 모두 통과 가능 폭이라 폭 비교 불필요)
+    if color_deg is not None:
+        # safe_gaps는 이미 ROBOT_PASS_WIDTH 이상(통과 가능)인 갭만 남은 후보다.
+        # 더 넓은 갭이 있어도, 통과 가능한 갭이면 색 방향에 가장 가까운 쪽을 우선 선택한다.
         start, end = min(safe_gaps, key=lambda gap: abs(norm_deg(gap_center(gap) - color_deg)))
     else:
         start, end = max(safe_gaps, key=lambda gap: (gap_width(gap), -abs(gap_center(gap))))
@@ -251,15 +248,19 @@ def avoid_cmd(ranges, color_deg=None, base_v=AVOID_BASE_V, color_follow=False):
     target_deg = float(0.5 * (GRID[start] + GRID[end - 1]))
     left_d = zone_min_distance(ranges, LEFT_ZONE)
     right_d = zone_min_distance(ranges, RIGHT_ZONE)
-    # 좌우 양쪽 벽 위험도를 0~1로 정규화·제곱해, 가까운 쪽 벽일수록 급격히 반대로 밀어
-    # 갭을 색 쪽으로 통과해도 좌우 벽에 박지 않고 중앙으로 유지(양쪽 동시에 가까우면 상쇄→직진).
-    left_risk = max(0.0, SIDE_CLEAR_D - left_d) / SIDE_CLEAR_D
-    right_risk = max(0.0, SIDE_CLEAR_D - right_d) / SIDE_CLEAR_D
-    side_correct_deg = clamp(
-        (left_risk * left_risk - right_risk * right_risk) * SIDE_CORRECT_MAX_DEG * AVOID_SIDE_GAIN,
-        -AVOID_SIDE_MAX_DEG,
-        AVOID_SIDE_MAX_DEG,
-    )
+    left_risk = max(0.0, SIDE_CLEAR_D - left_d)
+    right_risk = max(0.0, SIDE_CLEAR_D - right_d)
+    if color_follow and color_deg is not None:
+        # 색 추적 회피: 색 반대쪽 벽에서만 멀어지도록 비대칭 반발(색 쪽은 보정 안 함).
+        # target_deg는 양수=오른쪽. 색이 오른쪽(>=0)이면 반대쪽 왼쪽 벽 → 오른쪽(+)으로 밀기.
+        if color_deg >= 0.0:
+            side_correct_deg = OPPOSITE_WALL_GAIN * left_risk / SIDE_CLEAR_D * SIDE_CORRECT_MAX_DEG
+        else:
+            side_correct_deg = -OPPOSITE_WALL_GAIN * right_risk / SIDE_CLEAR_D * SIDE_CORRECT_MAX_DEG
+    else:
+        # 일반 회피: 양쪽 벽 거리 차이에 따른 대칭 보정
+        side_correct_deg = (left_risk - right_risk) / SIDE_CLEAR_D * SIDE_CORRECT_MAX_DEG
+    side_correct_deg = clamp(side_correct_deg, -SIDE_CORRECT_MAX_DEG, SIDE_CORRECT_MAX_DEG)
     target_deg = clamp(target_deg + side_correct_deg, ANG_MIN, ANG_MAX)
 
     w = clamp(AVOID_TURN_SIGN * AVOID_TURN_GAIN * np.deg2rad(target_deg), -AVOID_MAX_W, AVOID_MAX_W)
