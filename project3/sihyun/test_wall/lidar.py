@@ -39,7 +39,7 @@ AVOID_TURN_SIGN = -1.0
 SIDE_CLEAR_D = 0.20
 SIDE_CORRECT_MAX_DEG = 30.0
 COLOR_TO_LIDAR_DEG = 45.0
-OPPOSITE_WALL_GAIN = 1.0  # 색 추적 회피 시 색 반대쪽 벽에서 멀어지는 반발 가중치
+OPPOSITE_WALL_GAIN = 1.5  # 색 추적 회피 시 색 반대쪽 벽에서 멀어지는 반발 가중치
 MIN_OBSTACLE_BINS = 3  # 노이즈 제거: 가까운 측정이 이 개수 이상 모일 때만 장애물로 인정(단일 헛값 무시)
 
 GRID = np.arange(ANG_MIN, ANG_MAX + 0.5 * ANG_STEP, ANG_STEP, dtype=np.float32)
