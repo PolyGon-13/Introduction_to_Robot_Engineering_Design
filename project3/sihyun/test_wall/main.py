@@ -88,6 +88,7 @@ SPIRAL_MAX_RADIUS = 1.5  # 나선 최대 반경(m), 원점에서 이 거리 넘�
 SPIRAL_LOOKAHEAD_M = 0.15  # 나선 경로에서 바라볼 목표점까지의 전방주시 거리(m)
 SPIRAL_MAX_ADVANCE = 0.5  # 한 루프에 나선 각도를 최대 이만큼(rad)만 전진(목표점 점프 방지)
 SPIRAL_HEADING_KP = 1.5  # 나선 목표점 방향으로 향하는 회전 비례계수
+SPIRAL_SKIP_ON_BLOCK = 1.0  # 장애물로 막힐 때마다 나선 진행각을 이만큼(rad) 앞으로 건너뜀(같은 장애물 왕복 방지)
 RETURN_KP = 1.0  # 원점 복귀 시 헤딩 오차(rad)에 대한 회전 비례계수
 RETURN_DONE_M = 0.10  # 원점에 이 거리(m) 안으로 들어오면 복귀 완료로 보고 나선 재시작
 EXPLORE_MAX_W = 1.0  # 탐색 회전 속도 제한
@@ -193,11 +194,16 @@ class SpiralExplorer:
         if self.avoid_anchor is not None:
             return
 
+        # 장애물 직전 위치가 아니라, 나선 진행각을 SPIRAL_SKIP_ON_BLOCK만큼 앞으로
+        # 건너뛴 지점을 복귀점으로 삼는다. 그래야 복귀 후 재개한 나선이 같은 장애물
+        # 방향으로 다시 향하지 않는다(매 막힘마다 누적되어 점점 더 앞으로 빠져나감).
+        resume_theta = self.spiral_theta + SPIRAL_SKIP_ON_BLOCK
+        tx, ty, radius = self.spiral_point(resume_theta)
         self.avoid_anchor = {
-            "x": self.x,
-            "y": self.y,
-            "spiral_theta": self.spiral_theta,
-            "radius": min(SPIRAL_GROWTH * self.spiral_theta, SPIRAL_MAX_RADIUS),
+            "x": tx,
+            "y": ty,
+            "spiral_theta": resume_theta,
+            "radius": radius,
         }
 
     def clear_avoid_anchor(self):
