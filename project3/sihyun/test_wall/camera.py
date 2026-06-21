@@ -11,7 +11,7 @@ MIN_AREA = 1000
 FOLLOW_MAX_V = 0.25
 FOLLOW_MAX_W = 1.0
 FOLLOW_KP = 1.5
-ALIGN_KP = 1.0  # 하단 1/10 구역에서 속도 0으로 방향만 보정할 때 쓰는 회전 비례계수
+ALIGN_KP = 1.5  # 하단 1/10 구역에서 속도 0으로 방향만 보정할 때 쓰는 회전 비례계수
 DEADBAND = 0.08
 CAMERA_ROTATION = cv2.ROTATE_90_COUNTERCLOCKWISE
 
