@@ -164,10 +164,10 @@ def draw(frame, found, mode):
     cv2.putText(frame, "BOTTOM 0.90", (5, y_bottom - 4), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 1)
     cv2.putText(frame, "FORWARD 0.95", (5, y_forward - 4), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 165, 255), 1)
 
-    # 색을 맞춰 따라가는 가로 기준선 (세로 선, 분홍)
+    # 색을 맞춰 따라가는 가로 기준선 (세로 선, 분홍, 두껍게 해서 잘 보이도록)
     x_center = int(width * CENTER_X_RATIO)
-    cv2.line(frame, (x_center, 0), (x_center, height), (255, 0, 255), 1)
-    cv2.putText(frame, f"CENTER {CENTER_X_RATIO:.2f}", (x_center + 4, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 0, 255), 1)
+    cv2.line(frame, (x_center, 0), (x_center, height), (255, 0, 255), 2)
+    cv2.putText(frame, f"CENTER {CENTER_X_RATIO:.2f}", (x_center + 6, 55), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 255), 2)
 
     cv2.namedWindow("project3", cv2.WINDOW_NORMAL)
     cv2.resizeWindow("project3", width, height)  # 창 크기를 프레임 화소와 동일하게 고정
