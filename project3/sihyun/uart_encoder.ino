@@ -1,3 +1,5 @@
+//현재 사용중인 아두이노 코드
+
 #include <Arduino.h>
 
 #define PI_F 3.1416f
@@ -47,6 +49,7 @@ const float WHEEL_FF = 1.0f;  // 목표 각속도 비례 피드포워드
 // ── 명령값 ────────────────────────────────────────────────
 float V_cmd = 0.0f;  // 목표 선속도 (m/s)
 float W_cmd = 0.0f;  // 목표 각속도 (rad/s),  w>0 = 좌회전
+bool pivotMode = false;  // true면 색 정렬용 피벗(한 바퀴 정지, 한 바퀴만 후진)
 
 // ── 타이밍 ────────────────────────────────────────────────
 const unsigned long PID_INTERVAL_MS = 20;
@@ -72,6 +75,17 @@ void ISR_Encoder_A_l() {
   int delta = (a == b) ? 1 : -1;
   if (INVERT_ENC_L) delta = -delta;
   EncoderCount_l += delta;
+}
+
+// 누적 엔코더 카운트를 0으로 리셋. PID 속도 측정용 prev도 함께 0으로
+// 맞춰야 다음 주기에 가짜 delta 스파이크가 생기지 않는다.
+void resetEncoderCounts() {
+  noInterrupts();
+  EncoderCount_r = 0;
+  EncoderCount_l = 0;
+  interrupts();
+  encR_prev = 0;
+  encL_prev = 0;
 }
 
 // ── 모터 드라이버 출력 ────────────────────────────────────
@@ -113,6 +127,7 @@ void resetWheelPID(WheelPID &p) {
 void stopMotion() {
   V_cmd = 0.0f;
   W_cmd = 0.0f;
+  pivotMode = false;
   resetWheelPID(pidR);
   resetWheelPID(pidL);
   writeDriver_r(0.0f);
@@ -130,6 +145,18 @@ float computePID(WheelPID &p, float dt) {
 
 // (v, w) → 좌우 바퀴 목표 각속도.  w>0 = 좌회전
 void resolveWheelTargets(float v, float w) {
+  if (pivotMode) {
+    // 색 정렬 피벗: 한쪽 바퀴는 정지, 다른 한쪽만 후진으로 회전
+    float spd = constrain(WHEEL_BASE * fabs(w) / WHEEL_R, 0.0f, WHEEL_SPEED_MAX);
+    if (w >= 0.0f) {       // 좌회전(CCW): 왼쪽 바퀴만 후진
+      pidL.target = -spd;
+      pidR.target = 0.0f;
+    } else {               // 우회전(CW): 오른쪽 바퀴만 후진
+      pidR.target = -spd;
+      pidL.target = 0.0f;
+    }
+    return;
+  }
   float wL = (v - WHEEL_BASE * w * 0.5f) / WHEEL_R;
   float wR = (v + WHEEL_BASE * w * 0.5f) / WHEEL_R;
   pidL.target = constrain(wL, -WHEEL_SPEED_MAX, WHEEL_SPEED_MAX);
@@ -147,11 +174,23 @@ void processCommand(String s) {
   if (c0 == 'S' || c0 == 's') {
     stopMotion();
     lastCmdMs = millis();
+  } else if (c0 == 'R' || c0 == 'r') {
+    resetEncoderCounts();
+    Serial1.println(F("RESET"));
+    Serial.println(F("RESET"));
   } else if (c0 == 'V' || c0 == 'v') {
     int comma = s.indexOf(',');
     if (comma <= 1 || comma >= s.length() - 1) return;
     V_cmd = s.substring(1, comma).toFloat();
     W_cmd = s.substring(comma + 1).toFloat();
+    pivotMode = false;
+    lastCmdMs = millis();
+  } else if (c0 == 'P' || c0 == 'p') {
+    // "P<w>\n" : 색 정렬용 피벗 회전 (한 바퀴 정지, 한 바퀴만 후진)
+    if (s.length() < 2) return;
+    V_cmd = 0.0f;
+    W_cmd = s.substring(1).toFloat();
+    pivotMode = true;
     lastCmdMs = millis();
   }
 }
