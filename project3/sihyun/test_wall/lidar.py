@@ -23,29 +23,26 @@ MIN_Q = 1
 MIN_D = 0.01
 MAX_D = 2.5
 
-ANG_MIN = -100.0
-ANG_MAX = 100.0
+ANG_MIN = -90.0
+ANG_MAX = 90.0
 ANG_STEP = 1.0
 FREE_D = 0.30
 MIN_GAP_DEG = 8.0
-OBSTACLE_FRONT_DEG = 100.0
+OBSTACLE_FRONT_DEG = 90.0
 FRONT_HALF_DEG = 15.0
-BRAKE_HALF_DEG = 45.0  # 전진 감속에 쓰는 전방 콘 반각(deg). 옆구리(90°) 평행벽은 제외
 
 AVOID_BASE_V = 0.18
 AVOID_MAX_W = 1.0
 AVOID_TURN_GAIN = 1.5
 AVOID_TURN_SIGN = -1.0
-SIDE_CLEAR_D = 0.20
+SIDE_CLEAR_D = 0.30  # 측면 반발이 시작되는 거리(m) - 색 추종 중에도 이 안쪽이면 반대로 밀어냄
 SIDE_CORRECT_MAX_DEG = 30.0
+SIDE_ROBUST_K = 3  # 측면 거리 측정 시 무시할 노이즈 스파이크 개수(k번째로 작은 값 사용)
 COLOR_TO_LIDAR_DEG = 45.0
-OPPOSITE_WALL_GAIN = 1.5  # 색 추적 회피 시 색 반대쪽 벽에서 멀어지는 반발 가중치
-MIN_OBSTACLE_BINS = 3  # 노이즈 제거: 가까운 측정이 이 개수 이상 모일 때만 장애물로 인정(단일 헛값 무시)
 
 GRID = np.arange(ANG_MIN, ANG_MAX + 0.5 * ANG_STEP, ANG_STEP, dtype=np.float32)
 LEFT_ZONE = (GRID >= ANG_MIN) & (GRID < -FRONT_HALF_DEG)
 FRONT_LOG_ZONE = (GRID >= -FRONT_HALF_DEG) & (GRID <= FRONT_HALF_DEG)
-FRONT_BRAKE_ZONE = (GRID >= -BRAKE_HALF_DEG) & (GRID <= BRAKE_HALF_DEG)
 RIGHT_ZONE = (GRID > FRONT_HALF_DEG) & (GRID <= ANG_MAX)
 OBSTACLE_ZONE = (GRID >= -OBSTACLE_FRONT_DEG) & (GRID <= OBSTACLE_FRONT_DEG)
 MIN_GAP_BINS = max(1, int(np.ceil(MIN_GAP_DEG / ANG_STEP)))
@@ -178,7 +175,7 @@ def obstacle_detected(ranges):
     if ranges is None:
         return False
 
-    return zone_min_distance(ranges, OBSTACLE_ZONE) < FREE_D
+    return float(np.min(ranges[OBSTACLE_ZONE])) < FREE_D
 
 
 def lidar_zone_distances(ranges):
@@ -200,16 +197,43 @@ def lidar_zone_distances(ranges):
 
 
 def zone_min_distance(ranges, zone):
-    """존 내 최단 거리. 단, 단일/이중 헛값에 안 흔들리도록 MIN_OBSTACLE_BINS번째로
-    가까운 측정값을 사용한다(가까운 측정이 그만큼 안 모이면 장애물 없음=MAX_D)."""
     values = ranges[zone]
-    measured = np.sort(values[values < MAX_D])
-    if len(measured) < MIN_OBSTACLE_BINS:
+    measured = values[values < MAX_D]
+    if len(measured) == 0:
         return MAX_D
-    return float(measured[MIN_OBSTACLE_BINS - 1])
+    return float(np.min(measured))
 
 
-def avoid_cmd(ranges, color_deg=None, base_v=AVOID_BASE_V, color_follow=False):
+def robust_zone_distance(ranges, zone, k=SIDE_ROBUST_K):
+    """단일 빈 노이즈 스파이크(예: 0.04m)에 흔들리지 않도록 k번째로 작은 측정값을 반환."""
+    values = ranges[zone]
+    measured = values[values < MAX_D]
+    if len(measured) == 0:
+        return MAX_D
+    measured = np.sort(measured)
+    idx = min(k, len(measured)) - 1
+    return float(measured[idx])
+
+
+def side_repulsion_w(ranges):
+    """좌우 측면 거리 차이로 회전 명령(w)을 만들어 가까운 쪽 반대로 밀어낸다.
+    색 추종(FOLLOW) 중에도 측면 장애물을 미리 비껴가게 하려는 용도.
+    가까울수록 강해지도록 위험도를 제곱해 비선형 반발을 준다.
+    반환 부호 규약은 avoid_cmd 와 동일(양수 w = 좌회전)."""
+    if ranges is None:
+        return 0.0
+
+    left_d = robust_zone_distance(ranges, LEFT_ZONE)
+    right_d = robust_zone_distance(ranges, RIGHT_ZONE)
+    left_risk = max(0.0, SIDE_CLEAR_D - left_d) / SIDE_CLEAR_D
+    right_risk = max(0.0, SIDE_CLEAR_D - right_d) / SIDE_CLEAR_D
+    # 위험도를 제곱해 가까울수록 급격히 강해지게 함(멀리서는 부드럽게)
+    deg = (left_risk * left_risk - right_risk * right_risk) * SIDE_CORRECT_MAX_DEG
+    w = AVOID_TURN_SIGN * AVOID_TURN_GAIN * np.deg2rad(deg)
+    return clamp(w, -AVOID_MAX_W, AVOID_MAX_W)
+
+
+def avoid_cmd(ranges, color_deg=None, base_v=AVOID_BASE_V):
     if ranges is None:
         return 0.0, 0.0, 0.0, 0
 
@@ -226,7 +250,7 @@ def avoid_cmd(ranges, color_deg=None, base_v=AVOID_BASE_V, color_follow=False):
         start, end = gap
         return 0.5 * (GRID[start] + GRID[end - 1])
 
-    front_blocked = zone_min_distance(ranges, FRONT_LOG_ZONE) < FREE_D
+    front_blocked = float(np.min(ranges[FRONT_LOG_ZONE])) < FREE_D
 
     if color_deg is not None and len(safe_gaps) >= 2 and not front_blocked:
         start, end = min(safe_gaps, key=lambda gap: abs(norm_deg(gap_center(gap) - color_deg)))
@@ -234,21 +258,15 @@ def avoid_cmd(ranges, color_deg=None, base_v=AVOID_BASE_V, color_follow=False):
         start, end = max(safe_gaps, key=lambda gap: (gap_width(gap), -abs(gap_center(gap))))
 
     target_deg = float(0.5 * (GRID[start] + GRID[end - 1]))
-    left_d = zone_min_distance(ranges, LEFT_ZONE)
-    right_d = zone_min_distance(ranges, RIGHT_ZONE)
+    left_d = robust_zone_distance(ranges, LEFT_ZONE)
+    right_d = robust_zone_distance(ranges, RIGHT_ZONE)
     left_risk = max(0.0, SIDE_CLEAR_D - left_d)
     right_risk = max(0.0, SIDE_CLEAR_D - right_d)
-    if color_follow and color_deg is not None:
-        # 색 추적 회피: 색 반대쪽 벽에서만 멀어지도록 비대칭 반발(색 쪽은 보정 안 함).
-        # target_deg는 양수=오른쪽. 색이 오른쪽(>=0)이면 반대쪽 왼쪽 벽 → 오른쪽(+)으로 밀기.
-        if color_deg >= 0.0:
-            side_correct_deg = OPPOSITE_WALL_GAIN * left_risk / SIDE_CLEAR_D * SIDE_CORRECT_MAX_DEG
-        else:
-            side_correct_deg = -OPPOSITE_WALL_GAIN * right_risk / SIDE_CLEAR_D * SIDE_CORRECT_MAX_DEG
-    else:
-        # 일반 회피: 양쪽 벽 거리 차이에 따른 대칭 보정
-        side_correct_deg = (left_risk - right_risk) / SIDE_CLEAR_D * SIDE_CORRECT_MAX_DEG
-    side_correct_deg = clamp(side_correct_deg, -SIDE_CORRECT_MAX_DEG, SIDE_CORRECT_MAX_DEG)
+    side_correct_deg = clamp(
+        (left_risk - right_risk) / SIDE_CLEAR_D * SIDE_CORRECT_MAX_DEG,
+        -SIDE_CORRECT_MAX_DEG,
+        SIDE_CORRECT_MAX_DEG,
+    )
     target_deg = clamp(target_deg + side_correct_deg, ANG_MIN, ANG_MAX)
 
     w = clamp(AVOID_TURN_SIGN * AVOID_TURN_GAIN * np.deg2rad(target_deg), -AVOID_MAX_W, AVOID_MAX_W)
