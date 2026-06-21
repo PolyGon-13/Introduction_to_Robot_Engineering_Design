@@ -7,7 +7,6 @@ import numpy as np
 from picamera2 import Picamera2
 
 
-
 MIN_AREA = 1000
 FOLLOW_MAX_V = 0.25
 FOLLOW_MAX_W = 1.0
@@ -18,8 +17,8 @@ CAMERA_ROTATION = cv2.ROTATE_90_COUNTERCLOCKWISE
 
 HSV_RANGES = {
     "RED": [([165, 110, 80], [179, 255, 255])],
+    "BLUE": [([104,80, 70], [116, 255, 255])],
     "YELLOW": [([19, 75, 85], [30, 255, 255])],
-    "BLUE": [([104, 80, 45], [116, 255, 255])],
 }
 HSV_RANGES = {
     name: [(np.array(lower, dtype=np.uint8), np.array(upper, dtype=np.uint8)) for lower, upper in ranges]
@@ -32,6 +31,10 @@ MORPH_KERNEL = np.ones((5, 5), np.uint8)
 BOTTOM_LOST_RATIO = 0.90  # 하단 1/10 (정렬/정지 판단)
 COLOR_FORWARD_CENTER_RATIO = 0.95  # 하단 1/20 (전진/색 전환 판단)
 
+# 색을 화면의 이 가로 비율 위치에 두고 따라간다(0.5=정중앙, >0.5=오른쪽).
+# 0.65면 색을 화면 오른쪽에 유지하며 주행.
+CENTER_X_RATIO = 0.65
+
 
 def clamp(value, low, high):
     return float(max(low, min(value, high)))
@@ -39,7 +42,7 @@ def clamp(value, low, high):
 
 def open_camera():
     cam = Picamera2()
-    cam.configure(cam.create_preview_configuration(main={"format": "RGB888", "size": (640, 360)}))
+    cam.configure(cam.create_preview_configuration(main={"format": "RGB888", "size": (640, 400)}))
     cam.start()
     return cam
 
@@ -108,7 +111,7 @@ def pick(found, target_name):
 def bottom_center_error(target, frame_shape):
     height, width = frame_shape[:2]
     cx, cy = target[6], target[7]
-    dx = cx - width / 2
+    dx = cx - width * CENTER_X_RATIO  # 기준 중심을 오른쪽으로 이동
     dy = max(1.0, height - cy)
     angle = np.arctan2(dx, dy)
     return clamp(angle / (np.pi / 2), -1.0, 1.0)
@@ -117,7 +120,7 @@ def bottom_center_error(target, frame_shape):
 def x_center_error(target, frame_shape):
     _, width = frame_shape[:2]
     cx = target[6]
-    return clamp((cx - width / 2) / (width / 2), -1.0, 1.0)
+    return clamp((cx - width * CENTER_X_RATIO) / (width / 2), -1.0, 1.0)
 
 
 def follow_cmd(target, frame_shape, max_v=FOLLOW_MAX_V, kp=FOLLOW_KP):
@@ -160,6 +163,11 @@ def draw(frame, found, mode):
     cv2.line(frame, (0, y_forward), (width, y_forward), (0, 165, 255), 1)  # 1/20: 주황
     cv2.putText(frame, "BOTTOM 0.90", (5, y_bottom - 4), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 1)
     cv2.putText(frame, "FORWARD 0.95", (5, y_forward - 4), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 165, 255), 1)
+
+    # 색을 맞춰 따라가는 가로 기준선 (세로 선, 분홍)
+    x_center = int(width * CENTER_X_RATIO)
+    cv2.line(frame, (x_center, 0), (x_center, height), (255, 0, 255), 1)
+    cv2.putText(frame, f"CENTER {CENTER_X_RATIO:.2f}", (x_center + 4, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 0, 255), 1)
 
     cv2.namedWindow("project3", cv2.WINDOW_NORMAL)
     cv2.resizeWindow("project3", width, height)  # 창 크기를 프레임 화소와 동일하게 고정
