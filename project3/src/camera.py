@@ -3,7 +3,6 @@
 
 import cv2
 import numpy as np
-
 from picamera2 import Picamera2
 
 
@@ -15,16 +14,14 @@ ALIGN_KP = 1.5  # 하단 1/10 구역에서 속도 0으로 방향만 보정할 �
 DEADBAND = 0.08
 CAMERA_ROTATION = cv2.ROTATE_90_COUNTERCLOCKWISE
 
-# OpenCV LAB(8bit): L 0~255(밝기), A 0~255(128=중립, >128 빨강/<128 초록),
-# B 0~255(128=중립, >128 노랑/<128 파랑). 아래 값은 시작점이라 현장 보정 필요.
-LAB_RANGES = {
-    "RED": [([90, 172, 128], [135, 196, 154])],     # 측정 L~109-114 A~182-186 B~138-143
-    "BLUE": [([80, 126, 78], [120, 146, 104])],     # 측정 L~91-104 A~135-138 B~90-93
-    "YELLOW": [([185, 124, 156], [230, 144, 182])], # 측정 L~202-211 A~132-136 B~165-171
+HSV_RANGES = {
+    "RED": [([165, 110, 80], [179, 255, 255])],
+    "BLUE": [([104,80, 70], [116, 255, 255])],
+    "YELLOW": [([19, 75, 85], [30, 255, 255])],
 }
-LAB_RANGES = {
+HSV_RANGES = {
     name: [(np.array(lower, dtype=np.uint8), np.array(upper, dtype=np.uint8)) for lower, upper in ranges]
-    for name, ranges in LAB_RANGES.items()
+    for name, ranges in HSV_RANGES.items()
 }
 BOX_COLORS = {"RED": (0, 0, 255), "BLUE": (255, 0, 0), "YELLOW": (0, 255, 255)}
 MORPH_KERNEL = np.ones((5, 5), np.uint8)
@@ -70,14 +67,14 @@ def close_camera(cam):
 
 
 def detect(frame):
-    lab = cv2.cvtColor(cv2.GaussianBlur(frame, (5, 5), 0), cv2.COLOR_BGR2LAB)
+    hsv = cv2.cvtColor(cv2.GaussianBlur(frame, (5, 5), 0), cv2.COLOR_BGR2HSV)
     found = []
 
-    for name, ranges in LAB_RANGES.items():
+    for name, ranges in HSV_RANGES.items():
         mask = None
 
         for lower, upper in ranges:
-            part = cv2.inRange(lab, lower, upper)
+            part = cv2.inRange(hsv, lower, upper)
             mask = part if mask is None else cv2.bitwise_or(mask, part)
 
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, MORPH_KERNEL)
