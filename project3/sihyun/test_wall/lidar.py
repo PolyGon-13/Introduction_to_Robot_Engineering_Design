@@ -40,6 +40,7 @@ SIDE_CLEAR_D = 0.20
 SIDE_CORRECT_MAX_DEG = 30.0
 COLOR_TO_LIDAR_DEG = 45.0
 OPPOSITE_WALL_GAIN = 1.0  # 색 추적 회피 시 색 반대쪽 벽에서 멀어지는 반발 가중치
+MIN_OBSTACLE_BINS = 3  # 노이즈 제거: 가까운 측정이 이 개수 이상 모일 때만 장애물로 인정(단일 헛값 무시)
 
 GRID = np.arange(ANG_MIN, ANG_MAX + 0.5 * ANG_STEP, ANG_STEP, dtype=np.float32)
 LEFT_ZONE = (GRID >= ANG_MIN) & (GRID < -FRONT_HALF_DEG)
@@ -177,7 +178,7 @@ def obstacle_detected(ranges):
     if ranges is None:
         return False
 
-    return float(np.min(ranges[OBSTACLE_ZONE])) < FREE_D
+    return zone_min_distance(ranges, OBSTACLE_ZONE) < FREE_D
 
 
 def lidar_zone_distances(ranges):
@@ -199,11 +200,13 @@ def lidar_zone_distances(ranges):
 
 
 def zone_min_distance(ranges, zone):
+    """존 내 최단 거리. 단, 단일/이중 헛값에 안 흔들리도록 MIN_OBSTACLE_BINS번째로
+    가까운 측정값을 사용한다(가까운 측정이 그만큼 안 모이면 장애물 없음=MAX_D)."""
     values = ranges[zone]
-    measured = values[values < MAX_D]
-    if len(measured) == 0:
+    measured = np.sort(values[values < MAX_D])
+    if len(measured) < MIN_OBSTACLE_BINS:
         return MAX_D
-    return float(np.min(measured))
+    return float(measured[MIN_OBSTACLE_BINS - 1])
 
 
 def avoid_cmd(ranges, color_deg=None, base_v=AVOID_BASE_V, color_follow=False):
@@ -223,7 +226,7 @@ def avoid_cmd(ranges, color_deg=None, base_v=AVOID_BASE_V, color_follow=False):
         start, end = gap
         return 0.5 * (GRID[start] + GRID[end - 1])
 
-    front_blocked = float(np.min(ranges[FRONT_LOG_ZONE])) < FREE_D
+    front_blocked = zone_min_distance(ranges, FRONT_LOG_ZONE) < FREE_D
 
     if color_deg is not None and len(safe_gaps) >= 2 and not front_blocked:
         start, end = min(safe_gaps, key=lambda gap: abs(norm_deg(gap_center(gap) - color_deg)))
