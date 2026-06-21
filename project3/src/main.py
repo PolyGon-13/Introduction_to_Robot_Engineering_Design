@@ -147,7 +147,7 @@ class SpiralExplorer:
     나선 경로 r = SPIRAL_GROWTH·theta 위의 전방주시 목표점을 추종한다.
     반경은 SPIRAL_MAX_RADIUS(m)에서 멈추고, 회피로 밀려나도 원래 중심 나선으로 복귀한다."""
 
-    def __init__(self, enc_l, enc_r):
+    def __init__(self, enc_l, enc_r, turn_sign=EXPLORE_TURN_SIGN):
         # 오도메트리 위치 추적 (시작점이 원점 0,0, 헤딩 0)
         self.prev_l = enc_l
         self.prev_r = enc_r
@@ -157,6 +157,7 @@ class SpiralExplorer:
         self.spiral_theta = 0.0  # 원점 고정 나선 경로상의 진행 각도(rad)
         self.returning = False  # True면 원점으로 복귀 중
         self.avoid_anchor = None
+        self.turn_sign = turn_sign  # 나선 감기는 방향(+1 좌, -1 우). 인스턴스별 지정 가능
         self.detail = ""
 
     def update_pose(self, enc_l, enc_r):
@@ -251,7 +252,7 @@ class SpiralExplorer:
     def spiral_point(self, theta):
         """원점(0,0) 중심 아르키메데스 나선 위의 점. r = b·theta, 최대 반경 제한."""
         r = min(SPIRAL_GROWTH * theta, SPIRAL_MAX_RADIUS)
-        ang = EXPLORE_TURN_SIGN * theta  # 회전 방향(+1 좌, -1 우)
+        ang = self.turn_sign * theta  # 회전 방향(+1 좌, -1 우), 인스턴스별
         return r * np.cos(ang), r * np.sin(ang), r
 
     def command(self, enc_l, enc_r, ranges):
@@ -836,8 +837,10 @@ def main():
                         color_lost_during_avoid, switch_search_active = False, False
                         explore_active = True
                         enc_l, enc_r, _, _ = motor.get_odom()
-                        explorer = SpiralExplorer(enc_l, enc_r)
-                        print(f"[{elapsed:.2f}s] [EXPLORE] last-color spin 360 done, spiral explore (max r={SPIRAL_MAX_RADIUS}m)")
+                        # 마지막 색이 오른쪽(>=0)이면 우(-1), 왼쪽이면 좌(+1)로 나선 감기
+                        spin_sign = -1.0 if last_color_deg >= 0.0 else 1.0
+                        explorer = SpiralExplorer(enc_l, enc_r, turn_sign=spin_sign)
+                        print(f"[{elapsed:.2f}s] [EXPLORE] last-color spin 360 done, spiral explore (turn={spin_sign:+.0f}, max r={SPIRAL_MAX_RADIUS}m)")
                         mode, target_v, target_w = explorer.command(enc_l, enc_r, ranges)
                         dbg(f"[{elapsed:.2f}s] [EXPLORE] {explorer.detail}")
             else:
