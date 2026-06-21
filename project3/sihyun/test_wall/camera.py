@@ -34,7 +34,7 @@ def clamp(value, low, high):
 
 def open_camera():
     cam = Picamera2()
-    cam.configure(cam.create_preview_configuration(main={"format": "RGB888", "size": (576, 360)}))
+    cam.configure(cam.create_preview_configuration(main={"format": "RGB888", "size": (1280, 800)}))
     cam.start()
     return cam
 
