@@ -643,7 +643,28 @@ def main():
         if log_control:
             original_stdout.write("[READY] Press Enter to start...")
             original_stdout.flush()
-        input()
+
+        if SHOW_WINDOW:
+            # 로그가 켜져 있으면 엔터 전부터 카메라 화면을 미리 띄운다(주행 로직은 시작 안 함).
+            start_pressed = threading.Event()
+
+            def wait_enter():
+                input()
+                start_pressed.set()
+
+            threading.Thread(target=wait_enter, daemon=True).start()
+            while not start_pressed.is_set():
+                ok, frame = read_frame(cam)
+                if ok:
+                    found = detect(frame)
+                    target = pick(found, current_target)
+                    found = [target] if target is not None else []
+                    if draw(frame, found, "READY: press Enter") == ord("q"):
+                        return
+                time.sleep(LOOP_DT)
+        else:
+            input()
+
         start_time = time.time()  # 로그 출력용 시작 시각
 
         while True:
