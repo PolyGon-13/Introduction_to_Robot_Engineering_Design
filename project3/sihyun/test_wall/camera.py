@@ -27,6 +27,10 @@ HSV_RANGES = {
 BOX_COLORS = {"RED": (0, 0, 255), "BLUE": (255, 0, 0), "YELLOW": (0, 255, 255)}
 MORPH_KERNEL = np.ones((5, 5), np.uint8)
 
+# main.py의 BOTTOM_LOST_RATIO / COLOR_FORWARD_CENTER_RATIO와 같은 값(화면 세로 비율 기준선)
+BOTTOM_LOST_RATIO = 0.90  # 하단 1/10 (정렬/정지 판단)
+COLOR_FORWARD_CENTER_RATIO = 0.95  # 하단 1/20 (전진/색 전환 판단)
+
 
 def clamp(value, low, high):
     return float(max(low, min(value, high)))
@@ -147,6 +151,15 @@ def draw(frame, found, mode):
 
     cv2.putText(frame, mode, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
     height, width = frame.shape[:2]
+
+    # 색 중심 세로 위치 판단 기준선 (가로 선)
+    y_bottom = int(height * BOTTOM_LOST_RATIO)
+    y_forward = int(height * COLOR_FORWARD_CENTER_RATIO)
+    cv2.line(frame, (0, y_bottom), (width, y_bottom), (0, 255, 0), 1)  # 1/10: 초록
+    cv2.line(frame, (0, y_forward), (width, y_forward), (0, 165, 255), 1)  # 1/20: 주황
+    cv2.putText(frame, "BOTTOM 0.90", (5, y_bottom - 4), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 1)
+    cv2.putText(frame, "FORWARD 0.95", (5, y_forward - 4), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 165, 255), 1)
+
     cv2.namedWindow("project3", cv2.WINDOW_NORMAL)
     cv2.resizeWindow("project3", width, height)  # 창 크기를 프레임 화소와 동일하게 고정
     cv2.imshow("project3", frame)
