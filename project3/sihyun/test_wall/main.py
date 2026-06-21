@@ -489,7 +489,9 @@ def main():
     original_stdout = sys.stdout
     log_file = None
     if DEBUG:  # 디버그가 켜져 있을 때만 터미널+txt 로그를 남긴다.
-        log_file = open(THIS_DIR / f"robot_log_{time.strftime('%Y%m%d_%H%M%S')}.txt", "w", encoding="utf-8")
+        log_dir = THIS_DIR / "log"
+        log_dir.mkdir(exist_ok=True)
+        log_file = open(log_dir / f"robot_log_{time.strftime('%Y%m%d_%H%M%S')}.txt", "w", encoding="utf-8")
         sys.stdout = Tee(original_stdout, log_file)
         print(f"[LOG] logging to {log_file.name}")
     last_v = last_w = 0.0
