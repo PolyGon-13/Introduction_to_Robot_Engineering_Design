@@ -169,7 +169,7 @@ class SpiralExplorer:
         self.y = 0.0
         self.theta = 0.0
         self.spiral_theta = 0.0  # 원점 고정 나선 경로상의 진행 각도(rad)
-        self.returning = False  # True면 원점으로 복귀 중
+        self.shrinking = False  # True면 바깥→중심으로 좁아지는 역나선(반경 감소) 단계
         self.avoid_anchor = None
         self.turn_sign = turn_sign  # 나선 감기는 방향(+1 좌, -1 우). 인스턴스별 지정 가능
         self.detail = ""
@@ -186,34 +186,15 @@ class SpiralExplorer:
         self.x += d_center * np.cos(self.theta)
         self.y += d_center * np.sin(self.theta)
 
-    def distance_from_origin(self):
-        return float(np.hypot(self.x, self.y))
-
-    def return_command(self, ranges):
-        """원점(0,0)을 향해 방향을 맞추며 전진하는 복귀 명령."""
-        dist = self.distance_from_origin()
-        target_heading = np.arctan2(-self.y, -self.x)  # 원점을 가리키는 방향
-        err = (target_heading - self.theta + np.pi) % (2.0 * np.pi) - np.pi  # [-pi, pi]
-        target_w = clamp(RETURN_KP * err, -EXPLORE_MAX_W, EXPLORE_MAX_W)
-        target_w = apply_symmetric_side_repulsion(target_w, ranges)  # 측면 벽 스침 방지
-        # 방향이 많이 틀어졌으면 전진속도를 줄여 제자리에 가깝게 회전부터
-        nominal_v = DRIVE_V * max(0.0, 1.0 - abs(err) / (np.pi / 2.0))
-        target_v = scale_avoid_speed_for_front_obstacle(nominal_v, ranges)
-        self.detail = (
-            f"x={self.x:+.2f} y={self.y:+.2f} dist={dist:.2f}m "
-            f"head={np.degrees(target_heading):+.0f} theta={np.degrees(self.theta):+.0f} "
-            f"err={np.degrees(err):+.0f} v={target_v:.3f} w={target_w:+.3f}"
-        )
-        return f"RETURN: to origin d={dist:.2f}m", target_v, target_w
-
     def save_avoid_anchor(self):
         if self.avoid_anchor is not None:
             return
 
-        # 장애물 직전 위치가 아니라, 나선 진행각을 SPIRAL_SKIP_ON_BLOCK만큼 앞으로
-        # 건너뛴 지점을 복귀점으로 삼는다. 그래야 복귀 후 재개한 나선이 같은 장애물
-        # 방향으로 다시 향하지 않는다(매 막힘마다 누적되어 점점 더 앞으로 빠져나감).
-        resume_theta = self.spiral_theta + SPIRAL_SKIP_ON_BLOCK
+        # 장애물 직전 위치가 아니라, 나선 진행각을 SPIRAL_SKIP_ON_BLOCK만큼 진행방향으로
+        # 건너뛴 지점을 복귀점으로 삼는다(수축 단계면 줄이는 방향). 그래야 복귀 후 재개한
+        # 나선이 같은 장애물 방향으로 다시 향하지 않는다(매 막힘마다 누적되어 빠져나감).
+        step = -SPIRAL_SKIP_ON_BLOCK if self.shrinking else SPIRAL_SKIP_ON_BLOCK
+        resume_theta = max(0.0, self.spiral_theta + step)
         tx, ty, radius = self.spiral_point(resume_theta)
         self.avoid_anchor = {
             "x": tx,
@@ -264,11 +245,12 @@ class SpiralExplorer:
         self.clear_avoid_anchor()
 
     def grow_spiral_while_avoiding(self):
-        """장애물 회피·앵커 복귀 중에도 나선을 정상의 1/2 속도로 진행시켜 반경을 키운다.
-        앵커(복귀 목표)도 같이 바깥으로 드리프트시켜 같은 막힌 영역에 갇히지 않게 한다."""
-        self.spiral_theta += SPIRAL_AVOID_ADVANCE
+        """장애물 회피·앵커 복귀 중에도 나선을 정상의 1/2 속도로 진행시킨다(진행방향 따라
+        반경 증가/감소). 앵커도 같이 드리프트시켜 같은 막힌 영역에 갇히지 않게 한다."""
+        step = -SPIRAL_AVOID_ADVANCE if self.shrinking else SPIRAL_AVOID_ADVANCE
+        self.spiral_theta = max(0.0, self.spiral_theta + step)
         if self.avoid_anchor is not None:
-            resume_theta = self.avoid_anchor["spiral_theta"] + SPIRAL_AVOID_ADVANCE
+            resume_theta = max(0.0, self.avoid_anchor["spiral_theta"] + step)
             tx, ty, radius = self.spiral_point(resume_theta)
             self.avoid_anchor = {
                 "x": tx,
@@ -285,15 +267,28 @@ class SpiralExplorer:
 
     def command(self, enc_l, enc_r, ranges):
         # 현재 위치(원점 기준 x, y)에서 나선 경로상 전방주시 목표점을 추종한다.
-        # 목표점이 현재 위치에서 SPIRAL_LOOKAHEAD_M 이상 떨어질 때까지 나선 각도를 전진.
+        # 바깥(반경↑)일 땐 theta 증가, 수축(반경↓)일 땐 theta 감소로 전방주시.
+        step = -0.05 if self.shrinking else 0.05
         theta = self.spiral_theta
         advanced = 0.0
         tx, ty, radius = self.spiral_point(theta)
-        while np.hypot(tx - self.x, ty - self.y) < SPIRAL_LOOKAHEAD_M and advanced < SPIRAL_MAX_ADVANCE:
-            theta += 0.05
+        while (np.hypot(tx - self.x, ty - self.y) < SPIRAL_LOOKAHEAD_M
+               and advanced < SPIRAL_MAX_ADVANCE and theta > 0.0):
+            theta = max(0.0, theta + step)
             advanced += 0.05
             tx, ty, radius = self.spiral_point(theta)
         self.spiral_theta = theta
+
+        # 단계 전환:
+        #  - 바깥 나선이 최대 반경 도달 → 180° 반전 + 반대 방향 수축 나선으로
+        #  - 수축 나선이 중심 도달 → 다시 반대 방향 바깥 나선으로 재시작
+        if not self.shrinking and radius >= SPIRAL_MAX_RADIUS:
+            self.shrinking = True
+            self.turn_sign = -self.turn_sign  # 감기는 방향 반전(목표점이 반대편→로봇 180° 회전)
+        elif self.shrinking and theta <= 0.05:
+            self.shrinking = False
+            self.turn_sign = -self.turn_sign  # 다시 반전
+            self.spiral_theta = 0.0
 
         # 순수 나선 추종: 목표점 방향과 현재 헤딩의 오차로만 회전/전진(장애물 회피 없음).
         desired_heading = np.arctan2(ty - self.y, tx - self.x)
@@ -301,12 +296,13 @@ class SpiralExplorer:
         target_w = clamp(SPIRAL_HEADING_KP * err, -EXPLORE_MAX_W, EXPLORE_MAX_W)
         target_v = DRIVE_V * max(0.0, 1.0 - abs(err) / (np.pi / 2.0))
 
+        phase = "in" if self.shrinking else "out"
         self.detail = (
-            f"pos=({self.x:+.2f},{self.y:+.2f}) tgt=({tx:+.2f},{ty:+.2f}) "
+            f"pos=({self.x:+.2f},{self.y:+.2f}) tgt=({tx:+.2f},{ty:+.2f}) phase={phase} "
             f"sp_theta={np.degrees(theta):.0f}deg radius={radius:.3f}m "
             f"err={np.degrees(err):+.0f} v={target_v:.3f} w={target_w:+.3f}"
         )
-        mode = f"EXPLORE: spiral r={radius:.2f}m"
+        mode = f"EXPLORE: spiral {phase} r={radius:.2f}m"
         return mode, target_v, target_w
 
 
@@ -780,7 +776,6 @@ def main():
                 enc_l, enc_r, _, odom_time = motor.get_odom()
                 if odom_time > 0.0:
                     explorer.update_pose(enc_l, enc_r)  # 원점 기준 위치 적산
-                dist_origin = explorer.distance_from_origin()
 
                 explore_blocked = (
                     front_obstacle_distance(ranges) <= EXPLORE_AVOID_D
@@ -788,27 +783,9 @@ def main():
                     or obstacle_in_zone(ranges, RIGHT_ZONE, EXPLORE_AVOID_D)
                 )
 
-                # 원점에서 1.5m를 벗어나면 원점 복귀 모드 진입
-                if not explorer.returning and dist_origin > SPIRAL_MAX_RADIUS:
-                    explorer.returning = True
-                    explorer.clear_avoid_anchor()
-                    print(f"[{elapsed:.2f}s] [EXPLORE] left {SPIRAL_MAX_RADIUS}m (d={dist_origin:.2f}m), returning to origin")
-
-                if explorer.returning:
-                    if dist_origin <= RETURN_DONE_M:
-                        # 원점 도착 → 복귀 종료, 현재 위치를 새 원점으로 나선 재시작
-                        print(f"[{elapsed:.2f}s] [EXPLORE] origin reached (d={dist_origin:.2f}m), restart spiral")
-                        explorer = SpiralExplorer(enc_l, enc_r)
-                        mode, target_v, target_w = "EXPLORE: origin reached", 0.0, 0.0
-                    elif explore_blocked:
-                        # 복귀 중에도 장애물이 막으면 회피 우선
-                        mode, target_v, target_w = avoid_mode("AVOID: return", "AVOID_RETURN", ranges, None, elapsed)
-                    elif odom_time > 0.0:
-                        mode, target_v, target_w = explorer.return_command(ranges)
-                        dbg(f"[{elapsed:.2f}s] [RETURN] {explorer.detail}")
-                    else:
-                        mode, target_v, target_w = "RETURN: wait odom", 0.0, 0.0
-                elif explore_blocked:
+                # 원점 복귀 단계 없음: 바깥 나선→최대 반경→180° 반전→수축 나선→중심→재시작
+                # 전환은 explorer.command() 내부에서 처리한다.
+                if explore_blocked:
                     explorer.save_avoid_anchor()
                     explorer.grow_spiral_while_avoiding()  # 회피 중에도 반경을 1/2 속도로 키움
                     mode, target_v, target_w = avoid_mode("AVOID: explore", "AVOID_EXPLORE", ranges, None, elapsed)
