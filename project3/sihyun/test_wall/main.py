@@ -534,9 +534,10 @@ def log_lidar(elapsed, lidar_dist):
 
 
 def log_avoid(elapsed, tag, target_deg, target_v, target_w, gap_count, gap_clear):
+    clear_str = "open" if gap_clear == float("inf") else f"{gap_clear:.2f}m"
     print(
         f"[{elapsed:.2f}s] [{tag}] gap={gap_count} "
-        f"clear={gap_clear:.2f}m "
+        f"clear={clear_str} "
         f"target={target_deg:.0f} "
         f"v={target_v:.2f} "
         f"w={target_w:.2f}"
