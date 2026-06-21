@@ -74,7 +74,6 @@ FOLLOW_W_STEP = 0.25  # 색 추적 모드 회전 속도 명령의 루프당 최�
 AVOID_W_STEP = 0.20  # 장애물 회피 모드 회전 속도 명령의 루프당 최대 변화량
 LOOP_DT = 0.05  # 메인 루프 대기 시간(초)
 SEARCH_MAX_W = 1.0  # 색 재탐색 모드 최대 회전 속도
-SEARCH_CLEAR_KP = 2.0  # 색 놓친 방향 장애물과 FREE_D 거리 유지용 전진 비례계수(거리-FREE_D에 비례해 전진)
 SWITCH_SEARCH_W = 1.5  # 다음 색이 안 보일 때 제자리 탐색 회전 속도
 ODOM_LOG_INTERVAL = 0.5  # 엔코더 누적값 로그 출력 주기(초)
 WHEEL_R = 0.034  # Arduino encoder distance calculation wheel radius(m)
@@ -586,20 +585,6 @@ def search_last_cmd(last_color_deg):
     return "SEARCH: last color direction", 0.0, w
 
 
-def search_last_keep_clear_cmd(ranges, last_color_deg):
-    """색 놓친 방향에 장애물이 있을 때: 그 방향(정면+색쪽)의 장애물과 FREE_D 거리를
-    유지하면서 색 방향으로 회전한다. 장애물이 FREE_D보다 멀면 다가가고(전진),
-    FREE_D 이내로 가까우면 전진을 멈춰(회전만) 거리를 지킨다."""
-    w = -SEARCH_MAX_W if last_color_deg >= 0.0 else SEARCH_MAX_W
-    color_side_zone = RIGHT_ZONE if last_color_deg >= 0.0 else LEFT_ZONE
-    obstacle_d = min(
-        front_obstacle_distance(ranges),
-        zone_min_distance(ranges, color_side_zone),
-    )
-    v = clamp(SEARCH_CLEAR_KP * (obstacle_d - FREE_D), 0.0, DRIVE_V)
-    return "SEARCH: last color keep-clear", v, w
-
-
 def avoid_mode(mode, tag, ranges, color_deg, elapsed):
     target_v, target_w, target_deg, gap_count, gap_clear = avoid_cmd(ranges, color_deg, DRIVE_V)
     target_v = scale_avoid_speed_for_front_obstacle(target_v, ranges)
@@ -793,15 +778,13 @@ def main():
                 color_lost_during_avoid = True
                 switch_search_active = False
                 if not lost_color_obstacle_passed(ranges, last_color_deg):
-                    # 색 사라진 방향에 장애물 → FREE_D 거리 유지하며 색 방향으로 회전
-                    mode, target_v, target_w = search_last_keep_clear_cmd(ranges, last_color_deg)
+                    mode, target_v, target_w = avoid_mode("AVOID: lost color", "AVOID_LOST", ranges, last_color_deg, elapsed)
                 else:
                     mode, target_v, target_w = search_last_cmd(last_color_deg)
 
             elif target is None and last_color_time > 0.0 and not lost_color_obstacle_passed(ranges, last_color_deg):
                 color_lost_during_avoid = True
-                # 색 사라진 방향에 장애물 → FREE_D 거리 유지하며 색 방향으로 회전
-                mode, target_v, target_w = search_last_keep_clear_cmd(ranges, last_color_deg)
+                mode, target_v, target_w = avoid_mode("AVOID: lost color", "AVOID_LOST", ranges, last_color_deg, elapsed)
 
             elif target is None and switch_search_active:
                 if switch_search_start_odom is None:
