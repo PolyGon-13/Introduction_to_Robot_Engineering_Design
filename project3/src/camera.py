@@ -33,7 +33,7 @@ COLOR_FORWARD_CENTER_RATIO = 0.95  # 하단 1/20 (전진/색 전환 판단)
 
 # 색을 화면의 이 가로 비율 위치에 두고 따라간다(0.5=정중앙, >0.5=오른쪽).
 # 0.6면 색을 화면 오른쪽에 유지하며 주행.
-CENTER_X_RATIO = 0.6
+CENTER_X_RATIO = 0.55
 
 
 def clamp(value, low, high):
