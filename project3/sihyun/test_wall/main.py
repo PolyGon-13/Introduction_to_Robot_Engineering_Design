@@ -72,7 +72,7 @@ ODOM_LOG_INTERVAL = 0.5  # 엔코더 누적값 로그 출력 주기(초)
 WHEEL_R = 0.034  # Arduino encoder distance calculation wheel radius(m)
 ENC_PPR = 1012.0  # Arduino encoder counts per wheel revolution
 ENC_COUNTS_PER_M = ENC_PPR / (2.0 * np.pi * WHEEL_R)
-POST_COLOR_FORWARD_M = 0.05  # Move forward after a color exits bottom before pause(m)
+POST_COLOR_FORWARD_M = 0.03  # Move forward after a color exits bottom before pause(m)
 TURN_360_WHEEL_BASE_M = 0.18  # Distance between left/right wheels for encoder-based 360 turn(m)
 TURN_360_COUNTS = np.pi * TURN_360_WHEEL_BASE_M * ENC_COUNTS_PER_M
 AVOID_STOP_D = 0.15  # Stop avoid forward speed when a front obstacle is this close(m)
@@ -214,6 +214,11 @@ class Motor:
         with self.write_lock:
             self.ser.write(f"V{v:.3f},{w:.3f}\n".encode("ascii"))
 
+    def pivot(self, w):
+        # 색 정렬용 피벗 회전: 한쪽 바퀴 정지, 한쪽 바퀴만 후진 (아두이노에서 처리)
+        with self.write_lock:
+            self.ser.write(f"P{w:.3f}\n".encode("ascii"))
+
     def stop(self):
         with self.write_lock:
             self.ser.write(b"S\n")
@@ -337,6 +342,7 @@ def drive_forward_by_encoder(motor, distance_m=POST_COLOR_FORWARD_M):
     print(f"[ODOM] move {distance_m:.2f}m target_counts={target_counts:.0f}")
 
     left_counts = right_counts = 0.0
+    current_v = 0.0
     while True:
         enc_l, enc_r, _, odom_time = motor.get_odom()
         if odom_time == 0.0 or time.time() - odom_time > 0.5:
@@ -349,7 +355,8 @@ def drive_forward_by_encoder(motor, distance_m=POST_COLOR_FORWARD_M):
         if left_counts >= target_counts and right_counts >= target_counts:
             break
 
-        motor.vw(forward_v, 0.0)
+        current_v = rate_limit(current_v, forward_v, V_STEP)
+        motor.vw(current_v, 0.0)
         wait_ms(int(LOOP_DT * 1000))
 
     motor.stop()
@@ -628,7 +635,11 @@ def main():
                 last_v = 0.0 if mode.startswith("ALIGN") else rate_limit(last_v, target_v, V_STEP)
                 w_step = AVOID_W_STEP if (mode.startswith("AVOID") or mode.startswith("EXPLORE")) else FOLLOW_W_STEP
                 last_w = rate_limit(last_w, target_w, w_step)
-                motor.vw(last_v, last_w)
+                if mode.startswith("ALIGN"):
+                    # 색 정렬은 한 바퀴 정지 + 한 바퀴 후진 피벗으로 회전
+                    motor.pivot(last_w)
+                else:
+                    motor.vw(last_v, last_w)
             elif not motor_enabled.is_set():
                 last_v, last_w = 0.0, 0.0
                 motor.stop()
