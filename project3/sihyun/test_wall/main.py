@@ -15,6 +15,7 @@ if str(THIS_DIR) not in sys.path:
     sys.path.insert(0, str(THIS_DIR))
 
 from camera import (
+    ALIGN_KP,
     bottom_center_error,
     close_camera,
     detect,
@@ -419,11 +420,12 @@ def color_cmd(target, frame, ranges, has_obstacle, color_deg, elapsed):
 
 
 def bottom_color_cmd(target, frame):
-    target_v, target_w = follow_cmd(target, frame.shape, DRIVE_V)
-
     if abs(x_center_error(target, frame.shape)) > COLOR_EXIT_CENTER_ERR:
-        return "ALIGN: bottom color", 0.0, target_w
+        # 속도 0으로 방향만 보정: ALIGN 전용 Kp로 회전량 계산
+        _, align_w = follow_cmd(target, frame.shape, DRIVE_V, ALIGN_KP)
+        return "ALIGN: bottom color", 0.0, align_w
 
+    target_v, target_w = follow_cmd(target, frame.shape, DRIVE_V)
     return "FOLLOW: bottom color", target_v, target_w
 
 
