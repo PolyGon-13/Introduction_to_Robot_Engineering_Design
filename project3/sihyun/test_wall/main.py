@@ -371,7 +371,7 @@ def obstacle_in_zone(ranges, zone, clear_d=FREE_D):
     if ranges is None:
         return False
 
-    return float(np.min(ranges[zone])) < clear_d
+    return zone_min_distance(ranges, zone) < clear_d
 
 
 def color_path_clear(ranges, color_deg, clear_d=FREE_D):
@@ -388,7 +388,7 @@ def front_obstacle_distance(ranges):
     if ranges is None:
         return FREE_D
 
-    return float(np.min(ranges[FRONT_LOG_ZONE]))
+    return zone_min_distance(ranges, FRONT_LOG_ZONE)
 
 
 def obstacle_repulsion(ranges):
