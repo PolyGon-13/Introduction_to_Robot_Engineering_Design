@@ -1,0 +1,4 @@
+[LOG] logging to /home/pi/Introduction_to_Robot_Engineering_Design/project3/sihyun/test_wall/log/robot_log_20260622_015843.txt
+[READY] Press Enter to enable motor...[ARDUINO] RESET
+[0.00s] [ODOM] left=0 right=0 arduino_ms=2568149
+[0.00s] [LIDAR] waiting...
