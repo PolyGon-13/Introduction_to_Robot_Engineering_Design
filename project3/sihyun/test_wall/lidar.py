@@ -38,6 +38,7 @@ AVOID_TURN_SIGN = -1.0
 SIDE_CLEAR_D = 0.20
 SIDE_CORRECT_MAX_DEG = 30.0
 COLOR_TO_LIDAR_DEG = 45.0
+OPPOSITE_WALL_GAIN = 1.0  # 색 추적 회피 시 색 반대쪽 벽에서 멀어지는 반발 가중치
 
 GRID = np.arange(ANG_MIN, ANG_MAX + 0.5 * ANG_STEP, ANG_STEP, dtype=np.float32)
 LEFT_ZONE = (GRID >= ANG_MIN) & (GRID < -FRONT_HALF_DEG)
@@ -203,7 +204,7 @@ def zone_min_distance(ranges, zone):
     return float(np.min(measured))
 
 
-def avoid_cmd(ranges, color_deg=None, base_v=AVOID_BASE_V):
+def avoid_cmd(ranges, color_deg=None, base_v=AVOID_BASE_V, color_follow=False):
     if ranges is None:
         return 0.0, 0.0, 0.0, 0
 
@@ -232,11 +233,17 @@ def avoid_cmd(ranges, color_deg=None, base_v=AVOID_BASE_V):
     right_d = zone_min_distance(ranges, RIGHT_ZONE)
     left_risk = max(0.0, SIDE_CLEAR_D - left_d)
     right_risk = max(0.0, SIDE_CLEAR_D - right_d)
-    side_correct_deg = clamp(
-        (left_risk - right_risk) / SIDE_CLEAR_D * SIDE_CORRECT_MAX_DEG,
-        -SIDE_CORRECT_MAX_DEG,
-        SIDE_CORRECT_MAX_DEG,
-    )
+    if color_follow and color_deg is not None:
+        # 색 추적 회피: 색 반대쪽 벽에서만 멀어지도록 비대칭 반발(색 쪽은 보정 안 함).
+        # target_deg는 양수=오른쪽. 색이 오른쪽(>=0)이면 반대쪽 왼쪽 벽 → 오른쪽(+)으로 밀기.
+        if color_deg >= 0.0:
+            side_correct_deg = OPPOSITE_WALL_GAIN * left_risk / SIDE_CLEAR_D * SIDE_CORRECT_MAX_DEG
+        else:
+            side_correct_deg = -OPPOSITE_WALL_GAIN * right_risk / SIDE_CLEAR_D * SIDE_CORRECT_MAX_DEG
+    else:
+        # 일반 회피: 양쪽 벽 거리 차이에 따른 대칭 보정
+        side_correct_deg = (left_risk - right_risk) / SIDE_CLEAR_D * SIDE_CORRECT_MAX_DEG
+    side_correct_deg = clamp(side_correct_deg, -SIDE_CORRECT_MAX_DEG, SIDE_CORRECT_MAX_DEG)
     target_deg = clamp(target_deg + side_correct_deg, ANG_MIN, ANG_MAX)
 
     w = clamp(AVOID_TURN_SIGN * AVOID_TURN_GAIN * np.deg2rad(target_deg), -AVOID_MAX_W, AVOID_MAX_W)
