@@ -78,10 +78,10 @@ POST_COLOR_FORWARD_M = 0.03  # Move forward after a color exits bottom before pa
 TURN_360_WHEEL_BASE_M = 0.18  # Distance between left/right wheels for encoder-based 360 turn(m)
 TURN_360_COUNTS = np.pi * TURN_360_WHEEL_BASE_M * ENC_COUNTS_PER_M
 AVOID_STOP_D = 0.15  # Stop avoid forward speed when a front obstacle is this close(m)
-SPIRAL_GROWTH = 0.02  # 아르키메데스 나선 계수 b: 각도 1rad당 반경 증가량(m, 작을수록 촘촘)
+SPIRAL_GROWTH = 0.08  # 아르키메데스 나선 계수 b: 각도 1rad당 반경 증가량(m, 작을수록 촘촘)
 SPIRAL_MAX_RADIUS = 1.5  # 나선 최대 반경(m), 원점에서 이 거리 넘으면 복귀
 SPIRAL_LOOKAHEAD_M = 0.15  # 나선 경로에서 바라볼 목표점까지의 전방주시 거리(m)
-SPIRAL_MAX_ADVANCE = 0.9  # 한 루프에 나선 각도를 최대 이만큼(rad)만 전진(목표점 점프 방지)
+SPIRAL_MAX_ADVANCE = 0.5  # 한 루프에 나선 각도를 최대 이만큼(rad)만 전진(목표점 점프 방지)
 SPIRAL_HEADING_KP = 1.5  # 나선 목표점 방향으로 향하는 회전 비례계수
 RETURN_KP = 1.0  # 원점 복귀 시 헤딩 오차(rad)에 대한 회전 비례계수
 RETURN_DONE_M = 0.10  # 원점에 이 거리(m) 안으로 들어오면 복귀 완료로 보고 나선 재시작
@@ -494,7 +494,7 @@ def color_cmd(target, frame, ranges, has_obstacle, color_deg, elapsed):
             target_v, target_w = follow_cmd(target, frame.shape, DRIVE_V)
             return "FOLLOW: color path clear", target_v, target_w
 
-        target_v, target_w, target_deg, gap_count = avoid_cmd(ranges, color_deg, DRIVE_V)
+        target_v, target_w, target_deg, gap_count = avoid_cmd(ranges, color_deg, DRIVE_V, color_follow=True)
         target_v = scale_avoid_speed_for_front_obstacle(target_v, ranges)
         log_avoid(elapsed, "AVOID", target_deg, target_v, target_w, gap_count)
         return "AVOID: color + obstacle", target_v, target_w
