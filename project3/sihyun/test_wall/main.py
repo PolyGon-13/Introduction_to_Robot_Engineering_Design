@@ -452,7 +452,10 @@ def log_odom(elapsed, odom):
 
 def color_cmd(target, frame, ranges, has_obstacle, color_deg, elapsed):
     if has_obstacle:
-        # 색 추종 중 장애물이 감지되면 무조건 회피
+        if color_path_clear(ranges, color_deg):
+            target_v, target_w = follow_cmd(target, frame.shape, DRIVE_V)
+            return "FOLLOW: color path clear", target_v, target_w
+
         target_v, target_w, target_deg, gap_count = avoid_cmd(ranges, color_deg, DRIVE_V)
         target_v = scale_avoid_speed_for_front_obstacle(target_v, ranges)
         log_avoid(elapsed, "AVOID", target_deg, target_v, target_w, gap_count)
