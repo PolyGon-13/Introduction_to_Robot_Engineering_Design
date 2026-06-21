@@ -272,10 +272,12 @@ class SpiralExplorer:
         theta = self.spiral_theta
         advanced = 0.0
         tx, ty, radius = self.spiral_point(theta)
-        while (np.hypot(tx - self.x, ty - self.y) < SPIRAL_LOOKAHEAD_M
-               and advanced < SPIRAL_MAX_ADVANCE and theta > 0.0):
-            theta = max(0.0, theta + step)
+        while np.hypot(tx - self.x, ty - self.y) < SPIRAL_LOOKAHEAD_M and advanced < SPIRAL_MAX_ADVANCE:
+            theta += step
             advanced += 0.05
+            if self.shrinking and theta <= 0.0:  # 수축 단계는 중심(theta=0)에서 멈춤
+                theta = 0.0
+                break
             tx, ty, radius = self.spiral_point(theta)
         self.spiral_theta = theta
 
