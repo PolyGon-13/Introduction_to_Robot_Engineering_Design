@@ -1,0 +1,1565 @@
+[LOG] logging to /home/pi/Introduction_to_Robot_Engineering_Design/project3/sihyun/test_wall_expand/log/robot_log_20260622_042100.txt
+[READY] Press Enter to enable motor...[ARDUINO] RESET
+[0.00s] [ODOM] left=35172 right=33973 arduino_ms=676558
+[0.00s] [LIDAR] waiting...
+[0.00s] [AVOID_INITIAL] gap=0 clear=0.00m target=0 v=0.00 w=0.00
+[0.00s] [STATE] mode=AVOID: no initial color target=RED:X cmd(v=+0.00 w=+0.00) sent(v=+0.00 w=+0.00) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=OFF
+[0.51s] [ODOM] left=0 right=0 arduino_ms=677107
+[0.51s] [LIDAR] left=0.55m(43) front=0.76m(29) right=1.05m(68)
+[0.51s] [AVOID_INITIAL] gap=1 clear=open target=0 v=0.25 w=-0.00
+[0.51s] [STATE] mode=AVOID: no initial color target=RED:X cmd(v=+0.25 w=-0.00) sent(v=+0.00 w=+0.00) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=OFF
+[0.66s] [LIDAR] left=0.55m(43) front=0.76m(29) right=1.03m(69)
+[0.66s] [AVOID_INITIAL] gap=1 clear=open target=0 v=0.25 w=-0.00
+[0.66s] [STATE] mode=AVOID: no initial color target=RED:X cmd(v=+0.25 w=-0.00) sent(v=+0.00 w=+0.00) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=OFF
+[0.77s] [LIDAR] left=0.55m(45) front=0.76m(29) right=1.04m(71)
+[0.77s] [AVOID_INITIAL] gap=1 clear=open target=0 v=0.25 w=-0.00
+[0.77s] [STATE] mode=AVOID: no initial color target=RED:X cmd(v=+0.25 w=-0.00) sent(v=+0.00 w=+0.00) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=OFF
+[0.87s] [LIDAR] left=0.55m(48) front=0.76m(29) right=1.03m(70)
+[0.87s] [AVOID_INITIAL] gap=1 clear=open target=0 v=0.25 w=-0.00
+[0.87s] [STATE] mode=AVOID: no initial color target=RED:X cmd(v=+0.25 w=-0.00) sent(v=+0.00 w=+0.00) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=OFF
+[0.95s] [LIDAR] left=0.55m(46) front=0.76m(30) right=1.03m(70)
+[0.95s] [AVOID_INITIAL] gap=1 clear=open target=0 v=0.25 w=-0.00
+[0.95s] [STATE] mode=AVOID: no initial color target=RED:X cmd(v=+0.25 w=-0.00) sent(v=+0.00 w=+0.00) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=OFF
+[1.03s] [LIDAR] left=0.55m(49) front=0.76m(31) right=1.03m(72)
+[1.03s] [AVOID_INITIAL] gap=1 clear=open target=0 v=0.25 w=-0.00
+[1.03s] [STATE] mode=AVOID: no initial color target=RED:X cmd(v=+0.25 w=-0.00) sent(v=+0.00 w=+0.00) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=OFF
+[1.12s] [ODOM] left=0 right=0 arduino_ms=677647
+[1.12s] [LIDAR] left=0.55m(49) front=0.76m(31) right=1.03m(72)
+[1.12s] [AVOID_INITIAL] gap=1 clear=open target=0 v=0.25 w=-0.00
+[1.12s] [STATE] mode=AVOID: no initial color target=RED:X cmd(v=+0.25 w=-0.00) sent(v=+0.00 w=+0.00) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=OFF
+[1.20s] [LIDAR] left=0.55m(48) front=0.76m(27) right=1.03m(72)
+[1.20s] [AVOID_INITIAL] gap=1 clear=open target=0 v=0.25 w=-0.00
+[1.20s] [STATE] mode=AVOID: no initial color target=RED:X cmd(v=+0.25 w=-0.00) sent(v=+0.00 w=+0.00) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=OFF
+[1.29s] [LIDAR] left=0.55m(48) front=0.76m(29) right=1.04m(70)
+[1.29s] [AVOID_INITIAL] gap=1 clear=open target=0 v=0.25 w=-0.00
+[1.29s] [STATE] mode=AVOID: no initial color target=RED:X cmd(v=+0.25 w=-0.00) sent(v=+0.00 w=+0.00) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=OFF
+[1.40s] [LIDAR] left=0.55m(48) front=0.76m(27) right=1.03m(72)
+[1.40s] [AVOID_INITIAL] gap=1 clear=open target=0 v=0.25 w=-0.00
+[1.40s] [STATE] mode=AVOID: no initial color target=RED:X cmd(v=+0.25 w=-0.00) sent(v=+0.00 w=+0.00) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=OFF
+[1.50s] [LIDAR] left=0.55m(48) front=0.76m(30) right=1.03m(73)
+[1.50s] [AVOID_INITIAL] gap=1 clear=open target=0 v=0.25 w=-0.00
+[1.50s] [STATE] mode=AVOID: no initial color target=RED:X cmd(v=+0.25 w=-0.00) sent(v=+0.00 w=+0.00) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=OFF
+[1.61s] [LIDAR] left=0.55m(49) front=0.76m(31) right=1.03m(72)
+[1.61s] [AVOID_INITIAL] gap=1 clear=open target=0 v=0.25 w=-0.00
+[1.61s] [STATE] mode=AVOID: no initial color target=RED:X cmd(v=+0.25 w=-0.00) sent(v=+0.00 w=+0.00) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=OFF
+[1.70s] [ODOM] left=0 right=0 arduino_ms=678247
+[1.70s] [LIDAR] left=0.55m(49) front=0.76m(29) right=1.03m(74)
+[1.70s] [AVOID_INITIAL] gap=1 clear=open target=0 v=0.25 w=-0.00
+[1.70s] [STATE] mode=AVOID: no initial color target=RED:X cmd(v=+0.25 w=-0.00) sent(v=+0.00 w=+0.00) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=OFF
+[1.78s] [LIDAR] left=0.55m(49) front=0.76m(30) right=1.03m(73)
+[1.78s] [AVOID_INITIAL] gap=1 clear=open target=0 v=0.25 w=-0.00
+[1.78s] [STATE] mode=AVOID: no initial color target=RED:X cmd(v=+0.25 w=-0.00) sent(v=+0.00 w=+0.00) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=OFF
+[1.86s] [LIDAR] left=0.55m(49) front=0.76m(30) right=1.03m(73)
+[1.86s] [AVOID_INITIAL] gap=1 clear=open target=0 v=0.25 w=-0.00
+[1.86s] [STATE] mode=AVOID: no initial color target=RED:X cmd(v=+0.25 w=-0.00) sent(v=+0.00 w=+0.00) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=OFF
+[1.94s] [LIDAR] left=0.55m(48) front=0.76m(30) right=1.04m(72)
+[1.94s] [AVOID_INITIAL] gap=1 clear=open target=0 v=0.25 w=-0.00
+[1.94s] [STATE] mode=AVOID: no initial color target=RED:X cmd(v=+0.25 w=-0.00) sent(v=+0.00 w=+0.00) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=OFF
+[2.02s] [LIDAR] left=0.55m(48) front=0.76m(30) right=1.03m(73)
+[2.02s] [AVOID_INITIAL] gap=1 clear=open target=0 v=0.25 w=-0.00
+[2.02s] [STATE] mode=AVOID: no initial color target=RED:X cmd(v=+0.25 w=-0.00) sent(v=+0.00 w=+0.00) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=OFF
+[2.11s] [LIDAR] left=0.55m(47) front=0.76m(30) right=1.03m(72)
+[2.11s] [AVOID_INITIAL] gap=1 clear=open target=0 v=0.25 w=-0.00
+[2.11s] [STATE] mode=AVOID: no initial color target=RED:X cmd(v=+0.25 w=-0.00) sent(v=+0.00 w=+0.00) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=OFF
+[2.19s] [LIDAR] left=0.55m(48) front=0.76m(29) right=1.04m(71)
+[2.19s] [AVOID_INITIAL] gap=1 clear=open target=0 v=0.25 w=-0.00
+[2.19s] [STATE] mode=AVOID: no initial color target=RED:X cmd(v=+0.25 w=-0.00) sent(v=+0.00 w=+0.00) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=OFF
+[2.27s] [ODOM] left=0 right=0 arduino_ms=678787
+[2.27s] [LIDAR] left=0.55m(48) front=0.76m(29) right=1.04m(71)
+[2.27s] [AVOID_INITIAL] gap=1 clear=open target=0 v=0.25 w=-0.00
+[2.27s] [STATE] mode=AVOID: no initial color target=RED:X cmd(v=+0.25 w=-0.00) sent(v=+0.04 w=+0.00) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[2.35s] [LIDAR] left=0.55m(48) front=0.76m(29) right=1.03m(71)
+[2.35s] [AVOID_INITIAL] gap=1 clear=open target=0 v=0.25 w=-0.00
+[2.35s] [STATE] mode=AVOID: no initial color target=RED:X cmd(v=+0.25 w=-0.00) sent(v=+0.08 w=+0.00) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[2.44s] [LIDAR] left=0.55m(48) front=0.76m(29) right=1.03m(71)
+[2.44s] [AVOID_INITIAL] gap=1 clear=open target=0 v=0.25 w=-0.00
+[2.44s] [STATE] mode=AVOID: no initial color target=RED:X cmd(v=+0.25 w=-0.00) sent(v=+0.12 w=+0.00) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[2.52s] [LIDAR] left=0.54m(48) front=0.76m(30) right=1.03m(70)
+[2.52s] [AVOID_INITIAL] gap=1 clear=open target=0 v=0.25 w=-0.00
+[2.52s] [STATE] mode=AVOID: no initial color target=RED:X cmd(v=+0.25 w=-0.00) sent(v=+0.16 w=+0.00) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[2.62s] [LIDAR] left=0.53m(49) front=0.74m(29) right=1.05m(73)
+[2.62s] [AVOID_INITIAL] gap=1 clear=open target=0 v=0.25 w=-0.00
+[2.62s] [STATE] mode=AVOID: no initial color target=RED:X cmd(v=+0.25 w=-0.00) sent(v=+0.20 w=+0.00) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[2.70s] [LIDAR] left=0.52m(50) front=0.72m(30) right=1.08m(74)
+[2.70s] [AVOID_INITIAL] gap=1 clear=open target=0 v=0.25 w=-0.00
+[2.70s] [STATE] mode=AVOID: no initial color target=RED:X cmd(v=+0.25 w=-0.00) sent(v=+0.24 w=+0.00) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[2.80s] [ODOM] left=343 right=355 arduino_ms=679327
+[2.80s] [LIDAR] left=0.50m(50) front=0.69m(30) right=1.10m(73)
+[2.80s] [AVOID_INITIAL] gap=1 clear=open target=0 v=0.25 w=-0.00
+[2.80s] [STATE] mode=AVOID: no initial color target=RED:X cmd(v=+0.25 w=-0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[2.88s] [LIDAR] left=0.48m(53) front=0.66m(31) right=1.11m(72)
+[2.88s] [AVOID_INITIAL] gap=1 clear=open target=0 v=0.25 w=-0.00
+[2.88s] [STATE] mode=AVOID: no initial color target=RED:X cmd(v=+0.25 w=-0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[2.96s] [LIDAR] left=0.48m(53) front=0.66m(31) right=1.11m(72)
+[2.96s] [AVOID_INITIAL] gap=1 clear=open target=0 v=0.25 w=-0.00
+[2.96s] [STATE] mode=AVOID: no initial color target=RED:X cmd(v=+0.25 w=-0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[3.04s] [LIDAR] left=0.46m(55) front=0.62m(30) right=1.14m(70)
+[3.04s] [AVOID_INITIAL] gap=1 clear=open target=0 v=0.25 w=-0.00
+[3.04s] [STATE] mode=AVOID: no initial color target=RED:X cmd(v=+0.25 w=-0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[3.12s] [LIDAR] left=0.43m(55) front=0.59m(29) right=1.16m(73)
+[3.12s] [AVOID_INITIAL] gap=1 clear=open target=0 v=0.25 w=-0.00
+[3.12s] [STATE] mode=AVOID: no initial color target=RED:X cmd(v=+0.25 w=-0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[3.21s] [LIDAR] left=0.41m(59) front=0.56m(30) right=1.19m(72)
+[3.21s] [AVOID_INITIAL] gap=1 clear=open target=0 v=0.25 w=-0.00
+[3.21s] [STATE] mode=AVOID: no initial color target=RED:X cmd(v=+0.25 w=-0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[3.31s] [ODOM] left=1066 right=1095 arduino_ms=679807
+[3.31s] [LIDAR] left=0.39m(60) front=0.53m(30) right=1.61m(73)
+[3.31s] [AVOID_INITIAL] gap=1 clear=open target=0 v=0.25 w=-0.00
+[3.31s] [STATE] mode=AVOID: no initial color target=RED:X cmd(v=+0.25 w=-0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[3.39s] [LIDAR] left=0.38m(62) front=0.50m(30) right=1.62m(73)
+[3.39s] [AVOID_INITIAL] gap=1 clear=open target=0 v=0.25 w=-0.00
+[3.39s] [STATE] mode=AVOID: no initial color target=RED:X cmd(v=+0.25 w=-0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[3.47s] [LIDAR] left=0.36m(63) front=0.47m(31) right=0.56m(73)
+[3.47s] [AVOID_INITIAL] gap=1 clear=open target=0 v=0.25 w=-0.00
+[3.47s] [STATE] mode=AVOID: no initial color target=RED:X cmd(v=+0.25 w=-0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[3.56s] [LIDAR] left=0.36m(63) front=0.47m(31) right=0.56m(73)
+[3.56s] [AVOID_INITIAL] gap=1 clear=open target=0 v=0.25 w=-0.00
+[3.56s] [STATE] mode=AVOID: no initial color target=RED:X cmd(v=+0.25 w=-0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[3.64s] [LIDAR] left=0.35m(64) front=0.44m(31) right=0.53m(73)
+[3.64s] [AVOID_INITIAL] gap=1 clear=open target=0 v=0.25 w=-0.00
+[3.64s] [STATE] mode=AVOID: no initial color target=RED:X cmd(v=+0.25 w=-0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[3.73s] [LIDAR] left=0.33m(67) front=0.41m(30) right=0.50m(72)
+[3.73s] [AVOID_INITIAL] gap=1 clear=open target=0 v=0.25 w=-0.00
+[3.73s] [STATE] mode=AVOID: no initial color target=RED:X cmd(v=+0.25 w=-0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[3.80s] [LIDAR] left=0.32m(69) front=0.38m(31) right=0.46m(74)
+[3.80s] [AVOID_INITIAL] gap=1 clear=open target=0 v=0.25 w=-0.00
+[3.80s] [STATE] mode=AVOID: no initial color target=RED:X cmd(v=+0.25 w=-0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[3.89s] [ODOM] left=1899 right=1931 arduino_ms=680407
+[3.89s] [LIDAR] left=0.32m(66) front=0.35m(30) right=0.43m(74)
+[3.89s] [AVOID_INITIAL] gap=1 clear=open target=0 v=0.25 w=-0.00
+[3.89s] [STATE] mode=AVOID: no initial color target=RED:X cmd(v=+0.25 w=-0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[3.96s] [LIDAR] left=0.32m(66) front=0.35m(30) right=0.43m(74)
+[3.96s] [AVOID_INITIAL] gap=1 clear=open target=0 v=0.25 w=-0.00
+[3.96s] [STATE] mode=AVOID: no initial color target=RED:X cmd(v=+0.25 w=-0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[4.05s] [LIDAR] left=0.31m(68) front=0.33m(31) right=0.40m(73)
+[4.05s] [AVOID_INITIAL] gap=1 clear=open target=0 v=0.25 w=-0.00
+[4.05s] [STATE] mode=AVOID: no initial color target=RED:X cmd(v=+0.25 w=-0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[4.13s] [LIDAR] left=0.31m(69) front=0.30m(29) right=0.37m(75)
+[4.13s] [AVOID_INITIAL] gap=1 clear=open target=0 v=0.25 w=-0.00
+[4.13s] [STATE] mode=AVOID: no initial color target=RED:X cmd(v=+0.25 w=-0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[4.21s] [LIDAR] left=0.28m(70) front=0.27m(31) right=0.34m(75)
+[4.21s] [AVOID_INITIAL] gap=2 clear=open target=50 v=0.23 w=-1.00
+[4.21s] [STATE] mode=AVOID: no initial color target=RED:X cmd(v=+0.23 w=-1.00) sent(v=+0.23 w=-0.20) obstacle=True center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[4.29s] [LIDAR] left=0.25m(72) front=0.24m(31) right=0.31m(73)
+[4.29s] [AVOID_INITIAL] gap=2 clear=open target=55 v=0.18 w=-1.00
+[4.29s] [STATE] mode=AVOID: no initial color target=RED:X cmd(v=+0.18 w=-1.00) sent(v=+0.19 w=-0.40) obstacle=True center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[4.36s] [LIDAR] left=0.23m(73) front=0.22m(31) right=0.28m(74)
+[4.36s] [AVOID_INITIAL] gap=2 clear=open target=64 v=0.14 w=-1.00
+[4.36s] [STATE] mode=AVOID: no initial color target=RED:X cmd(v=+0.14 w=-1.00) sent(v=+0.15 w=-0.60) obstacle=True center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[4.45s] [ODOM] left=2609 right=2607 arduino_ms=680947
+[4.45s] [LIDAR] left=0.23m(73) front=0.22m(31) right=0.28m(74)
+[4.45s] [AVOID] gap=2 clear=open target=58 v=0.14 w=-1.00
+[4.45s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.14 w=-1.00) sent(v=+0.14 w=-0.80) obstacle=True center_ratio=0.33 x_err=-0.14 last_deg=-2 motor=ON
+[4.53s] [LIDAR] left=0.20m(76) front=0.20m(30) right=0.25m(74)
+[4.53s] [AVOID] gap=2 clear=open target=59 v=0.10 w=-1.00
+[4.53s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.10 w=-1.00) sent(v=+0.10 w=-1.00) obstacle=True center_ratio=0.34 x_err=-0.29 last_deg=-3 motor=ON
+[4.62s] [LIDAR] left=0.20m(77) front=0.20m(31) right=0.25m(71)
+[4.62s] [AVOID] gap=2 clear=open target=-80 v=0.10 w=1.00
+[4.62s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.10 w=+1.00) sent(v=+0.10 w=-0.80) obstacle=True center_ratio=0.36 x_err=-0.58 last_deg=-7 motor=ON
+[4.71s] [LIDAR] left=0.19m(78) front=0.20m(31) right=0.26m(70)
+[4.71s] [AVOID] gap=2 clear=open target=57 v=0.10 w=-1.00
+[4.71s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.10 w=-1.00) sent(v=+0.10 w=-1.00) obstacle=True center_ratio=0.36 x_err=-0.69 last_deg=-9 motor=ON
+[4.80s] [LIDAR] left=0.19m(81) front=0.21m(27) right=1.29m(71)
+[4.80s] [DETOUR] color_deg=-13 obst=L0.19m(min 0.22) front=0.21m deg=+20 v=0.12 w=-0.54
+[4.80s] [STATE] mode=DETOUR: skirt obstacle to color target=RED:X cmd(v=+0.12 w=-0.54) sent(v=+0.12 w=-0.80) obstacle=True center_ratio=0.36 x_err=-0.69 last_deg=-13 motor=ON
+[4.88s] [LIDAR] left=0.19m(81) front=0.22m(29) right=1.27m(70)
+[4.88s] [DETOUR] color_deg=-21 obst=L0.19m(min 0.22) front=0.23m deg=+9 v=0.15 w=-0.22
+[4.88s] [STATE] mode=DETOUR: skirt obstacle to color target=RED:X cmd(v=+0.15 w=-0.22) sent(v=+0.15 w=-0.60) obstacle=True center_ratio=0.36 x_err=-0.69 last_deg=-21 motor=ON
+[4.96s] [ODOM] left=3067 right=2542 arduino_ms=681487
+[4.96s] [LIDAR] left=0.19m(81) front=0.22m(29) right=1.27m(70)
+[4.96s] [DETOUR] color_deg=-24 obst=L0.19m(min 0.22) front=0.23m deg=+5 v=0.15 w=-0.13
+[4.96s] [STATE] mode=DETOUR: skirt obstacle to color target=RED:X cmd(v=+0.15 w=-0.13) sent(v=+0.15 w=-0.40) obstacle=True center_ratio=0.36 x_err=-0.69 last_deg=-24 motor=ON
+[5.04s] [LIDAR] left=0.19m(82) front=0.24m(31) right=1.25m(69)
+[5.04s] [DETOUR] color_deg=-27 obst=L0.19m(min 0.22) front=0.24m deg=+0 v=0.18 w=-0.01
+[5.04s] [STATE] mode=DETOUR: skirt obstacle to color target=RED:X cmd(v=+0.18 w=-0.01) sent(v=+0.18 w=-0.20) obstacle=True center_ratio=0.36 x_err=-0.69 last_deg=-27 motor=ON
+[5.14s] [LIDAR] left=0.19m(84) front=1.40m(31) right=1.25m(70)
+[5.14s] [DETOUR] color_deg=-31 obst=L0.19m(min 0.22) front=1.40m deg=-20 v=0.25 w=+0.52
+[5.14s] [STATE] mode=DETOUR: skirt obstacle to color target=RED:X cmd(v=+0.25 w=+0.52) sent(v=+0.22 w=-0.00) obstacle=True center_ratio=0.36 x_err=-0.69 last_deg=-31 motor=ON
+[5.22s] [LIDAR] left=0.18m(84) front=1.39m(31) right=1.24m(71)
+[5.22s] [DETOUR] color_deg=-31 obst=L0.18m(min 0.22) front=1.39m deg=-18 v=0.25 w=+0.47
+[5.22s] [STATE] mode=DETOUR: skirt obstacle to color target=RED:X cmd(v=+0.25 w=+0.47) sent(v=+0.25 w=+0.20) obstacle=True center_ratio=0.36 x_err=-0.69 last_deg=-31 motor=ON
+[5.30s] [LIDAR] left=0.17m(82) front=1.37m(29) right=1.24m(69)
+[5.30s] [DETOUR] color_deg=-30 obst=L0.17m(min 0.22) front=1.37m deg=-13 v=0.25 w=+0.33
+[5.30s] [STATE] mode=DETOUR: skirt obstacle to color target=RED:X cmd(v=+0.25 w=+0.33) sent(v=+0.25 w=+0.33) obstacle=True center_ratio=0.36 x_err=-0.69 last_deg=-30 motor=ON
+[5.39s] [LIDAR] left=0.15m(83) front=1.34m(31) right=1.25m(72)
+[5.39s] [DETOUR] color_deg=-29 obst=L0.15m(min 0.22) front=1.34m deg=-6 v=0.25 w=+0.16
+[5.39s] [STATE] mode=DETOUR: skirt obstacle to color target=RED:X cmd(v=+0.25 w=+0.16) sent(v=+0.25 w=+0.16) obstacle=True center_ratio=0.36 x_err=-0.69 last_deg=-29 motor=ON
+[5.48s] [ODOM] left=3605 right=3054 arduino_ms=682027
+[5.48s] [LIDAR] left=0.13m(83) front=1.31m(31) right=1.25m(73)
+[5.48s] [DETOUR] color_deg=-26 obst=L0.13m(min 0.22) front=1.31m deg=+2 v=0.25 w=-0.04
+[5.48s] [STATE] mode=DETOUR: skirt obstacle to color target=RED:X cmd(v=+0.25 w=-0.04) sent(v=+0.25 w=-0.04) obstacle=True center_ratio=0.36 x_err=-0.69 last_deg=-26 motor=ON
+[5.56s] [LIDAR] left=0.13m(83) front=1.31m(31) right=1.25m(73)
+[5.56s] [DETOUR] color_deg=-25 obst=L0.13m(min 0.22) front=1.31m deg=+2 v=0.25 w=-0.07
+[5.56s] [STATE] mode=DETOUR: skirt obstacle to color target=RED:X cmd(v=+0.25 w=-0.07) sent(v=+0.25 w=-0.07) obstacle=True center_ratio=0.36 x_err=-0.69 last_deg=-25 motor=ON
+[5.65s] [LIDAR] left=0.11m(84) front=1.29m(30) right=1.25m(73)
+[5.65s] [DETOUR] color_deg=-24 obst=L0.11m(min 0.22) front=1.29m deg=+9 v=0.25 w=-0.24
+[5.65s] [STATE] mode=DETOUR: skirt obstacle to color target=RED:X cmd(v=+0.25 w=-0.24) sent(v=+0.25 w=-0.24) obstacle=True center_ratio=0.36 x_err=-0.69 last_deg=-24 motor=ON
+[5.73s] [LIDAR] left=0.10m(84) front=1.26m(31) right=1.26m(75)
+[5.73s] [DETOUR] color_deg=-24 obst=L0.10m(min 0.22) front=1.26m deg=+15 v=0.25 w=-0.39
+[5.73s] [STATE] mode=DETOUR: skirt obstacle to color target=RED:X cmd(v=+0.25 w=-0.39) sent(v=+0.25 w=-0.39) obstacle=True center_ratio=0.36 x_err=-0.69 last_deg=-24 motor=ON
+[5.81s] [LIDAR] left=0.10m(82) front=1.25m(30) right=1.26m(75)
+[5.81s] [DETOUR] color_deg=-24 obst=L0.10m(min 0.22) front=1.26m deg=+14 v=0.25 w=-0.36
+[5.81s] [STATE] mode=DETOUR: skirt obstacle to color target=RED:X cmd(v=+0.25 w=-0.36) sent(v=+0.25 w=-0.36) obstacle=True center_ratio=0.36 x_err=-0.69 last_deg=-24 motor=ON
+[5.90s] [LIDAR] left=0.10m(84) front=1.25m(31) right=1.25m(76)
+[5.90s] [DETOUR] color_deg=-26 obst=L0.10m(min 0.22) front=1.25m deg=+12 v=0.25 w=-0.30
+[5.90s] [STATE] mode=DETOUR: skirt obstacle to color target=RED:X cmd(v=+0.25 w=-0.30) sent(v=+0.25 w=-0.30) obstacle=True center_ratio=0.36 x_err=-0.69 last_deg=-26 motor=ON
+[5.98s] [ODOM] left=4196 right=3629 arduino_ms=682507
+[5.98s] [LIDAR] left=0.10m(81) front=1.25m(31) right=1.25m(78)
+[5.98s] [DETOUR] color_deg=-27 obst=L0.10m(min 0.22) front=1.25m deg=+11 v=0.25 w=-0.29
+[5.98s] [STATE] mode=DETOUR: skirt obstacle to color target=RED:X cmd(v=+0.25 w=-0.29) sent(v=+0.25 w=-0.29) obstacle=True center_ratio=0.36 x_err=-0.69 last_deg=-27 motor=ON
+[6.06s] [LIDAR] left=0.10m(81) front=1.25m(31) right=1.25m(78)
+[6.06s] [DETOUR] color_deg=-28 obst=L0.10m(min 0.22) front=1.25m deg=+10 v=0.25 w=-0.26
+[6.06s] [STATE] mode=DETOUR: skirt obstacle to color target=RED:X cmd(v=+0.25 w=-0.26) sent(v=+0.25 w=-0.26) obstacle=True center_ratio=0.36 x_err=-0.69 last_deg=-28 motor=ON
+[6.14s] [LIDAR] left=0.10m(83) front=1.24m(31) right=1.25m(79)
+[6.14s] [DETOUR] color_deg=-30 obst=L0.10m(min 0.22) front=1.24m deg=+9 v=0.25 w=-0.24
+[6.14s] [STATE] mode=DETOUR: skirt obstacle to color target=RED:X cmd(v=+0.25 w=-0.24) sent(v=+0.25 w=-0.24) obstacle=True center_ratio=0.36 x_err=-0.69 last_deg=-30 motor=ON
+[6.22s] [LIDAR] left=0.09m(79) front=1.23m(30) right=1.23m(77)
+[6.22s] [DETOUR] color_deg=-30 obst=L0.10m(min 0.22) front=1.23m deg=+9 v=0.25 w=-0.23
+[6.22s] [STATE] mode=DETOUR: skirt obstacle to color target=RED:X cmd(v=+0.25 w=-0.23) sent(v=+0.25 w=-0.23) obstacle=True center_ratio=0.36 x_err=-0.69 last_deg=-30 motor=ON
+[6.31s] [LIDAR] left=0.09m(79) front=1.23m(31) right=1.23m(80)
+[6.31s] [AVOID] gap=2 clear=open target=38 v=0.25 w=-0.99
+[6.31s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-0.99) sent(v=+0.25 w=-0.43) obstacle=True center_ratio=0.53 x_err=-0.81 last_deg=-13 motor=ON
+[6.39s] [LIDAR] left=0.09m(80) front=1.22m(31) right=1.22m(79)
+[6.39s] [AVOID] gap=2 clear=open target=39 v=0.25 w=-1.00
+[6.39s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-1.00) sent(v=+0.25 w=-0.63) obstacle=True center_ratio=0.51 x_err=-0.75 last_deg=-12 motor=ON
+[6.47s] [LIDAR] left=0.09m(74) front=1.23m(30) right=1.21m(82)
+[6.47s] [AVOID] gap=2 clear=open target=38 v=0.25 w=-1.00
+[6.47s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-1.00) sent(v=+0.25 w=-0.83) obstacle=True center_ratio=0.51 x_err=-0.71 last_deg=-11 motor=ON
+[6.56s] [ODOM] left=4907 right=4186 arduino_ms=683107
+[6.56s] [LIDAR] left=0.09m(74) front=1.23m(30) right=1.21m(82)
+[6.56s] [AVOID] gap=2 clear=open target=38 v=0.25 w=-1.00
+[6.56s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-1.00) sent(v=+0.25 w=-1.00) obstacle=True center_ratio=0.50 x_err=-0.64 last_deg=-10 motor=ON
+[6.64s] [LIDAR] left=0.09m(73) front=1.23m(31) right=1.21m(83)
+[6.64s] [AVOID] gap=2 clear=open target=39 v=0.25 w=-1.00
+[6.64s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-1.00) sent(v=+0.25 w=-1.00) obstacle=True center_ratio=0.50 x_err=-0.60 last_deg=-9 motor=ON
+[6.73s] [LIDAR] left=0.09m(71) front=1.24m(31) right=1.20m(82)
+[6.73s] [AVOID] gap=2 clear=open target=38 v=0.25 w=-1.00
+[6.73s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-1.00) sent(v=+0.25 w=-1.00) obstacle=True center_ratio=0.50 x_err=-0.56 last_deg=-9 motor=ON
+[6.82s] [LIDAR] left=0.09m(72) front=0.23m(28) right=1.20m(84)
+[6.82s] [AVOID] gap=2 clear=open target=43 v=0.25 w=-1.00
+[6.82s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-1.00) sent(v=+0.25 w=-1.00) obstacle=True center_ratio=0.50 x_err=-0.53 last_deg=-8 motor=ON
+[6.90s] [LIDAR] left=0.09m(69) front=1.26m(26) right=1.20m(84)
+[6.90s] [AVOID] gap=2 clear=open target=42 v=0.25 w=-1.00
+[6.90s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-1.00) sent(v=+0.25 w=-1.00) obstacle=True center_ratio=0.50 x_err=-0.46 last_deg=-7 motor=ON
+[6.99s] [LIDAR] left=0.09m(72) front=0.10m(21) right=1.20m(83)
+[6.99s] [AVOID] gap=2 clear=open target=43 v=0.25 w=-1.00
+[6.99s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-1.00) sent(v=+0.25 w=-1.00) obstacle=True center_ratio=0.49 x_err=-0.42 last_deg=-7 motor=ON
+[7.07s] [ODOM] left=5490 right=4458 arduino_ms=683587
+[7.07s] [LIDAR] left=0.08m(75) front=0.08m(23) right=1.20m(85)
+[7.07s] [AVOID] gap=2 clear=open target=45 v=0.00 w=-1.00
+[7.07s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.00 w=-1.00) sent(v=+0.21 w=-1.00) obstacle=True center_ratio=0.49 x_err=-0.29 last_deg=-5 motor=ON
+[7.15s] [LIDAR] left=0.08m(75) front=0.08m(23) right=1.20m(85)
+[7.15s] [AVOID] gap=2 clear=open target=45 v=0.00 w=-1.00
+[7.15s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.00 w=-1.00) sent(v=+0.17 w=-1.00) obstacle=True center_ratio=0.49 x_err=-0.16 last_deg=-3 motor=ON
+[7.24s] [LIDAR] left=0.08m(74) front=0.08m(25) right=1.20m(85)
+[7.24s] [AVOID] gap=2 clear=open target=48 v=0.00 w=-1.00
+[7.24s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.00 w=-1.00) sent(v=+0.13 w=-1.00) obstacle=True center_ratio=0.49 x_err=-0.01 last_deg=-0 motor=ON
+[7.32s] [LIDAR] left=0.08m(74) front=0.08m(23) right=1.20m(85)
+[7.32s] [AVOID] gap=2 clear=open target=49 v=0.00 w=-1.00
+[7.32s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.00 w=-1.00) sent(v=+0.09 w=-1.00) obstacle=True center_ratio=0.49 x_err=-0.00 last_deg=-0 motor=ON
+[7.41s] [LIDAR] left=0.08m(73) front=0.08m(24) right=1.20m(85)
+[7.41s] [AVOID] gap=2 clear=open target=48 v=0.00 w=-1.00
+[7.41s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.00 w=-1.00) sent(v=+0.05 w=-1.00) obstacle=True center_ratio=0.49 x_err=-0.00 last_deg=-0 motor=ON
+[7.49s] [LIDAR] left=0.08m(71) front=0.08m(21) right=1.20m(85)
+[7.49s] [AVOID] gap=2 clear=open target=48 v=0.00 w=-1.00
+[7.49s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.00 w=-1.00) sent(v=+0.01 w=-1.00) obstacle=True center_ratio=0.49 x_err=-0.01 last_deg=-0 motor=ON
+[7.57s] [ODOM] left=5953 right=4484 arduino_ms=684127
+[7.57s] [LIDAR] left=0.08m(75) front=0.08m(21) right=1.20m(85)
+[7.57s] [AVOID] gap=2 clear=open target=50 v=0.00 w=-1.00
+[7.57s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.00 w=-1.00) sent(v=+0.00 w=-1.00) obstacle=True center_ratio=0.49 x_err=-0.09 last_deg=-1 motor=ON
+[7.66s] [LIDAR] left=0.09m(76) front=0.11m(26) right=1.20m(85)
+[7.66s] [AVOID] gap=2 clear=open target=45 v=0.03 w=-1.00
+[7.66s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.03 w=-1.00) sent(v=+0.03 w=-1.00) obstacle=True center_ratio=0.48 x_err=-0.21 last_deg=-3 motor=ON
+[7.74s] [LIDAR] left=0.09m(76) front=0.11m(26) right=1.20m(85)
+[7.74s] [AVOID] gap=2 clear=open target=45 v=0.03 w=-1.00
+[7.74s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.03 w=-1.00) sent(v=+0.03 w=-1.00) obstacle=True center_ratio=0.48 x_err=-0.43 last_deg=-7 motor=ON
+[7.83s] [LIDAR] left=0.09m(71) front=1.30m(30) right=1.20m(84)
+[7.83s] [AVOID] gap=2 clear=open target=42 v=0.25 w=-1.00
+[7.83s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-1.00) sent(v=+0.07 w=-1.00) obstacle=True center_ratio=0.49 x_err=-0.51 last_deg=-8 motor=ON
+[7.91s] [LIDAR] left=0.09m(71) front=1.26m(31) right=1.19m(84)
+[7.91s] [AVOID] gap=2 clear=open target=40 v=0.25 w=-1.00
+[7.91s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-1.00) sent(v=+0.11 w=-1.00) obstacle=True center_ratio=0.50 x_err=-0.59 last_deg=-9 motor=ON
+[8.00s] [LIDAR] left=0.10m(68) front=1.24m(31) right=1.19m(84)
+[8.00s] [AVOID] gap=2 clear=open target=39 v=0.25 w=-1.00
+[8.00s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-1.00) sent(v=+0.15 w=-1.00) obstacle=True center_ratio=0.51 x_err=-0.64 last_deg=-10 motor=ON
+[8.08s] [ODOM] left=6183 right=4290 arduino_ms=684607
+[8.08s] [LIDAR] left=0.10m(70) front=1.23m(31) right=1.19m(84)
+[8.08s] [AVOID] gap=2 clear=open target=40 v=0.25 w=-1.00
+[8.08s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-1.00) sent(v=+0.19 w=-1.00) obstacle=True center_ratio=0.51 x_err=-0.65 last_deg=-10 motor=ON
+[8.17s] [LIDAR] left=0.10m(71) front=1.23m(31) right=1.19m(82)
+[8.17s] [AVOID] gap=2 clear=open target=40 v=0.25 w=-1.00
+[8.17s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-1.00) sent(v=+0.23 w=-1.00) obstacle=True center_ratio=0.51 x_err=-0.64 last_deg=-10 motor=ON
+[8.26s] [LIDAR] left=0.10m(71) front=1.23m(31) right=1.19m(82)
+[8.26s] [AVOID] gap=2 clear=open target=40 v=0.25 w=-1.00
+[8.26s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-1.00) sent(v=+0.25 w=-1.00) obstacle=True center_ratio=0.51 x_err=-0.62 last_deg=-10 motor=ON
+[8.34s] [LIDAR] left=0.10m(70) front=1.23m(31) right=1.19m(84)
+[8.34s] [AVOID] gap=2 clear=open target=40 v=0.25 w=-1.00
+[8.34s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-1.00) sent(v=+0.25 w=-1.00) obstacle=True center_ratio=0.50 x_err=-0.56 last_deg=-9 motor=ON
+[8.42s] [LIDAR] left=0.10m(71) front=1.24m(29) right=1.18m(84)
+[8.42s] [AVOID] gap=2 clear=open target=42 v=0.25 w=-1.00
+[8.42s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-1.00) sent(v=+0.25 w=-1.00) obstacle=True center_ratio=0.50 x_err=-0.50 last_deg=-8 motor=ON
+[8.50s] [LIDAR] left=0.09m(65) front=0.18m(24) right=1.18m(84)
+[8.50s] [AVOID] gap=2 clear=open target=44 v=0.25 w=-1.00
+[8.50s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-1.00) sent(v=+0.25 w=-1.00) obstacle=True center_ratio=0.50 x_err=-0.43 last_deg=-7 motor=ON
+[8.58s] [LIDAR] left=0.09m(73) front=0.12m(23) right=1.19m(85)
+[8.58s] [AVOID] gap=2 clear=open target=48 v=0.00 w=-1.00
+[8.58s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.00 w=-1.00) sent(v=+0.21 w=-1.00) obstacle=True center_ratio=0.50 x_err=-0.26 last_deg=-4 motor=ON
+[8.66s] [ODOM] left=7010 right=4723 arduino_ms=685207
+[8.66s] [LIDAR] left=0.09m(74) front=0.09m(26) right=1.18m(85)
+[8.66s] [AVOID] gap=2 clear=open target=50 v=0.00 w=-1.00
+[8.66s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.00 w=-1.00) sent(v=+0.17 w=-1.00) obstacle=True center_ratio=0.49 x_err=-0.10 last_deg=-2 motor=ON
+[8.75s] [LIDAR] left=0.08m(69) front=0.08m(23) right=1.18m(85)
+[8.75s] [AVOID] gap=2 clear=open target=82 v=0.00 w=-1.00
+[8.75s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.00 w=-1.00) sent(v=+0.13 w=-1.00) obstacle=True center_ratio=0.49 x_err=+0.19 last_deg=+3 motor=ON
+[8.84s] [LIDAR] left=0.08m(69) front=0.08m(23) right=1.18m(85)
+[8.84s] [AVOID] gap=2 clear=open target=82 v=0.00 w=-1.00
+[8.84s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.00 w=-1.00) sent(v=+0.09 w=-1.00) obstacle=True center_ratio=0.50 x_err=+0.30 last_deg=+5 motor=ON
+[8.92s] [LIDAR] left=0.08m(68) front=0.08m(21) right=1.19m(85)
+[8.92s] [AVOID] gap=2 clear=open target=82 v=0.00 w=-1.00
+[8.92s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.00 w=-1.00) sent(v=+0.05 w=-1.00) obstacle=True center_ratio=0.50 x_err=+0.31 last_deg=+5 motor=ON
+[9.02s] [LIDAR] left=0.08m(69) front=0.08m(23) right=1.19m(85)
+[9.02s] [AVOID] gap=2 clear=open target=83 v=0.00 w=-1.00
+[9.02s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.00 w=-1.00) sent(v=+0.01 w=-1.00) obstacle=True center_ratio=0.50 x_err=+0.31 last_deg=+5 motor=ON
+[9.11s] [LIDAR] left=0.08m(68) front=0.08m(22) right=1.19m(85)
+[9.11s] [AVOID] gap=2 clear=open target=82 v=0.00 w=-1.00
+[9.11s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.00 w=-1.00) sent(v=+0.00 w=-1.00) obstacle=True center_ratio=0.49 x_err=+0.25 last_deg=+4 motor=ON
+[9.19s] [ODOM] left=7414 right=4730 arduino_ms=685687
+[9.19s] [LIDAR] left=0.09m(73) front=0.09m(17) right=1.18m(85)
+[9.19s] [AVOID] gap=2 clear=open target=82 v=0.00 w=-1.00
+[9.19s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.00 w=-1.00) sent(v=+0.00 w=-1.00) obstacle=True center_ratio=0.48 x_err=+0.12 last_deg=+2 motor=ON
+[9.28s] [LIDAR] left=0.09m(74) front=0.12m(20) right=1.18m(85)
+[9.28s] [AVOID] gap=2 clear=open target=51 v=0.03 w=-1.00
+[9.28s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.03 w=-1.00) sent(v=+0.03 w=-1.00) obstacle=True center_ratio=0.48 x_err=-0.02 last_deg=-0 motor=ON
+[9.37s] [LIDAR] left=0.09m(73) front=0.18m(25) right=1.18m(85)
+[9.37s] [AVOID] gap=2 clear=open target=46 v=0.25 w=-1.00
+[9.37s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-1.00) sent(v=+0.07 w=-1.00) obstacle=True center_ratio=0.48 x_err=-0.22 last_deg=-3 motor=ON
+[9.46s] [LIDAR] left=0.09m(73) front=0.18m(25) right=1.18m(85)
+[9.46s] [AVOID] gap=2 clear=open target=46 v=0.25 w=-1.00
+[9.46s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-1.00) sent(v=+0.11 w=-1.00) obstacle=True center_ratio=0.49 x_err=-0.38 last_deg=-6 motor=ON
+[9.54s] [LIDAR] left=0.09m(69) front=0.26m(28) right=1.18m(85)
+[9.54s] [AVOID] gap=2 clear=open target=44 v=0.25 w=-1.00
+[9.54s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-1.00) sent(v=+0.15 w=-1.00) obstacle=True center_ratio=0.49 x_err=-0.41 last_deg=-6 motor=ON
+[9.64s] [LIDAR] left=0.09m(73) front=0.26m(27) right=1.18m(85)
+[9.64s] [AVOID] gap=2 clear=open target=44 v=0.25 w=-1.00
+[9.64s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-1.00) sent(v=+0.19 w=-1.00) obstacle=True center_ratio=0.49 x_err=-0.42 last_deg=-6 motor=ON
+[9.72s] [ODOM] left=7731 right=4591 arduino_ms=686227
+[9.72s] [LIDAR] left=0.09m(72) front=0.26m(26) right=1.18m(85)
+[9.72s] [AVOID] gap=2 clear=open target=44 v=0.25 w=-1.00
+[9.72s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-1.00) sent(v=+0.23 w=-1.00) obstacle=True center_ratio=0.49 x_err=-0.39 last_deg=-6 motor=ON
+[9.80s] [LIDAR] left=0.09m(72) front=0.18m(25) right=1.18m(85)
+[9.80s] [AVOID] gap=2 clear=open target=46 v=0.25 w=-1.00
+[9.80s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-1.00) sent(v=+0.25 w=-1.00) obstacle=True center_ratio=0.50 x_err=-0.34 last_deg=-5 motor=ON
+[9.89s] [LIDAR] left=0.09m(75) front=0.12m(25) right=1.18m(85)
+[9.89s] [AVOID] gap=2 clear=open target=49 v=0.00 w=-1.00
+[9.89s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.00 w=-1.00) sent(v=+0.21 w=-1.00) obstacle=True center_ratio=0.50 x_err=-0.13 last_deg=-2 motor=ON
+[9.97s] [LIDAR] left=0.08m(71) front=0.08m(25) right=1.18m(85)
+[9.97s] [AVOID] gap=2 clear=open target=78 v=0.00 w=-1.00
+[9.97s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.00 w=-1.00) sent(v=+0.17 w=-1.00) obstacle=True center_ratio=0.49 x_err=+0.06 last_deg=+1 motor=ON
+[10.06s] [LIDAR] left=0.08m(64) front=0.08m(21) right=1.18m(85)
+[10.06s] [AVOID] gap=2 clear=open target=82 v=0.00 w=-1.00
+[10.06s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.00 w=-1.00) sent(v=+0.13 w=-1.00) obstacle=True center_ratio=0.50 x_err=+0.38 last_deg=+6 motor=ON
+[10.14s] [LIDAR] left=0.08m(64) front=0.08m(21) right=1.18m(85)
+[10.14s] [AVOID] gap=2 clear=open target=82 v=0.00 w=-1.00
+[10.14s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.00 w=-1.00) sent(v=+0.09 w=-1.00) obstacle=True center_ratio=0.50 x_err=+0.45 last_deg=+7 motor=ON
+[10.23s] [ODOM] left=8433 right=4878 arduino_ms=686767
+[10.23s] [LIDAR] left=0.08m(65) front=0.08m(21) right=1.18m(85)
+[10.23s] [AVOID] gap=2 clear=open target=84 v=0.00 w=-1.00
+[10.23s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.00 w=-1.00) sent(v=+0.05 w=-1.00) obstacle=True center_ratio=0.50 x_err=+0.45 last_deg=+7 motor=ON
+[10.32s] [LIDAR] left=0.08m(64) front=0.08m(20) right=1.19m(85)
+[10.32s] [AVOID] gap=2 clear=open target=86 v=0.00 w=-1.00
+[10.32s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.00 w=-1.00) sent(v=+0.01 w=-1.00) obstacle=True center_ratio=0.50 x_err=+0.45 last_deg=+7 motor=ON
+[10.40s] [LIDAR] left=0.08m(65) front=0.08m(21) right=1.19m(85)
+[10.40s] [AVOID] gap=2 clear=open target=84 v=0.00 w=-1.00
+[10.40s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.00 w=-1.00) sent(v=+0.00 w=-1.00) obstacle=True center_ratio=0.50 x_err=+0.39 last_deg=+6 motor=ON
+[10.48s] [LIDAR] left=0.08m(71) front=0.08m(22) right=1.18m(85)
+[10.48s] [AVOID] gap=2 clear=open target=84 v=0.00 w=-1.00
+[10.48s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.00 w=-1.00) sent(v=+0.00 w=-1.00) obstacle=True center_ratio=0.49 x_err=+0.29 last_deg=+5 motor=ON
+[10.58s] [LIDAR] left=0.09m(71) front=0.11m(18) right=1.18m(85)
+[10.58s] [AVOID] gap=2 clear=open target=80 v=0.00 w=-1.00
+[10.58s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.00 w=-1.00) sent(v=+0.00 w=-1.00) obstacle=True center_ratio=0.49 x_err=+0.07 last_deg=+1 motor=ON
+[10.67s] [LIDAR] left=0.09m(72) front=0.14m(23) right=1.17m(85)
+[10.67s] [AVOID] gap=2 clear=open target=47 v=0.19 w=-1.00
+[10.67s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.19 w=-1.00) sent(v=+0.04 w=-1.00) obstacle=True center_ratio=0.49 x_err=-0.13 last_deg=-2 motor=ON
+[10.75s] [ODOM] left=8610 right=4676 arduino_ms=687247
+[10.75s] [LIDAR] left=0.09m(72) front=0.14m(23) right=1.17m(85)
+[10.75s] [AVOID] gap=2 clear=open target=47 v=0.19 w=-1.00
+[10.75s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.19 w=-1.00) sent(v=+0.08 w=-1.00) obstacle=True center_ratio=0.49 x_err=-0.25 last_deg=-4 motor=ON
+[10.84s] [LIDAR] left=0.09m(71) front=0.26m(25) right=1.18m(85)
+[10.84s] [AVOID] gap=2 clear=open target=44 v=0.25 w=-1.00
+[10.84s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-1.00) sent(v=+0.12 w=-1.00) obstacle=True center_ratio=0.49 x_err=-0.39 last_deg=-6 motor=ON
+[10.92s] [LIDAR] left=0.09m(73) front=0.25m(27) right=1.18m(85)
+[10.92s] [AVOID] gap=2 clear=open target=44 v=0.25 w=-1.00
+[10.92s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-1.00) sent(v=+0.16 w=-1.00) obstacle=True center_ratio=0.49 x_err=-0.40 last_deg=-6 motor=ON
+[11.01s] [LIDAR] left=0.10m(73) front=0.26m(26) right=1.18m(85)
+[11.01s] [AVOID] gap=2 clear=open target=44 v=0.25 w=-1.00
+[11.01s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-1.00) sent(v=+0.20 w=-1.00) obstacle=True center_ratio=0.49 x_err=-0.40 last_deg=-6 motor=ON
+[11.09s] [LIDAR] left=0.09m(74) front=0.19m(27) right=1.18m(85)
+[11.09s] [AVOID] gap=2 clear=open target=45 v=0.21 w=-1.00
+[11.09s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.21 w=-1.00) sent(v=+0.21 w=-1.00) obstacle=True center_ratio=0.49 x_err=-0.37 last_deg=-6 motor=ON
+[11.17s] [LIDAR] left=0.09m(72) front=0.14m(23) right=1.18m(85)
+[11.17s] [AVOID] gap=2 clear=open target=48 v=0.04 w=-1.00
+[11.17s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.04 w=-1.00) sent(v=+0.17 w=-1.00) obstacle=True center_ratio=0.50 x_err=-0.25 last_deg=-4 motor=ON
+[11.26s] [ODOM] left=9176 right=4804 arduino_ms=687787
+[11.26s] [LIDAR] left=0.09m(71) front=0.10m(25) right=1.17m(85)
+[11.26s] [AVOID] gap=2 clear=open target=48 v=0.00 w=-1.00
+[11.26s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.00 w=-1.00) sent(v=+0.13 w=-1.00) obstacle=True center_ratio=0.50 x_err=-0.10 last_deg=-2 motor=ON
+[11.34s] [LIDAR] left=0.09m(71) front=0.10m(25) right=1.17m(85)
+[11.34s] [AVOID] gap=2 clear=open target=78 v=0.00 w=-1.00
+[11.34s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.00 w=-1.00) sent(v=+0.09 w=-1.00) obstacle=True center_ratio=0.49 x_err=+0.13 last_deg=+2 motor=ON
+[11.43s] [LIDAR] left=0.09m(72) front=0.09m(24) right=1.17m(85)
+[11.43s] [AVOID] gap=2 clear=open target=80 v=0.00 w=-1.00
+[11.43s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.00 w=-1.00) sent(v=+0.05 w=-1.00) obstacle=True center_ratio=0.50 x_err=+0.19 last_deg=+3 motor=ON
+[11.52s] [LIDAR] left=0.09m(68) front=0.09m(21) right=1.18m(85)
+[11.52s] [AVOID] gap=2 clear=open target=82 v=0.00 w=-1.00
+[11.52s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.00 w=-1.00) sent(v=+0.01 w=-1.00) obstacle=True center_ratio=0.50 x_err=+0.19 last_deg=+3 motor=ON
+[11.60s] [LIDAR] left=0.09m(70) front=0.09m(24) right=1.18m(85)
+[11.60s] [AVOID] gap=2 clear=open target=82 v=0.00 w=-1.00
+[11.60s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.00 w=-1.00) sent(v=+0.00 w=-1.00) obstacle=True center_ratio=0.49 x_err=+0.17 last_deg=+3 motor=ON
+[11.68s] [LIDAR] left=0.09m(69) front=0.11m(21) right=1.17m(85)
+[11.68s] [AVOID] gap=2 clear=open target=82 v=0.00 w=-1.00
+[11.68s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.00 w=-1.00) sent(v=+0.00 w=-1.00) obstacle=True center_ratio=0.49 x_err=+0.10 last_deg=+2 motor=ON
+[11.76s] [LIDAR] left=0.09m(76) front=0.14m(23) right=1.17m(85)
+[11.76s] [AVOID] gap=2 clear=open target=50 v=0.07 w=-1.00
+[11.76s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.07 w=-1.00) sent(v=+0.04 w=-1.00) obstacle=True center_ratio=0.49 x_err=-0.08 last_deg=-1 motor=ON
+[11.85s] [ODOM] left=9573 right=4708 arduino_ms=688387
+[11.85s] [LIDAR] left=0.09m(76) front=0.14m(23) right=1.17m(85)
+[11.85s] [AVOID] gap=2 clear=open target=50 v=0.07 w=-1.00
+[11.85s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.07 w=-1.00) sent(v=+0.07 w=-1.00) obstacle=True center_ratio=0.49 x_err=-0.19 last_deg=-3 motor=ON
+[11.93s] [LIDAR] left=0.09m(73) front=0.19m(23) right=1.17m(85)
+[11.93s] [AVOID] gap=2 clear=open target=44 v=0.25 w=-1.00
+[11.93s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-1.00) sent(v=+0.11 w=-1.00) obstacle=True center_ratio=0.49 x_err=-0.29 last_deg=-5 motor=ON
+[12.02s] [LIDAR] left=0.09m(69) front=0.19m(26) right=1.18m(85)
+[12.02s] [AVOID] gap=2 clear=open target=45 v=0.25 w=-1.00
+[12.02s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-1.00) sent(v=+0.15 w=-1.00) obstacle=True center_ratio=0.49 x_err=-0.34 last_deg=-5 motor=ON
+[12.10s] [LIDAR] left=0.09m(72) front=0.26m(25) right=1.18m(85)
+[12.10s] [AVOID] gap=2 clear=open target=45 v=0.25 w=-1.00
+[12.10s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-1.00) sent(v=+0.19 w=-1.00) obstacle=True center_ratio=0.49 x_err=-0.34 last_deg=-5 motor=ON
+[12.19s] [LIDAR] left=0.09m(72) front=0.17m(26) right=1.18m(85)
+[12.19s] [AVOID] gap=2 clear=open target=46 v=0.21 w=-1.00
+[12.19s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.21 w=-1.00) sent(v=+0.21 w=-1.00) obstacle=True center_ratio=0.49 x_err=-0.31 last_deg=-5 motor=ON
+[12.28s] [LIDAR] left=0.09m(73) front=0.14m(25) right=1.17m(85)
+[12.28s] [AVOID] gap=2 clear=open target=48 v=0.06 w=-1.00
+[12.28s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.06 w=-1.00) sent(v=+0.17 w=-1.00) obstacle=True center_ratio=0.50 x_err=-0.19 last_deg=-3 motor=ON
+[12.36s] [ODOM] left=10091 right=4823 arduino_ms=688867
+[12.36s] [LIDAR] left=0.09m(73) front=0.11m(26) right=1.17m(85)
+[12.36s] [AVOID] gap=2 clear=open target=48 v=0.00 w=-1.00
+[12.36s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.00 w=-1.00) sent(v=+0.13 w=-1.00) obstacle=True center_ratio=0.50 x_err=-0.05 last_deg=-1 motor=ON
+[12.44s] [LIDAR] left=0.09m(73) front=0.11m(26) right=1.17m(85)
+[12.44s] [AVOID] gap=2 clear=open target=78 v=0.00 w=-1.00
+[12.44s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.00 w=-1.00) sent(v=+0.09 w=-1.00) obstacle=True center_ratio=0.49 x_err=+0.15 last_deg=+2 motor=ON
+[12.53s] [LIDAR] left=0.09m(71) front=0.10m(22) right=1.17m(85)
+[12.53s] [AVOID] gap=2 clear=open target=79 v=0.00 w=-1.00
+[12.53s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.00 w=-1.00) sent(v=+0.05 w=-1.00) obstacle=True center_ratio=0.50 x_err=+0.19 last_deg=+3 motor=ON
+[12.61s] [LIDAR] left=0.09m(71) front=0.10m(22) right=1.17m(85)
+[12.61s] [AVOID] gap=2 clear=open target=82 v=0.00 w=-1.00
+[12.61s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.00 w=-1.00) sent(v=+0.01 w=-1.00) obstacle=True center_ratio=0.50 x_err=+0.19 last_deg=+3 motor=ON
+[12.70s] [LIDAR] left=0.09m(72) front=0.10m(22) right=1.17m(85)
+[12.70s] [AVOID] gap=2 clear=open target=82 v=0.00 w=-1.00
+[12.70s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.00 w=-1.00) sent(v=+0.00 w=-1.00) obstacle=True center_ratio=0.49 x_err=+0.18 last_deg=+3 motor=ON
+[12.78s] [LIDAR] left=0.09m(75) front=0.11m(22) right=1.17m(85)
+[12.78s] [AVOID] gap=2 clear=open target=82 v=0.00 w=-1.00
+[12.78s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.00 w=-1.00) sent(v=+0.00 w=-1.00) obstacle=True center_ratio=0.49 x_err=+0.09 last_deg=+1 motor=ON
+[12.86s] [LIDAR] left=0.09m(77) front=0.15m(21) right=1.17m(85)
+[12.86s] [AVOID] gap=2 clear=open target=50 v=0.07 w=-1.00
+[12.86s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.07 w=-1.00) sent(v=+0.04 w=-1.00) obstacle=True center_ratio=0.49 x_err=-0.02 last_deg=-0 motor=ON
+[12.94s] [ODOM] left=10501 right=4740 arduino_ms=689471
+[12.94s] [LIDAR] left=0.09m(77) front=0.15m(21) right=1.17m(85)
+[12.94s] [AVOID] gap=2 clear=open target=50 v=0.07 w=-1.00
+[12.94s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.07 w=-1.00) sent(v=+0.07 w=-1.00) obstacle=True center_ratio=0.49 x_err=-0.20 last_deg=-3 motor=ON
+[13.03s] [LIDAR] left=0.09m(76) front=0.18m(25) right=1.17m(85)
+[13.03s] [AVOID] gap=2 clear=open target=46 v=0.25 w=-1.00
+[13.03s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-1.00) sent(v=+0.11 w=-1.00) obstacle=True center_ratio=0.49 x_err=-0.30 last_deg=-5 motor=ON
+[13.11s] [LIDAR] left=0.10m(72) front=0.20m(27) right=1.17m(85)
+[13.11s] [AVOID] gap=2 clear=open target=45 v=0.25 w=-1.00
+[13.11s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-1.00) sent(v=+0.15 w=-1.00) obstacle=True center_ratio=0.49 x_err=-0.34 last_deg=-5 motor=ON
+[13.19s] [LIDAR] left=0.10m(74) front=0.26m(25) right=1.17m(85)
+[13.19s] [AVOID] gap=2 clear=open target=45 v=0.25 w=-1.00
+[13.19s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-1.00) sent(v=+0.19 w=-1.00) obstacle=True center_ratio=0.49 x_err=-0.34 last_deg=-5 motor=ON
+[13.28s] [LIDAR] left=0.09m(73) front=0.18m(24) right=1.17m(84)
+[13.28s] [AVOID] gap=2 clear=open target=46 v=0.21 w=-1.00
+[13.28s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.21 w=-1.00) sent(v=+0.21 w=-1.00) obstacle=True center_ratio=0.49 x_err=-0.30 last_deg=-5 motor=ON
+[13.37s] [LIDAR] left=0.09m(73) front=0.14m(26) right=1.17m(85)
+[13.37s] [AVOID] gap=2 clear=open target=48 v=0.01 w=-1.00
+[13.37s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.01 w=-1.00) sent(v=+0.17 w=-1.00) obstacle=True center_ratio=0.50 x_err=-0.22 last_deg=-3 motor=ON
+[13.45s] [ODOM] left=11018 right=4846 arduino_ms=689953
+[13.45s] [LIDAR] left=0.09m(73) front=0.14m(26) right=1.17m(85)
+[13.45s] [AVOID] gap=2 clear=open target=48 v=0.01 w=-1.00
+[13.45s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.01 w=-1.00) sent(v=+0.13 w=-1.00) obstacle=True center_ratio=0.50 x_err=-0.01 last_deg=-0 motor=ON
+[13.55s] [LIDAR] left=0.09m(73) front=0.11m(26) right=1.17m(85)
+[13.55s] [AVOID] gap=2 clear=open target=78 v=0.00 w=-1.00
+[13.55s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.00 w=-1.00) sent(v=+0.09 w=-1.00) obstacle=True center_ratio=0.50 x_err=+0.15 last_deg=+2 motor=ON
+[13.65s] [LIDAR] left=0.09m(71) front=0.10m(26) right=1.17m(85)
+[13.65s] [AVOID] gap=2 clear=open target=81 v=0.00 w=-1.00
+[13.65s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.00 w=-1.00) sent(v=+0.05 w=-1.00) obstacle=True center_ratio=0.50 x_err=+0.20 last_deg=+3 motor=ON
+[13.73s] [LIDAR] left=0.09m(69) front=0.10m(24) right=1.17m(85)
+[13.73s] [AVOID] gap=2 clear=open target=82 v=0.00 w=-1.00
+[13.73s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.00 w=-1.00) sent(v=+0.01 w=-1.00) obstacle=True center_ratio=0.50 x_err=+0.19 last_deg=+3 motor=ON
+[13.81s] [LIDAR] left=0.09m(71) front=0.10m(22) right=1.17m(85)
+[13.81s] [AVOID] gap=2 clear=open target=82 v=0.00 w=-1.00
+[13.81s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.00 w=-1.00) sent(v=+0.00 w=-1.00) obstacle=True center_ratio=0.49 x_err=+0.16 last_deg=+3 motor=ON
+[13.90s] [LIDAR] left=0.09m(72) front=0.12m(18) right=1.17m(85)
+[13.90s] [AVOID] gap=2 clear=open target=82 v=0.00 w=-1.00
+[13.90s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.00 w=-1.00) sent(v=+0.00 w=-1.00) obstacle=True center_ratio=0.49 x_err=+0.08 last_deg=+1 motor=ON
+[13.99s] [ODOM] left=11427 right=4808 arduino_ms=690497
+[13.99s] [LIDAR] left=0.09m(74) front=0.15m(23) right=1.17m(85)
+[13.99s] [AVOID] gap=2 clear=open target=50 v=0.03 w=-1.00
+[13.99s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.03 w=-1.00) sent(v=+0.03 w=-1.00) obstacle=True center_ratio=0.49 x_err=-0.10 last_deg=-2 motor=ON
+[14.07s] [LIDAR] left=0.10m(72) front=0.26m(26) right=1.17m(85)
+[14.07s] [AVOID] gap=2 clear=open target=45 v=0.25 w=-1.00
+[14.07s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-1.00) sent(v=+0.07 w=-1.00) obstacle=True center_ratio=0.49 x_err=-0.22 last_deg=-3 motor=ON
+[14.15s] [LIDAR] left=0.10m(72) front=0.26m(26) right=1.17m(85)
+[14.15s] [AVOID] gap=2 clear=open target=45 v=0.25 w=-1.00
+[14.15s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-1.00) sent(v=+0.11 w=-1.00) obstacle=True center_ratio=0.49 x_err=-0.38 last_deg=-6 motor=ON
+[14.24s] [LIDAR] left=0.10m(73) front=0.26m(27) right=1.17m(85)
+[14.24s] [AVOID] gap=2 clear=open target=44 v=0.25 w=-1.00
+[14.24s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-1.00) sent(v=+0.15 w=-1.00) obstacle=True center_ratio=0.49 x_err=-0.40 last_deg=-6 motor=ON
+[14.32s] [LIDAR] left=0.10m(72) front=0.26m(28) right=1.17m(85)
+[14.32s] [AVOID] gap=2 clear=open target=44 v=0.25 w=-1.00
+[14.32s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-1.00) sent(v=+0.19 w=-1.00) obstacle=True center_ratio=0.49 x_err=-0.39 last_deg=-6 motor=ON
+[14.40s] [LIDAR] left=0.10m(74) front=0.25m(27) right=1.17m(84)
+[14.40s] [AVOID] gap=2 clear=open target=44 v=0.25 w=-1.00
+[14.40s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-1.00) sent(v=+0.23 w=-1.00) obstacle=True center_ratio=0.49 x_err=-0.37 last_deg=-6 motor=ON
+[14.49s] [ODOM] left=11856 right=4797 arduino_ms=690979
+[14.49s] [LIDAR] left=0.10m(74) front=0.26m(27) right=1.17m(85)
+[14.49s] [AVOID] gap=2 clear=open target=45 v=0.25 w=-1.00
+[14.49s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-1.00) sent(v=+0.25 w=-1.00) obstacle=True center_ratio=0.49 x_err=-0.32 last_deg=-5 motor=ON
+[14.57s] [LIDAR] left=0.10m(74) front=0.19m(28) right=1.16m(85)
+[14.57s] [AVOID] gap=2 clear=open target=46 v=0.09 w=-1.00
+[14.57s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.09 w=-1.00) sent(v=+0.21 w=-1.00) obstacle=True center_ratio=0.49 x_err=-0.26 last_deg=-4 motor=ON
+[14.65s] [LIDAR] left=0.10m(74) front=0.19m(28) right=1.16m(85)
+[14.65s] [AVOID] gap=2 clear=open target=46 v=0.09 w=-1.00
+[14.65s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.09 w=-1.00) sent(v=+0.17 w=-1.00) obstacle=True center_ratio=0.49 x_err=-0.14 last_deg=-2 motor=ON
+[14.73s] [LIDAR] left=0.10m(75) front=0.17m(29) right=1.15m(85)
+[14.73s] [AVOID] gap=2 clear=open target=48 v=0.06 w=-1.00
+[14.73s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.06 w=-1.00) sent(v=+0.13 w=-1.00) obstacle=True center_ratio=0.50 x_err=-0.07 last_deg=-1 motor=ON
+[14.83s] [LIDAR] left=0.10m(73) front=0.16m(24) right=1.15m(85)
+[14.83s] [AVOID] gap=2 clear=open target=48 v=0.04 w=-1.00
+[14.83s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.04 w=-1.00) sent(v=+0.09 w=-1.00) obstacle=True center_ratio=0.50 x_err=-0.01 last_deg=-0 motor=ON
+[14.91s] [LIDAR] left=0.10m(70) front=0.16m(25) right=1.15m(85)
+[14.91s] [AVOID] gap=2 clear=open target=48 v=0.04 w=-1.00
+[14.91s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.04 w=-1.00) sent(v=+0.05 w=-1.00) obstacle=True center_ratio=0.50 x_err=-0.00 last_deg=-0 motor=ON
+[14.99s] [ODOM] left=12543 right=5051 arduino_ms=691523
+[14.99s] [LIDAR] left=0.10m(66) front=0.16m(25) right=1.15m(85)
+[14.99s] [AVOID] gap=2 clear=open target=48 v=0.04 w=-1.00
+[14.99s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.04 w=-1.00) sent(v=+0.04 w=-1.00) obstacle=True center_ratio=0.50 x_err=-0.01 last_deg=-0 motor=ON
+[15.08s] [LIDAR] left=0.10m(71) front=0.17m(26) right=1.15m(85)
+[15.08s] [AVOID] gap=2 clear=open target=48 v=0.06 w=-1.00
+[15.08s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.06 w=-1.00) sent(v=+0.06 w=-1.00) obstacle=True center_ratio=0.50 x_err=-0.02 last_deg=-0 motor=ON
+[15.16s] [LIDAR] left=0.10m(73) front=0.17m(25) right=1.15m(85)
+[15.16s] [AVOID] gap=2 clear=open target=47 v=0.07 w=-1.00
+[15.16s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.07 w=-1.00) sent(v=+0.07 w=-1.00) obstacle=True center_ratio=0.50 x_err=-0.05 last_deg=-1 motor=ON
+[15.25s] [LIDAR] left=0.10m(73) front=0.17m(25) right=1.15m(85)
+[15.25s] [AVOID] gap=2 clear=open target=47 v=0.07 w=-1.00
+[15.25s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.07 w=-1.00) sent(v=+0.07 w=-1.00) obstacle=True center_ratio=0.50 x_err=-0.06 last_deg=-1 motor=ON
+[15.33s] [LIDAR] left=0.10m(74) front=0.17m(23) right=1.15m(85)
+[15.33s] [AVOID] gap=2 clear=open target=47 v=0.06 w=-1.00
+[15.33s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.06 w=-1.00) sent(v=+0.06 w=-1.00) obstacle=True center_ratio=0.50 x_err=-0.07 last_deg=-1 motor=ON
+[15.42s] [LIDAR] left=0.10m(70) front=0.17m(26) right=1.15m(84)
+[15.42s] [AVOID] gap=2 clear=open target=48 v=0.05 w=-1.00
+[15.42s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.05 w=-1.00) sent(v=+0.05 w=-1.00) obstacle=True center_ratio=0.50 x_err=-0.07 last_deg=-1 motor=ON
+[15.50s] [ODOM] left=12849 right=5020 arduino_ms=692005
+[15.50s] [LIDAR] left=0.10m(72) front=0.17m(25) right=1.15m(85)
+[15.50s] [AVOID] gap=2 clear=open target=47 v=0.06 w=-1.00
+[15.50s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.06 w=-1.00) sent(v=+0.06 w=-1.00) obstacle=True center_ratio=0.50 x_err=-0.07 last_deg=-1 motor=ON
+[15.58s] [LIDAR] left=0.10m(74) front=0.17m(28) right=1.15m(85)
+[15.58s] [AVOID] gap=2 clear=open target=47 v=0.08 w=-1.00
+[15.58s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.08 w=-1.00) sent(v=+0.08 w=-1.00) obstacle=True center_ratio=0.50 x_err=-0.08 last_deg=-1 motor=ON
+[15.66s] [LIDAR] left=0.10m(72) front=0.17m(25) right=1.15m(85)
+[15.66s] [AVOID] gap=2 clear=open target=47 v=0.08 w=-1.00
+[15.66s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.08 w=-1.00) sent(v=+0.08 w=-1.00) obstacle=True center_ratio=0.50 x_err=-0.09 last_deg=-1 motor=ON
+[15.74s] [LIDAR] left=0.10m(72) front=0.17m(25) right=1.15m(85)
+[15.74s] [AVOID] gap=2 clear=open target=47 v=0.08 w=-1.00
+[15.74s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.08 w=-1.00) sent(v=+0.08 w=-1.00) obstacle=True center_ratio=0.50 x_err=-0.09 last_deg=-1 motor=ON
+[15.83s] [LIDAR] left=0.10m(71) front=0.17m(27) right=1.14m(85)
+[15.83s] [AVOID] gap=2 clear=open target=47 v=0.07 w=-1.00
+[15.83s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.07 w=-1.00) sent(v=+0.07 w=-1.00) obstacle=True center_ratio=0.50 x_err=-0.09 last_deg=-1 motor=ON
+[15.92s] [LIDAR] left=0.10m(75) front=0.18m(24) right=1.14m(85)
+[15.92s] [AVOID] gap=2 clear=open target=46 v=0.09 w=-1.00
+[15.92s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.09 w=-1.00) sent(v=+0.09 w=-1.00) obstacle=True center_ratio=0.50 x_err=-0.09 last_deg=-1 motor=ON
+[16.00s] [ODOM] left=13225 right=5012 arduino_ms=692488
+[16.00s] [LIDAR] left=0.10m(72) front=0.17m(26) right=1.14m(85)
+[16.00s] [AVOID] gap=2 clear=open target=47 v=0.07 w=-1.00
+[16.00s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.07 w=-1.00) sent(v=+0.07 w=-1.00) obstacle=True center_ratio=0.50 x_err=-0.09 last_deg=-2 motor=ON
+[16.09s] [LIDAR] left=0.10m(74) front=0.18m(25) right=1.14m(85)
+[16.09s] [AVOID] gap=2 clear=open target=47 v=0.09 w=-1.00
+[16.09s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.09 w=-1.00) sent(v=+0.09 w=-1.00) obstacle=True center_ratio=0.50 x_err=-0.09 last_deg=-2 motor=ON
+[16.17s] [LIDAR] left=0.10m(74) front=0.17m(26) right=1.15m(85)
+[16.17s] [AVOID] gap=2 clear=open target=46 v=0.07 w=-1.00
+[16.17s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.07 w=-1.00) sent(v=+0.07 w=-1.00) obstacle=True center_ratio=0.50 x_err=-0.09 last_deg=-2 motor=ON
+[16.26s] [LIDAR] left=0.10m(72) front=0.18m(26) right=1.15m(85)
+[16.26s] [AVOID] gap=2 clear=open target=47 v=0.08 w=-1.00
+[16.26s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.08 w=-1.00) sent(v=+0.08 w=-1.00) obstacle=True center_ratio=0.50 x_err=-0.09 last_deg=-2 motor=ON
+[16.34s] [LIDAR] left=0.10m(72) front=0.18m(26) right=1.15m(85)
+[16.34s] [AVOID] gap=2 clear=open target=47 v=0.08 w=-1.00
+[16.34s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.08 w=-1.00) sent(v=+0.08 w=-1.00) obstacle=True center_ratio=0.50 x_err=-0.10 last_deg=-2 motor=ON
+[16.43s] [LIDAR] left=0.10m(72) front=0.17m(24) right=1.15m(85)
+[16.43s] [AVOID] gap=2 clear=open target=46 v=0.07 w=-1.00
+[16.43s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.07 w=-1.00) sent(v=+0.07 w=-1.00) obstacle=True center_ratio=0.50 x_err=-0.10 last_deg=-2 motor=ON
+[16.51s] [ODOM] left=13671 right=5011 arduino_ms=693032
+[16.51s] [LIDAR] left=0.10m(76) front=0.17m(20) right=1.14m(85)
+[16.51s] [AVOID] gap=2 clear=open target=46 v=0.20 w=-1.00
+[16.51s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.20 w=-1.00) sent(v=+0.11 w=-1.00) obstacle=True center_ratio=0.50 x_err=-0.10 last_deg=-2 motor=ON
+[16.60s] [LIDAR] left=0.10m(76) front=0.17m(25) right=1.14m(85)
+[16.60s] [AVOID] gap=2 clear=open target=46 v=0.07 w=-1.00
+[16.60s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.07 w=-1.00) sent(v=+0.07 w=-1.00) obstacle=True center_ratio=0.50 x_err=-0.10 last_deg=-2 motor=ON
+[16.69s] [LIDAR] left=0.10m(75) front=0.17m(25) right=1.14m(85)
+[16.69s] [AVOID] gap=2 clear=open target=47 v=0.07 w=-1.00
+[16.69s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.07 w=-1.00) sent(v=+0.07 w=-1.00) obstacle=True center_ratio=0.50 x_err=-0.10 last_deg=-2 motor=ON
+[16.77s] [LIDAR] left=0.10m(73) front=0.17m(22) right=1.14m(85)
+[16.77s] [AVOID] gap=2 clear=open target=46 v=0.08 w=-1.00
+[16.77s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.08 w=-1.00) sent(v=+0.08 w=-1.00) obstacle=True center_ratio=0.50 x_err=-0.10 last_deg=-2 motor=ON
+[16.86s] [LIDAR] left=0.10m(75) front=0.17m(25) right=1.15m(85)
+[16.86s] [AVOID] gap=2 clear=open target=46 v=0.08 w=-1.00
+[16.86s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.08 w=-1.00) sent(v=+0.08 w=-1.00) obstacle=True center_ratio=0.50 x_err=-0.10 last_deg=-2 motor=ON
+[16.94s] [LIDAR] left=0.10m(75) front=0.17m(25) right=1.15m(85)
+[16.94s] [AVOID] gap=2 clear=open target=46 v=0.08 w=-1.00
+[16.94s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.08 w=-1.00) sent(v=+0.08 w=-1.00) obstacle=True center_ratio=0.50 x_err=-0.10 last_deg=-2 motor=ON
+[17.03s] [ODOM] left=14063 right=5010 arduino_ms=693515
+[17.03s] [LIDAR] left=0.10m(74) front=0.18m(24) right=1.14m(85)
+[17.03s] [AVOID] gap=2 clear=open target=46 v=0.08 w=-1.00
+[17.03s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.08 w=-1.00) sent(v=+0.08 w=-1.00) obstacle=True center_ratio=0.50 x_err=-0.10 last_deg=-2 motor=ON
+[17.11s] [LIDAR] left=0.10m(75) front=0.18m(25) right=1.14m(85)
+[17.11s] [AVOID] gap=2 clear=open target=46 v=0.08 w=-1.00
+[17.11s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.08 w=-1.00) sent(v=+0.08 w=-1.00) obstacle=True center_ratio=0.50 x_err=-0.10 last_deg=-2 motor=ON
+[17.20s] [LIDAR] left=0.10m(75) front=0.18m(25) right=1.15m(85)
+[17.20s] [AVOID] gap=2 clear=open target=46 v=0.08 w=-1.00
+[17.20s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.08 w=-1.00) sent(v=+0.08 w=-1.00) obstacle=True center_ratio=0.49 x_err=-0.10 last_deg=-2 motor=ON
+[17.29s] [LIDAR] left=0.10m(76) front=0.18m(26) right=1.14m(85)
+[17.29s] [AVOID] gap=2 clear=open target=46 v=0.07 w=-1.00
+[17.29s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.07 w=-1.00) sent(v=+0.07 w=-1.00) obstacle=True center_ratio=0.50 x_err=-0.10 last_deg=-2 motor=ON
+[17.38s] [LIDAR] left=0.10m(76) front=0.18m(24) right=1.14m(85)
+[17.38s] [AVOID] gap=2 clear=open target=46 v=0.07 w=-1.00
+[17.38s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.07 w=-1.00) sent(v=+0.07 w=-1.00) obstacle=True center_ratio=0.49 x_err=-0.10 last_deg=-2 motor=ON
+[17.46s] [LIDAR] left=0.10m(74) front=0.18m(22) right=1.14m(85)
+[17.46s] [AVOID] gap=2 clear=open target=46 v=0.10 w=-1.00
+[17.46s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.10 w=-1.00) sent(v=+0.10 w=-1.00) obstacle=True center_ratio=0.49 x_err=-0.11 last_deg=-2 motor=ON
+[17.56s] [ODOM] left=14520 right=5006 arduino_ms=694060
+[17.56s] [LIDAR] left=0.10m(74) front=0.18m(27) right=1.14m(85)
+[17.56s] [AVOID] gap=2 clear=open target=46 v=0.08 w=-1.00
+[17.56s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.08 w=-1.00) sent(v=+0.08 w=-1.00) obstacle=True center_ratio=0.50 x_err=-0.11 last_deg=-2 motor=ON
+[17.64s] [LIDAR] left=0.10m(74) front=0.18m(27) right=1.14m(85)
+[17.64s] [AVOID] gap=2 clear=open target=46 v=0.08 w=-1.00
+[17.64s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.08 w=-1.00) sent(v=+0.08 w=-1.00) obstacle=True center_ratio=0.49 x_err=-0.12 last_deg=-2 motor=ON
+[17.73s] [LIDAR] left=0.10m(75) front=0.18m(26) right=1.14m(85)
+[17.73s] [AVOID] gap=2 clear=open target=46 v=0.08 w=-1.00
+[17.73s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.08 w=-1.00) sent(v=+0.08 w=-1.00) obstacle=True center_ratio=0.49 x_err=-0.12 last_deg=-2 motor=ON
+[17.81s] [LIDAR] left=0.10m(74) front=0.19m(25) right=1.15m(85)
+[17.81s] [AVOID] gap=2 clear=open target=46 v=0.20 w=-1.00
+[17.81s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.20 w=-1.00) sent(v=+0.12 w=-1.00) obstacle=True center_ratio=0.50 x_err=-0.16 last_deg=-3 motor=ON
+[17.89s] [LIDAR] left=0.10m(74) front=0.26m(25) right=1.14m(85)
+[17.89s] [AVOID] gap=2 clear=open target=44 v=0.25 w=-1.00
+[17.89s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-1.00) sent(v=+0.16 w=-1.00) obstacle=True center_ratio=0.50 x_err=-0.21 last_deg=-3 motor=ON
+[17.98s] [LIDAR] left=0.11m(73) front=0.97m(30) right=1.14m(85)
+[17.98s] [AVOID] gap=2 clear=open target=42 v=0.25 w=-1.00
+[17.98s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-1.00) sent(v=+0.20 w=-1.00) obstacle=True center_ratio=0.50 x_err=-0.38 last_deg=-6 motor=ON
+[18.06s] [ODOM] left=15082 right=5024 arduino_ms=694605
+[18.06s] [LIDAR] left=0.11m(74) front=0.98m(30) right=1.15m(85)
+[18.06s] [AVOID] gap=2 clear=open target=42 v=0.25 w=-1.00
+[18.06s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-1.00) sent(v=+0.24 w=-1.00) obstacle=True center_ratio=0.51 x_err=-0.42 last_deg=-7 motor=ON
+[18.16s] [LIDAR] left=0.12m(73) front=0.99m(30) right=1.14m(85)
+[18.16s] [AVOID] gap=2 clear=open target=40 v=0.25 w=-1.00
+[18.16s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-1.00) sent(v=+0.25 w=-1.00) obstacle=True center_ratio=0.51 x_err=-0.43 last_deg=-7 motor=ON
+[18.26s] [LIDAR] left=0.14m(72) front=1.01m(28) right=1.15m(85)
+[18.26s] [AVOID] gap=2 clear=open target=40 v=0.25 w=-1.00
+[18.26s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-1.00) sent(v=+0.25 w=-1.00) obstacle=True center_ratio=0.50 x_err=-0.41 last_deg=-7 motor=ON
+[18.34s] [LIDAR] left=0.14m(72) front=1.01m(28) right=1.15m(85)
+[18.34s] [AVOID] gap=2 clear=open target=40 v=0.25 w=-1.00
+[18.34s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-1.00) sent(v=+0.25 w=-1.00) obstacle=True center_ratio=0.46 x_err=-0.41 last_deg=-6 motor=ON
+[18.44s] [LIDAR] left=0.16m(77) front=1.04m(29) right=1.15m(85)
+[18.44s] [AVOID] gap=2 clear=open target=39 v=0.25 w=-1.00
+[18.44s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-1.00) sent(v=+0.25 w=-1.00) obstacle=True center_ratio=0.43 x_err=-0.42 last_deg=-6 motor=ON
+[18.52s] [LIDAR] left=0.20m(74) front=1.07m(30) right=1.15m(85)
+[18.52s] [AVOID] gap=2 clear=open target=37 v=0.25 w=-0.97
+[18.52s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-0.97) sent(v=+0.25 w=-0.97) obstacle=True center_ratio=0.39 x_err=-0.44 last_deg=-6 motor=ON
+[18.61s] [ODOM] left=15957 right=5612 arduino_ms=695150
+[18.61s] [LIDAR] left=0.24m(78) front=1.11m(30) right=1.15m(85)
+[18.61s] [AVOID] gap=2 clear=open target=35 v=0.25 w=-0.92
+[18.61s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-0.92) sent(v=+0.25 w=-0.92) obstacle=True center_ratio=0.36 x_err=-0.44 last_deg=-5 motor=ON
+[18.70s] [LIDAR] left=0.27m(78) front=1.14m(25) right=1.16m(85)
+[18.70s] [AVOID] gap=2 clear=open target=33 v=0.25 w=-0.86
+[18.70s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-0.86) sent(v=+0.25 w=-0.86) obstacle=True center_ratio=0.33 x_err=-0.35 last_deg=-4 motor=ON
+[18.77s] [LIDAR] left=0.31m(74) front=0.46m(29) right=1.15m(85)
+[18.77s] [STATE] mode=FOLLOW: color only target=RED:O cmd(v=+0.25 w=+0.00) sent(v=+0.25 w=-0.61) obstacle=False center_ratio=0.31 x_err=-0.27 last_deg=-3 motor=ON
+[18.87s] [LIDAR] left=0.34m(70) front=0.49m(28) right=1.15m(85)
+[18.87s] [STATE] mode=FOLLOW: color only target=RED:O cmd(v=+0.25 w=+0.00) sent(v=+0.25 w=-0.36) obstacle=False center_ratio=0.30 x_err=-0.19 last_deg=-2 motor=ON
+[18.96s] [LIDAR] left=0.38m(68) front=0.52m(26) right=1.14m(85)
+[18.96s] [STATE] mode=FOLLOW: color only target=RED:O cmd(v=+0.25 w=+0.00) sent(v=+0.25 w=-0.11) obstacle=False center_ratio=0.29 x_err=-0.20 last_deg=-2 motor=ON
+[19.05s] [LIDAR] left=0.40m(67) front=0.52m(27) right=1.12m(85)
+[19.05s] [STATE] mode=FOLLOW: color only target=RED:O cmd(v=+0.25 w=+0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.28 x_err=-0.18 last_deg=-2 motor=ON
+[19.13s] [ODOM] left=16679 right=6157 arduino_ms=695634
+[19.13s] [LIDAR] left=0.40m(67) front=0.52m(27) right=1.12m(85)
+[19.13s] [STATE] mode=FOLLOW: color only target=RED:O cmd(v=+0.25 w=+0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.27 x_err=-0.02 last_deg=-0 motor=ON
+[19.22s] [LIDAR] left=0.42m(60) front=0.48m(28) right=1.11m(85)
+[19.22s] [STATE] mode=FOLLOW: color only target=RED:O cmd(v=+0.25 w=-0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.28 x_err=+0.23 last_deg=+3 motor=ON
+[19.31s] [LIDAR] left=0.42m(56) front=0.46m(30) right=1.11m(84)
+[19.31s] [STATE] mode=FOLLOW: color only target=RED:O cmd(v=+0.25 w=-0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.30 x_err=+0.31 last_deg=+4 motor=ON
+[19.39s] [LIDAR] left=0.43m(58) front=0.47m(28) right=1.11m(85)
+[19.39s] [STATE] mode=FOLLOW: color only target=RED:O cmd(v=+0.25 w=-0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.30 x_err=+0.24 last_deg=+3 motor=ON
+[19.48s] [LIDAR] left=0.44m(64) front=0.51m(30) right=1.11m(85)
+[19.48s] [STATE] mode=FOLLOW: color only target=RED:O cmd(v=+0.25 w=-0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.30 x_err=+0.15 last_deg=+2 motor=ON
+[19.57s] [LIDAR] left=0.44m(66) front=0.57m(29) right=1.11m(85)
+[19.57s] [STATE] mode=FOLLOW: color only target=RED:O cmd(v=+0.25 w=+0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.29 x_err=-0.03 last_deg=-0 motor=ON
+[19.66s] [ODOM] left=17361 right=6923 arduino_ms=696177
+[19.66s] [LIDAR] left=0.43m(70) front=1.23m(30) right=1.12m(85)
+[19.66s] [STATE] mode=FOLLOW: color only target=RED:O cmd(v=+0.25 w=+0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.32 x_err=-0.25 last_deg=-3 motor=ON
+[19.75s] [LIDAR] left=0.43m(70) front=1.23m(30) right=1.12m(85)
+[19.75s] [STATE] mode=FOLLOW: color only target=RED:O cmd(v=+0.24 w=+0.14) sent(v=+0.24 w=+0.14) obstacle=False center_ratio=0.35 x_err=-0.35 last_deg=-4 motor=ON
+[19.84s] [LIDAR] left=0.42m(69) front=1.22m(29) right=1.11m(85)
+[19.84s] [STATE] mode=FOLLOW: color only target=RED:O cmd(v=+0.24 w=+0.16) sent(v=+0.24 w=+0.16) obstacle=False center_ratio=0.36 x_err=-0.38 last_deg=-5 motor=ON
+[19.92s] [LIDAR] left=0.40m(70) front=1.19m(30) right=1.10m(85)
+[19.92s] [STATE] mode=FOLLOW: color only target=RED:O cmd(v=+0.24 w=+0.17) sent(v=+0.24 w=+0.17) obstacle=False center_ratio=0.35 x_err=-0.41 last_deg=-5 motor=ON
+[20.00s] [LIDAR] left=0.38m(69) front=1.17m(29) right=1.08m(85)
+[20.00s] [STATE] mode=FOLLOW: color only target=RED:O cmd(v=+0.24 w=+0.16) sent(v=+0.24 w=+0.16) obstacle=False center_ratio=0.37 x_err=-0.37 last_deg=-5 motor=ON
+[20.08s] [LIDAR] left=0.36m(65) front=1.14m(29) right=1.07m(85)
+[20.08s] [STATE] mode=FOLLOW: color only target=RED:O cmd(v=+0.24 w=+0.14) sent(v=+0.24 w=+0.14) obstacle=False center_ratio=0.38 x_err=-0.34 last_deg=-4 motor=ON
+[20.17s] [ODOM] left=17866 right=7500 arduino_ms=696659
+[20.17s] [LIDAR] left=0.34m(64) front=1.12m(30) right=1.06m(85)
+[20.17s] [STATE] mode=FOLLOW: color only target=RED:O cmd(v=+0.24 w=+0.12) sent(v=+0.24 w=+0.12) obstacle=False center_ratio=0.39 x_err=-0.28 last_deg=-4 motor=ON
+[20.26s] [LIDAR] left=0.32m(64) front=1.12m(29) right=1.05m(85)
+[20.26s] [STATE] mode=FOLLOW: color only target=RED:O cmd(v=+0.25 w=+0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.40 x_err=-0.22 last_deg=-3 motor=ON
+[20.34s] [LIDAR] left=0.32m(64) front=1.12m(29) right=1.05m(85)
+[20.34s] [STATE] mode=FOLLOW: color only target=RED:O cmd(v=+0.25 w=+0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.41 x_err=-0.18 last_deg=-2 motor=ON
+[20.43s] [LIDAR] left=0.31m(65) front=1.10m(30) right=1.04m(85)
+[20.43s] [STATE] mode=FOLLOW: color only target=RED:O cmd(v=+0.25 w=+0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.43 x_err=-0.17 last_deg=-2 motor=ON
+[20.51s] [LIDAR] left=0.29m(65) front=1.08m(29) right=1.04m(85)
+[20.51s] [STATE] mode=FOLLOW: color only target=RED:O cmd(v=+0.25 w=+0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.44 x_err=-0.18 last_deg=-3 motor=ON
+[20.60s] [LIDAR] left=0.27m(65) front=1.05m(29) right=1.03m(84)
+[20.60s] [AVOID] gap=2 clear=open target=28 v=0.25 w=-0.73
+[20.60s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-0.73) sent(v=+0.25 w=-0.20) obstacle=True center_ratio=0.45 x_err=-0.19 last_deg=-3 motor=ON
+[20.68s] [ODOM] left=18472 right=8151 arduino_ms=697202
+[20.68s] [LIDAR] left=0.26m(64) front=1.02m(29) right=1.02m(85)
+[20.68s] [AVOID] gap=2 clear=open target=31 v=0.25 w=-0.81
+[20.68s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-0.81) sent(v=+0.25 w=-0.40) obstacle=True center_ratio=0.46 x_err=-0.21 last_deg=-3 motor=ON
+[20.77s] [LIDAR] left=0.24m(64) front=0.99m(29) right=1.01m(85)
+[20.77s] [AVOID] gap=2 clear=open target=32 v=0.25 w=-0.85
+[20.77s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-0.85) sent(v=+0.25 w=-0.60) obstacle=True center_ratio=0.48 x_err=-0.25 last_deg=-4 motor=ON
+[20.86s] [LIDAR] left=0.24m(67) front=0.95m(28) right=1.00m(85)
+[20.86s] [AVOID] gap=2 clear=open target=32 v=0.25 w=-0.84
+[20.86s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-0.84) sent(v=+0.25 w=-0.80) obstacle=True center_ratio=0.49 x_err=-0.31 last_deg=-5 motor=ON
+[20.94s] [LIDAR] left=0.24m(67) front=0.95m(28) right=1.00m(85)
+[20.94s] [AVOID] gap=2 clear=open target=32 v=0.25 w=-0.84
+[20.94s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-0.84) sent(v=+0.25 w=-0.84) obstacle=True center_ratio=0.52 x_err=-0.43 last_deg=-7 motor=ON
+[21.02s] [LIDAR] left=0.23m(73) front=0.93m(28) right=0.99m(85)
+[21.02s] [AVOID] gap=2 clear=open target=31 v=0.25 w=-0.81
+[21.02s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-0.81) sent(v=+0.25 w=-0.81) obstacle=True center_ratio=0.53 x_err=-0.52 last_deg=-9 motor=ON
+[21.10s] [LIDAR] left=0.23m(75) front=0.91m(29) right=0.97m(85)
+[21.10s] [AVOID] gap=2 clear=open target=29 v=0.25 w=-0.76
+[21.10s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-0.76) sent(v=+0.25 w=-0.76) obstacle=True center_ratio=0.56 x_err=-0.63 last_deg=-11 motor=ON
+[21.18s] [LIDAR] left=0.22m(74) front=0.89m(29) right=0.96m(85)
+[21.18s] [AVOID] gap=2 clear=open target=26 v=0.25 w=-0.69
+[21.18s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-0.69) sent(v=+0.25 w=-0.69) obstacle=True center_ratio=0.59 x_err=-0.70 last_deg=-13 motor=ON
+[21.28s] [ODOM] left=19261 right=8641 arduino_ms=697807
+[21.28s] [LIDAR] left=0.22m(70) front=1.16m(29) right=0.94m(85)
+[21.28s] [AVOID] gap=1 clear=open target=22 v=0.25 w=-0.59
+[21.28s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-0.59) sent(v=+0.25 w=-0.59) obstacle=True center_ratio=0.62 x_err=-0.78 last_deg=-15 motor=ON
+[21.37s] [LIDAR] left=0.23m(65) front=1.09m(31) right=0.93m(85)
+[21.37s] [AVOID] gap=1 clear=open target=19 v=0.25 w=-0.50
+[21.37s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-0.50) sent(v=+0.25 w=-0.50) obstacle=True center_ratio=0.65 x_err=-0.84 last_deg=-17 motor=ON
+[21.45s] [LIDAR] left=0.23m(65) front=1.09m(31) right=0.93m(85)
+[21.45s] [AVOID] gap=1 clear=open target=19 v=0.25 w=-0.50
+[21.45s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-0.50) sent(v=+0.25 w=-0.50) obstacle=True center_ratio=0.67 x_err=-0.88 last_deg=-18 motor=ON
+[21.53s] [LIDAR] left=0.23m(62) front=1.03m(31) right=0.91m(85)
+[21.53s] [AVOID] gap=1 clear=open target=16 v=0.25 w=-0.42
+[21.53s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-0.42) sent(v=+0.25 w=-0.42) obstacle=True center_ratio=0.68 x_err=-0.91 last_deg=-19 motor=ON
+[21.61s] [LIDAR] left=0.23m(59) front=1.00m(31) right=0.89m(85)
+[21.61s] [AVOID] gap=1 clear=open target=13 v=0.25 w=-0.34
+[21.61s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-0.34) sent(v=+0.25 w=-0.34) obstacle=True center_ratio=0.69 x_err=-0.95 last_deg=-20 motor=ON
+[21.70s] [LIDAR] left=0.23m(58) front=0.96m(31) right=0.87m(85)
+[21.70s] [DETOUR] color_deg=-23 obst=L0.23m(min 0.22) front=0.98m deg=-23 v=0.25 w=+0.60
+[21.70s] [STATE] mode=DETOUR: skirt obstacle to color target=RED:X cmd(v=+0.25 w=+0.60) sent(v=+0.25 w=-0.14) obstacle=True center_ratio=0.69 x_err=-0.95 last_deg=-23 motor=ON
+[21.78s] [LIDAR] left=0.24m(57) front=0.92m(29) right=0.85m(85)
+[21.78s] [DETOUR] color_deg=-24 obst=L0.24m(min 0.22) front=0.94m deg=-24 v=0.25 w=+0.62
+[21.78s] [STATE] mode=DETOUR: skirt obstacle to color target=RED:X cmd(v=+0.25 w=+0.62) sent(v=+0.25 w=+0.06) obstacle=True center_ratio=0.69 x_err=-0.95 last_deg=-24 motor=ON
+[21.86s] [ODOM] left=19968 right=9178 arduino_ms=698349
+[21.86s] [LIDAR] left=0.25m(59) front=0.89m(31) right=0.83m(85)
+[21.86s] [DETOUR] color_deg=-24 obst=L0.25m(min 0.22) front=0.90m deg=-24 v=0.25 w=+0.63
+[21.86s] [STATE] mode=DETOUR: skirt obstacle to color target=RED:X cmd(v=+0.25 w=+0.63) sent(v=+0.25 w=+0.26) obstacle=True center_ratio=0.69 x_err=-0.95 last_deg=-24 motor=ON
+[21.95s] [LIDAR] left=0.25m(59) front=0.89m(31) right=0.83m(85)
+[21.95s] [DETOUR] color_deg=-24 obst=L0.25m(min 0.22) front=0.90m deg=-24 v=0.25 w=+0.62
+[21.95s] [STATE] mode=DETOUR: skirt obstacle to color target=RED:X cmd(v=+0.25 w=+0.62) sent(v=+0.25 w=+0.46) obstacle=True center_ratio=0.69 x_err=-0.95 last_deg=-24 motor=ON
+[22.02s] [LIDAR] left=0.27m(56) front=0.87m(31) right=0.81m(85)
+[22.02s] [STATE] mode=SEARCH: last color direction target=RED:X cmd(v=+0.00 w=+1.00) sent(v=+0.21 w=+0.71) obstacle=False center_ratio=0.69 x_err=-0.95 last_deg=-23 motor=ON
+[22.10s] [LIDAR] left=0.71m(60) front=0.85m(31) right=0.79m(85)
+[22.10s] [STATE] mode=SEARCH: last color direction target=RED:X cmd(v=+0.00 w=+1.00) sent(v=+0.17 w=+0.96) obstacle=False center_ratio=0.69 x_err=-0.95 last_deg=-21 motor=ON
+[22.19s] [LIDAR] left=0.68m(55) front=0.85m(31) right=0.77m(85)
+[22.19s] [STATE] mode=SEARCH: last color direction target=RED:X cmd(v=+0.00 w=+1.00) sent(v=+0.13 w=+1.00) obstacle=False center_ratio=0.69 x_err=-0.95 last_deg=-15 motor=ON
+[22.27s] [LIDAR] left=0.67m(52) front=0.86m(31) right=0.76m(85)
+[22.27s] [STATE] mode=FOLLOW: color only target=RED:O cmd(v=+0.19 w=+0.83) sent(v=+0.17 w=+0.83) obstacle=False center_ratio=0.78 x_err=-0.93 last_deg=-25 motor=ON
+[22.35s] [LIDAR] left=0.25m(50) front=0.65m(31) right=0.75m(85)
+[22.35s] [AVOID] gap=1 clear=open target=3 v=0.25 w=-0.08
+[22.35s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-0.08) sent(v=+0.21 w=+0.63) obstacle=True center_ratio=0.81 x_err=-0.86 last_deg=-26 motor=ON
+[22.44s] [ODOM] left=20302 right=9960 arduino_ms=698953
+[22.44s] [LIDAR] left=0.25m(50) front=0.65m(31) right=0.75m(85)
+[22.44s] [AVOID] gap=1 clear=open target=3 v=0.25 w=-0.08
+[22.44s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-0.08) sent(v=+0.25 w=+0.43) obstacle=True center_ratio=0.80 x_err=-0.78 last_deg=-24 motor=ON
+[22.52s] [LIDAR] left=0.25m(50) front=0.64m(29) right=0.75m(85)
+[22.52s] [AVOID] gap=1 clear=open target=6 v=0.25 w=-0.14
+[22.52s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-0.14) sent(v=+0.25 w=+0.23) obstacle=True center_ratio=0.80 x_err=-0.69 last_deg=-22 motor=ON
+[22.60s] [LIDAR] left=0.24m(52) front=0.62m(30) right=0.75m(84)
+[22.60s] [AVOID] gap=1 clear=open target=6 v=0.25 w=-0.17
+[22.60s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-0.17) sent(v=+0.25 w=+0.03) obstacle=True center_ratio=0.80 x_err=-0.67 last_deg=-21 motor=ON
+[22.69s] [LIDAR] left=0.24m(54) front=0.59m(30) right=0.74m(85)
+[22.69s] [AVOID] gap=1 clear=open target=4 v=0.25 w=-0.12
+[22.69s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-0.12) sent(v=+0.25 w=-0.12) obstacle=True center_ratio=0.81 x_err=-0.65 last_deg=-22 motor=ON
+[22.77s] [LIDAR] left=0.26m(57) front=0.56m(30) right=0.74m(85)
+[22.77s] [AVOID] gap=1 clear=open target=2 v=0.25 w=-0.05
+[22.77s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-0.05) sent(v=+0.25 w=-0.05) obstacle=True center_ratio=0.82 x_err=-0.64 last_deg=-23 motor=ON
+[22.86s] [LIDAR] left=0.30m(58) front=0.54m(30) right=0.73m(85)
+[22.86s] [STATE] mode=FOLLOW: color only target=RED:O cmd(v=+0.19 w=+0.82) sent(v=+0.21 w=+0.20) obstacle=False center_ratio=0.84 x_err=-0.64 last_deg=-25 motor=ON
+[22.94s] [ODOM] left=20841 right=10562 arduino_ms=699445
+[22.94s] [LIDAR] left=0.30m(58) front=0.54m(30) right=0.73m(85)
+[22.94s] [STATE] mode=FOLLOW: color only target=RED:O cmd(v=+0.18 w=+0.90) sent(v=+0.18 w=+0.45) obstacle=False center_ratio=0.87 x_err=-0.64 last_deg=-27 motor=ON
+[23.03s] [LIDAR] left=0.35m(57) front=0.51m(31) right=0.72m(85)
+[23.03s] [STATE] mode=FOLLOW: color only target=RED:O cmd(v=+0.18 w=+0.95) sent(v=+0.18 w=+0.70) obstacle=False center_ratio=0.88 x_err=-0.64 last_deg=-29 motor=ON
+[23.11s] [LIDAR] left=0.38m(57) front=0.49m(29) right=0.71m(85)
+[23.11s] [STATE] mode=FOLLOW: color only target=RED:O cmd(v=+0.18 w=+0.99) sent(v=+0.18 w=+0.95) obstacle=False center_ratio=0.90 x_err=-0.63 last_deg=-30 motor=ON
+[23.19s] [LIDAR] left=0.37m(56) front=0.49m(31) right=0.70m(85)
+[23.19s] [STATE] mode=FOLLOW: color only target=RED:O cmd(v=+0.18 w=+0.99) sent(v=+0.18 w=+0.99) obstacle=False center_ratio=0.90 x_err=-0.61 last_deg=-30 motor=ON
+[23.28s] [LIDAR] left=0.34m(56) front=0.47m(30) right=0.70m(85)
+[23.28s] [STATE] mode=FOLLOW: color only target=RED:O cmd(v=+0.18 w=+0.91) sent(v=+0.18 w=+0.91) obstacle=False center_ratio=0.89 x_err=-0.57 last_deg=-27 motor=ON
+[23.36s] [LIDAR] left=0.31m(58) front=0.46m(29) right=0.59m(85)
+[23.36s] [STATE] mode=FOLLOW: color only target=RED:O cmd(v=+0.19 w=+0.84) sent(v=+0.19 w=+0.84) obstacle=False center_ratio=0.88 x_err=-0.52 last_deg=-25 motor=ON
+[23.44s] [ODOM] left=21056 right=11127 arduino_ms=699939
+[23.44s] [LIDAR] left=0.31m(58) front=0.46m(29) right=0.59m(85)
+[23.44s] [STATE] mode=FOLLOW: color only target=RED:O cmd(v=+0.19 w=+0.76) sent(v=+0.19 w=+0.76) obstacle=False center_ratio=0.87 x_err=-0.46 last_deg=-23 motor=ON
+[23.52s] [LIDAR] left=0.29m(64) front=0.46m(21) right=0.45m(84)
+[23.52s] [STATE] mode=FOLLOW: color only target=RED:O cmd(v=+0.20 w=+0.67) sent(v=+0.20 w=+0.67) obstacle=False center_ratio=0.87 x_err=-0.38 last_deg=-20 motor=ON
+[23.61s] [LIDAR] left=0.28m(71) front=0.50m(18) right=0.44m(83)
+[23.61s] [STATE] mode=FOLLOW: color only target=RED:O cmd(v=+0.20 w=+0.61) sent(v=+0.20 w=+0.61) obstacle=False center_ratio=0.88 x_err=-0.33 last_deg=-18 motor=ON
+[23.69s] [LIDAR] left=0.27m(73) front=0.53m(16) right=0.43m(83)
+[23.69s] [AVOID] gap=1 clear=open target=2 v=0.25 w=-0.05
+[23.69s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-0.05) sent(v=+0.24 w=+0.41) obstacle=True center_ratio=0.88 x_err=-0.29 last_deg=-17 motor=ON
+[23.78s] [LIDAR] left=0.27m(78) front=0.58m(11) right=0.41m(82)
+[23.78s] [AVOID] gap=1 clear=open target=2 v=0.25 w=-0.05
+[23.78s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-0.05) sent(v=+0.25 w=+0.21) obstacle=True center_ratio=0.88 x_err=-0.28 last_deg=-17 motor=ON
+[23.86s] [LIDAR] left=0.28m(76) front=0.60m(8) right=0.40m(80)
+[23.86s] [STATE] mode=FOLLOW: color only target=RED:O cmd(v=+0.21 w=+0.59) sent(v=+0.21 w=+0.46) obstacle=False center_ratio=0.89 x_err=-0.27 last_deg=-18 motor=ON
+[23.94s] [LIDAR] left=0.28m(76) front=0.60m(8) right=0.40m(80)
+[23.94s] [STATE] mode=ALIGN: bottom color target=RED:O cmd(v=+0.00 w=+0.64) sent(v=+0.00 w=+0.64) obstacle=False center_ratio=0.90 x_err=-0.27 last_deg=-19 motor=ON
+[24.03s] [ODOM] left=21480 right=11851 arduino_ms=700557
+[24.03s] [LIDAR] left=0.29m(76) front=0.60m(6) right=0.38m(80)
+[24.03s] [STATE] mode=ALIGN: bottom color target=RED:O cmd(v=+0.00 w=+0.71) sent(v=+0.00 w=+0.71) obstacle=False center_ratio=0.92 x_err=-0.27 last_deg=-21 motor=ON
+[24.11s] [LIDAR] left=0.29m(79) front=0.60m(4) right=0.37m(81)
+[24.11s] [STATE] mode=ALIGN: bottom color target=RED:O cmd(v=+0.00 w=+0.69) sent(v=+0.00 w=+0.69) obstacle=False center_ratio=0.92 x_err=-0.25 last_deg=-21 motor=ON
+[24.19s] [LIDAR] left=0.29m(80) front=0.67m(4) right=0.36m(81)
+[24.19s] [STATE] mode=ALIGN: bottom color target=RED:O cmd(v=+0.00 w=+0.61) sent(v=+0.00 w=+0.61) obstacle=False center_ratio=0.92 x_err=-0.22 last_deg=-18 motor=ON
+[24.28s] [LIDAR] left=0.28m(81) front=1.24m(7) right=0.37m(80)
+[24.28s] [STATE] mode=ALIGN: bottom color target=RED:O cmd(v=+0.00 w=+0.52) sent(v=+0.00 w=+0.52) obstacle=True center_ratio=0.91 x_err=-0.19 last_deg=-15 motor=ON
+[24.38s] [LIDAR] left=0.28m(78) front=0.71m(10) right=0.38m(77)
+[24.38s] [AVOID] gap=2 clear=open target=7 v=0.25 w=-0.18
+[24.38s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-0.18) sent(v=+0.04 w=+0.32) obstacle=True center_ratio=0.90 x_err=-0.13 last_deg=-9 motor=ON
+[24.46s] [LIDAR] left=0.27m(72) front=0.72m(13) right=0.39m(72)
+[24.46s] [AVOID] gap=2 clear=open target=12 v=0.25 w=-0.31
+[24.46s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-0.31) sent(v=+0.08 w=+0.12) obstacle=True center_ratio=0.89 x_err=-0.05 last_deg=-3 motor=ON
+[24.56s] [ODOM] left=20991 right=11617 arduino_ms=701050
+[24.56s] [LIDAR] left=0.27m(71) front=0.72m(14) right=0.40m(66)
+[24.56s] [AVOID] gap=2 clear=open target=12 v=0.25 w=-0.33
+[24.56s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-0.33) sent(v=+0.12 w=-0.08) obstacle=True center_ratio=0.88 x_err=-0.01 last_deg=-1 motor=ON
+[24.64s] [LIDAR] left=0.27m(71) front=0.72m(14) right=0.40m(66)
+[24.64s] [AVOID] gap=2 clear=open target=12 v=0.25 w=-0.33
+[24.64s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-0.33) sent(v=+0.16 w=-0.28) obstacle=True center_ratio=0.88 x_err=-0.03 last_deg=-2 motor=ON
+[24.72s] [LIDAR] left=0.27m(72) front=0.71m(11) right=0.40m(68)
+[24.72s] [AVOID] gap=2 clear=open target=11 v=0.25 w=-0.29
+[24.72s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-0.29) sent(v=+0.20 w=-0.29) obstacle=True center_ratio=0.89 x_err=-0.06 last_deg=-5 motor=ON
+[24.81s] [LIDAR] left=0.27m(76) front=0.71m(12) right=0.39m(67)
+[24.81s] [AVOID] gap=2 clear=open target=8 v=0.25 w=-0.21
+[24.81s] [STATE] mode=AVOID: color + obstacle target=RED:O cmd(v=+0.25 w=-0.21) sent(v=+0.24 w=-0.21) obstacle=True center_ratio=0.90 x_err=-0.11 last_deg=-9 motor=ON
+[24.89s] [LIDAR] left=0.28m(80) front=1.22m(8) right=0.38m(74)
+[24.89s] [STATE] mode=ALIGN: bottom color target=RED:O cmd(v=+0.00 w=+0.43) sent(v=+0.00 w=+0.04) obstacle=True center_ratio=0.91 x_err=-0.16 last_deg=-13 motor=ON
+[24.97s] [LIDAR] left=0.28m(78) front=1.19m(6) right=0.37m(75)
+[24.97s] [STATE] mode=ALIGN: bottom color target=RED:O cmd(v=+0.00 w=+0.56) sent(v=+0.00 w=+0.29) obstacle=False center_ratio=0.93 x_err=-0.18 last_deg=-17 motor=ON
+[25.05s] [ODOM] left=21400 right=11892 arduino_ms=701544
+[25.05s] [LIDAR] left=0.29m(78) front=1.18m(6) right=0.35m(75)
+[25.05s] [STATE] mode=ALIGN: bottom color target=RED:O cmd(v=+0.00 w=+0.58) sent(v=+0.00 w=+0.54) obstacle=False center_ratio=0.94 x_err=-0.16 last_deg=-18 motor=ON
+[25.14s] [LIDAR] left=0.29m(78) front=1.18m(6) right=0.35m(75)
+[25.14s] [STATE] mode=FOLLOW: bottom color target=RED:O cmd(v=+0.21 w=+0.56) sent(v=+0.04 w=+0.56) obstacle=False center_ratio=0.94 x_err=-0.15 last_deg=-17 motor=ON
+[25.22s] [LIDAR] left=0.29m(78) front=1.19m(8) right=0.35m(78)
+[25.22s] [STATE] mode=FOLLOW: bottom color target=RED:O cmd(v=+0.21 w=+0.50) sent(v=+0.08 w=+0.50) obstacle=False center_ratio=0.93 x_err=-0.14 last_deg=-15 motor=ON
+[25.30s] [LIDAR] left=0.28m(82) front=0.67m(10) right=0.36m(71)
+[25.30s] [STATE] mode=FOLLOW: bottom color target=RED:O cmd(v=+0.22 w=+0.35) sent(v=+0.12 w=+0.35) obstacle=True center_ratio=0.93 x_err=-0.10 last_deg=-10 motor=ON
+[25.38s] [LIDAR] left=0.28m(81) front=0.64m(13) right=0.36m(68)
+[25.38s] [STATE] mode=FOLLOW: bottom color target=RED:O cmd(v=+0.23 w=+0.25) sent(v=+0.16 w=+0.25) obstacle=True center_ratio=0.93 x_err=-0.07 last_deg=-8 motor=ON
+[25.46s] [LIDAR] left=0.28m(82) front=0.63m(14) right=0.37m(66)
+[25.46s] [STATE] mode=FOLLOW: bottom color target=RED:O cmd(v=+0.24 w=+0.13) sent(v=+0.20 w=+0.13) obstacle=True center_ratio=0.93 x_err=-0.03 last_deg=-4 motor=ON
+[25.55s] [LIDAR] left=0.28m(81) front=0.61m(15) right=0.36m(65)
+[25.55s] [STATE] mode=FOLLOW: bottom color target=RED:O cmd(v=+0.25 w=-0.00) sent(v=+0.24 w=+0.00) obstacle=True center_ratio=0.94 x_err=-0.02 last_deg=-3 motor=ON
+[25.63s] [ODOM] left=21519 right=12215 arduino_ms=702162
+[25.63s] [LIDAR] left=0.28m(81) front=0.61m(15) right=0.36m(65)
+[25.63s] [COLOR] RED done, now tracking YELLOW
+[ODOM] move 0.03m target_counts=142
+[ODOM] extra forward done: left=0.04m(183) right=0.04m(178)
+[25.63s] [STATE] mode=SEARCH: next color target=YELLOW:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+0.25) obstacle=True center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[26.89s] [ODOM] left=22033 right=12745 arduino_ms=703395
+[26.89s] [LIDAR] left=0.28m(77) front=0.48m(17) right=0.36m(55)
+[26.89s] [SPIN] 0/2679 odom_age=0.02
+[26.89s] [STATE] mode=SEARCH: next color target=YELLOW:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+0.50) obstacle=True center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[26.96s] [LIDAR] left=0.28m(79) front=0.48m(16) right=0.36m(55)
+[26.96s] [SPIN] 1/2679 odom_age=0.04
+[26.96s] [STATE] mode=SEARCH: next color target=YELLOW:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+0.75) obstacle=True center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[27.05s] [LIDAR] left=0.28m(78) front=0.48m(17) right=0.36m(56)
+[27.05s] [SPIN] 27/2679 odom_age=0.00
+[27.05s] [STATE] mode=SEARCH: next color target=YELLOW:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.00) obstacle=True center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[27.13s] [LIDAR] left=0.28m(78) front=0.48m(17) right=0.36m(56)
+[27.13s] [SPIN] 54/2679 odom_age=0.03
+[27.13s] [STATE] mode=SEARCH: next color target=YELLOW:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.25) obstacle=True center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[27.22s] [LIDAR] left=0.27m(77) front=0.47m(24) right=0.05m(50)
+[27.22s] [SPIN] 90/2679 odom_age=0.05
+[27.22s] [STATE] mode=SEARCH: next color target=YELLOW:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.50) obstacle=True center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[27.30s] [LIDAR] left=0.26m(78) front=0.48m(28) right=0.37m(43)
+[27.30s] [SPIN] 183/2679 odom_age=0.01
+[27.30s] [STATE] mode=SEARCH: next color target=YELLOW:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.50) obstacle=True center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[27.38s] [ODOM] left=21792 right=12984 arduino_ms=703888
+[27.38s] [LIDAR] left=0.25m(77) front=0.47m(23) right=0.39m(43)
+[27.38s] [SPIN] 240/2679 odom_age=0.04
+[27.38s] [STATE] mode=SEARCH: next color target=YELLOW:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.50) obstacle=True center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[27.47s] [LIDAR] left=0.24m(73) front=0.50m(30) right=0.44m(40)
+[27.47s] [SPIN] 301/2679 odom_age=0.06
+[27.47s] [STATE] mode=SEARCH: next color target=YELLOW:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.50) obstacle=True center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[27.57s] [LIDAR] left=0.23m(72) front=0.25m(28) right=0.48m(42)
+[27.57s] [SPIN] 418/2679 odom_age=0.03
+[27.57s] [STATE] mode=SEARCH: next color target=YELLOW:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.50) obstacle=True center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[27.65s] [LIDAR] left=0.23m(66) front=0.23m(27) right=0.49m(46)
+[27.65s] [SPIN] 474/2679 odom_age=0.05
+[27.65s] [STATE] mode=SEARCH: next color target=YELLOW:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.50) obstacle=True center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[27.73s] [LIDAR] left=0.23m(66) front=0.23m(27) right=0.49m(46)
+[27.73s] [SPIN] 576/2679 odom_age=0.00
+[27.73s] [STATE] mode=SEARCH: next color target=YELLOW:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.50) obstacle=True center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[27.81s] [LIDAR] left=0.22m(68) front=0.22m(28) right=0.50m(54)
+[27.81s] [SPIN] 625/2679 odom_age=0.02
+[27.81s] [STATE] mode=SEARCH: next color target=YELLOW:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.50) obstacle=True center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[27.89s] [LIDAR] left=0.23m(67) front=0.22m(31) right=0.26m(62)
+[27.89s] [SPIN] 674/2679 odom_age=0.05
+[27.89s] [STATE] mode=SEARCH: next color target=YELLOW:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.50) obstacle=True center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[27.99s] [ODOM] left=21279 right=13522 arduino_ms=704506
+[27.99s] [LIDAR] left=0.24m(70) front=0.22m(31) right=0.23m(74)
+[27.99s] [SPIN] 766/2679 odom_age=0.01
+[27.99s] [STATE] mode=SEARCH: next color target=YELLOW:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.50) obstacle=True center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[28.06s] [LIDAR] left=0.79m(66) front=0.22m(30) right=0.23m(78)
+[28.06s] [SPIN] 810/2679 odom_age=0.03
+[28.06s] [STATE] mode=SEARCH: next color target=YELLOW:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.50) obstacle=True center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[28.15s] [LIDAR] left=0.79m(72) front=0.23m(24) right=0.23m(79)
+[28.15s] [SPIN] 852/2679 odom_age=0.05
+[28.15s] [STATE] mode=SEARCH: next color target=YELLOW:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.50) obstacle=True center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[28.23s] [LIDAR] left=0.79m(72) front=0.23m(24) right=0.23m(79)
+[28.23s] [SPIN] 937/2679 odom_age=0.01
+[28.23s] [STATE] mode=SEARCH: next color target=YELLOW:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.50) obstacle=True center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[28.32s] [LIDAR] left=0.79m(80) front=0.23m(24) right=0.23m(81)
+[28.32s] [SPIN] 977/2679 odom_age=0.05
+[28.32s] [STATE] mode=SEARCH: next color target=YELLOW:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.50) obstacle=True center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[28.41s] [LIDAR] left=0.86m(81) front=0.25m(23) right=0.23m(80)
+[28.41s] [SPIN] 1052/2679 odom_age=0.01
+[28.41s] [STATE] mode=SEARCH: next color target=YELLOW:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.50) obstacle=True center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[28.49s] [ODOM] left=20956 right=13847 arduino_ms=704999
+[28.49s] [LIDAR] left=0.86m(83) front=0.78m(18) right=0.23m(80)
+[28.49s] [SPIN] 1090/2679 odom_age=0.03
+[28.49s] [STATE] mode=SEARCH: next color target=YELLOW:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.50) obstacle=True center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[28.58s] [LIDAR] left=0.87m(85) front=0.79m(24) right=0.24m(79)
+[28.58s] [SPIN] 1128/2679 odom_age=0.05
+[28.58s] [STATE] mode=SEARCH: next color target=YELLOW:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.50) obstacle=True center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[28.66s] [LIDAR] left=0.86m(85) front=0.79m(24) right=0.25m(76)
+[28.66s] [SPIN] 1206/2679 odom_age=0.01
+[28.66s] [STATE] mode=SEARCH: next color target=YELLOW:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.50) obstacle=True center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[28.75s] [LIDAR] left=0.85m(85) front=0.83m(24) right=0.25m(76)
+[28.75s] [SPIN] 1244/2679 odom_age=0.03
+[28.75s] [STATE] mode=SEARCH: next color target=YELLOW:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.50) obstacle=True center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[28.83s] [LIDAR] left=0.85m(85) front=0.83m(24) right=0.25m(76)
+[28.83s] [SPIN] 1283/2679 odom_age=0.05
+[28.83s] [STATE] mode=SEARCH: next color target=YELLOW:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.50) obstacle=True center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[28.91s] [LIDAR] left=0.37m(84) front=0.86m(27) right=0.26m(70)
+[28.91s] [SPIN] 1363/2679 odom_age=0.02
+[28.91s] [STATE] mode=SEARCH: next color target=YELLOW:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.50) obstacle=True center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[29.00s] [ODOM] left=20642 right=14159 arduino_ms=705493
+[29.00s] [LIDAR] left=0.36m(83) front=0.95m(31) right=0.27m(67)
+[29.00s] [SPIN] 1402/2679 odom_age=0.04
+[29.00s] [STATE] mode=SEARCH: next color target=YELLOW:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.50) obstacle=True center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[29.09s] [LIDAR] left=0.36m(83) front=0.88m(30) right=0.28m(68)
+[29.09s] [SPIN] 1478/2679 odom_age=0.00
+[29.09s] [STATE] mode=SEARCH: next color target=YELLOW:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.50) obstacle=True center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[29.17s] [LIDAR] left=0.35m(85) front=0.85m(31) right=0.29m(68)
+[29.17s] [SPIN] 1517/2679 odom_age=0.03
+[29.17s] [STATE] mode=SEARCH: next color target=YELLOW:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.50) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[29.26s] [LIDAR] left=0.34m(84) front=0.83m(31) right=0.30m(68)
+[29.26s] [SPIN] 1556/2679 odom_age=0.06
+[29.26s] [STATE] mode=SEARCH: next color target=YELLOW:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.50) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[29.35s] [LIDAR] left=0.33m(84) front=0.82m(30) right=0.94m(70)
+[29.35s] [SPIN] 1634/2679 odom_age=0.01
+[29.35s] [STATE] mode=SEARCH: next color target=YELLOW:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.50) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[29.43s] [LIDAR] left=0.33m(84) front=0.82m(30) right=0.94m(70)
+[29.43s] [SPIN] 1674/2679 odom_age=0.04
+[29.43s] [STATE] mode=SEARCH: next color target=YELLOW:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.50) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[29.51s] [ODOM] left=20324 right=14469 arduino_ms=705987
+[29.51s] [LIDAR] left=0.33m(83) front=0.82m(30) right=0.92m(69)
+[29.51s] [SPIN] 1716/2679 odom_age=0.06
+[29.51s] [STATE] mode=SEARCH: next color target=YELLOW:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.50) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[29.60s] [LIDAR] left=0.32m(76) front=0.82m(31) right=0.86m(72)
+[29.60s] [SPIN] 1794/2679 odom_age=0.01
+[29.60s] [STATE] mode=SEARCH: next color target=YELLOW:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.50) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[29.68s] [LIDAR] left=0.32m(66) front=0.82m(31) right=0.83m(75)
+[29.68s] [SPIN] 1832/2679 odom_age=0.03
+[29.68s] [STATE] mode=SEARCH: next color target=YELLOW:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.50) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[29.76s] [LIDAR] left=0.31m(60) front=0.32m(31) right=0.82m(80)
+[29.76s] [SPIN] 1872/2679 odom_age=0.05
+[29.76s] [STATE] mode=SEARCH: next color target=YELLOW:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.50) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[29.84s] [LIDAR] left=0.31m(51) front=0.31m(29) right=0.82m(81)
+[29.84s] [SPIN] 1952/2679 odom_age=0.01
+[29.84s] [STATE] mode=SEARCH: next color target=YELLOW:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.50) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[29.92s] [LIDAR] left=0.31m(51) front=0.31m(29) right=0.82m(81)
+[29.92s] [SPIN] 1990/2679 odom_age=0.03
+[29.92s] [STATE] mode=SEARCH: next color target=YELLOW:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.50) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[30.00s] [LIDAR] left=0.32m(48) front=0.31m(30) right=0.83m(85)
+[30.00s] [SPIN] 2028/2679 odom_age=0.05
+[30.00s] [STATE] mode=SEARCH: next color target=YELLOW:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.50) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[30.09s] [ODOM] left=19932 right=14857 arduino_ms=706605
+[30.09s] [LIDAR] left=0.34m(47) front=0.31m(31) right=0.84m(85)
+[30.09s] [SPIN] 2106/2679 odom_age=0.01
+[30.09s] [STATE] mode=SEARCH: next color target=YELLOW:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.50) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[30.16s] [LIDAR] left=0.37m(46) front=0.31m(31) right=0.84m(84)
+[30.16s] [SPIN] 2145/2679 odom_age=0.03
+[30.16s] [STATE] mode=SEARCH: next color target=YELLOW:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.50) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[30.24s] [LIDAR] left=0.40m(46) front=0.31m(31) right=0.32m(84)
+[30.24s] [SPIN] 2186/2679 odom_age=0.05
+[30.24s] [STATE] mode=SEARCH: next color target=YELLOW:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.50) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[30.33s] [LIDAR] left=0.40m(46) front=0.31m(31) right=0.32m(84)
+[30.33s] [SPIN] 2264/2679 odom_age=0.00
+[30.33s] [STATE] mode=SEARCH: next color target=YELLOW:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.50) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[30.41s] [LIDAR] left=0.49m(45) front=0.32m(31) right=0.32m(83)
+[30.41s] [STATE] mode=FOLLOW: color only target=YELLOW:O cmd(v=+0.22 w=+0.34) sent(v=+0.04 w=+1.25) obstacle=False center_ratio=0.31 x_err=-0.90 last_deg=-10 motor=ON
+[30.49s] [LIDAR] left=0.50m(47) front=0.33m(26) right=0.32m(84)
+[30.49s] [STATE] mode=FOLLOW: color only target=YELLOW:O cmd(v=+0.23 w=+0.28) sent(v=+0.08 w=+1.00) obstacle=False center_ratio=0.29 x_err=-0.75 last_deg=-8 motor=ON
+[30.57s] [LIDAR] left=0.50m(51) front=0.36m(19) right=0.32m(84)
+[30.57s] [STATE] mode=FOLLOW: color only target=YELLOW:O cmd(v=+0.24 w=+0.13) sent(v=+0.12 w=+0.75) obstacle=False center_ratio=0.28 x_err=-0.34 last_deg=-4 motor=ON
+[30.66s] [ODOM] left=19676 right=15242 arduino_ms=707160
+[30.66s] [LIDAR] left=0.49m(57) front=0.38m(15) right=0.32m(84)
+[30.66s] [STATE] mode=FOLLOW: color only target=YELLOW:O cmd(v=+0.25 w=+0.00) sent(v=+0.16 w=+0.50) obstacle=False center_ratio=0.28 x_err=-0.16 last_deg=-2 motor=ON
+[30.74s] [LIDAR] left=0.49m(57) front=0.38m(15) right=0.32m(84)
+[30.74s] [STATE] mode=FOLLOW: color only target=YELLOW:O cmd(v=+0.25 w=-0.00) sent(v=+0.20 w=+0.25) obstacle=False center_ratio=0.29 x_err=+0.06 last_deg=+1 motor=ON
+[30.83s] [LIDAR] left=0.47m(59) front=0.41m(13) right=0.32m(85)
+[30.83s] [STATE] mode=FOLLOW: color only target=YELLOW:O cmd(v=+0.25 w=-0.00) sent(v=+0.24 w=+0.00) obstacle=False center_ratio=0.29 x_err=+0.13 last_deg=+1 motor=ON
+[30.91s] [LIDAR] left=0.46m(60) front=0.41m(11) right=0.30m(83)
+[30.91s] [STATE] mode=FOLLOW: color only target=YELLOW:O cmd(v=+0.25 w=-0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.30 x_err=+0.12 last_deg=+1 motor=ON
+[30.99s] [LIDAR] left=0.45m(56) front=0.39m(11) right=0.29m(84)
+[30.99s] [STATE] mode=FOLLOW: color only target=YELLOW:O cmd(v=+0.25 w=-0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.31 x_err=+0.09 last_deg=+1 motor=ON
+[31.08s] [LIDAR] left=0.43m(53) front=0.36m(13) right=0.27m(84)
+[31.08s] [AVOID] gap=2 clear=open target=-31 v=0.25 w=0.81
+[31.08s] [STATE] mode=AVOID: color + obstacle target=YELLOW:O cmd(v=+0.25 w=+0.81) sent(v=+0.25 w=+0.20) obstacle=True center_ratio=0.33 x_err=+0.01 last_deg=+0 motor=ON
+[31.16s] [ODOM] left=20314 right=15884 arduino_ms=707655
+[31.16s] [LIDAR] left=0.42m(49) front=0.32m(15) right=0.25m(83)
+[31.16s] [STATE] mode=FOLLOW: color path clear + repulse target=YELLOW:O cmd(v=+0.25 w=+0.13) sent(v=+0.25 w=+0.13) obstacle=True center_ratio=0.33 x_err=-0.04 last_deg=-0 motor=ON
+[31.24s] [LIDAR] left=0.41m(48) front=0.29m(14) right=0.23m(85)
+[31.24s] [STATE] mode=FOLLOW: color path clear + repulse target=YELLOW:O cmd(v=+0.25 w=+0.21) sent(v=+0.25 w=+0.21) obstacle=True center_ratio=0.34 x_err=-0.08 last_deg=-1 motor=ON
+[31.33s] [LIDAR] left=0.41m(48) front=0.29m(14) right=0.23m(85)
+[31.33s] [STATE] mode=FOLLOW: color path clear + repulse target=YELLOW:O cmd(v=+0.25 w=+0.21) sent(v=+0.25 w=+0.21) obstacle=True center_ratio=0.34 x_err=-0.06 last_deg=-1 motor=ON
+[31.41s] [LIDAR] left=0.41m(47) front=0.26m(14) right=0.21m(85)
+[31.41s] [AVOID] gap=2 clear=open target=-55 v=0.23 w=1.00
+[31.41s] [STATE] mode=AVOID: color + obstacle target=YELLOW:O cmd(v=+0.23 w=+1.00) sent(v=+0.23 w=+0.41) obstacle=True center_ratio=0.33 x_err=-0.07 last_deg=-1 motor=ON
+[31.48s] [LIDAR] left=0.40m(44) front=0.24m(16) right=0.19m(85)
+[31.48s] [AVOID] gap=2 clear=open target=-61 v=0.20 w=1.00
+[31.48s] [STATE] mode=AVOID: color + obstacle target=YELLOW:O cmd(v=+0.20 w=+1.00) sent(v=+0.20 w=+0.61) obstacle=True center_ratio=0.33 x_err=-0.05 last_deg=-1 motor=ON
+[31.57s] [LIDAR] left=0.40m(42) front=0.23m(12) right=0.17m(85)
+[31.57s] [DETOUR] color_deg=+0 obst=R0.17m(min 0.22) front=0.23m deg=-36 v=0.16 w=+0.94
+[31.57s] [STATE] mode=DETOUR: skirt obstacle to color target=YELLOW:X cmd(v=+0.16 w=+0.94) sent(v=+0.16 w=+0.81) obstacle=True center_ratio=0.33 x_err=-0.05 last_deg=+0 motor=ON
+[31.65s] [LIDAR] left=0.40m(43) front=0.20m(13) right=0.15m(84)
+[31.65s] [DETOUR] color_deg=+1 obst=R0.15m(min 0.22) front=0.21m deg=-44 v=0.12 w=+1.00
+[31.65s] [STATE] mode=DETOUR: skirt obstacle to color target=YELLOW:X cmd(v=+0.12 w=+1.00) sent(v=+0.12 w=+1.00) obstacle=True center_ratio=0.33 x_err=-0.05 last_deg=+1 motor=ON
+[31.73s] [ODOM] left=21053 right=16687 arduino_ms=708211
+[31.73s] [LIDAR] left=0.40m(46) front=0.19m(11) right=0.14m(84)
+[31.73s] [DETOUR] color_deg=+4 obst=R0.14m(min 0.22) front=0.19m deg=-50 v=0.09 w=+1.00
+[31.73s] [STATE] mode=DETOUR: skirt obstacle to color target=YELLOW:X cmd(v=+0.09 w=+1.00) sent(v=+0.09 w=+1.00) obstacle=True center_ratio=0.33 x_err=-0.05 last_deg=+4 motor=ON
+[31.82s] [LIDAR] left=0.40m(46) front=0.19m(11) right=0.14m(84)
+[31.82s] [AVOID] gap=1 clear=open target=-49 v=0.09 w=1.00
+[31.82s] [STATE] mode=AVOID: color + obstacle target=YELLOW:O cmd(v=+0.09 w=+1.00) sent(v=+0.09 w=+1.00) obstacle=True center_ratio=0.38 x_err=+0.77 last_deg=+10 motor=ON
+[31.90s] [LIDAR] left=0.39m(47) front=0.20m(6) right=0.14m(80)
+[31.90s] [AVOID] gap=1 clear=open target=-46 v=0.12 w=1.00
+[31.90s] [STATE] mode=AVOID: color + obstacle target=YELLOW:O cmd(v=+0.12 w=+1.00) sent(v=+0.12 w=+1.00) obstacle=True center_ratio=0.45 x_err=+0.88 last_deg=+12 motor=ON
+[31.99s] [LIDAR] left=0.38m(53) front=2.50m(0) right=0.14m(78)
+[31.99s] [AVOID] gap=1 clear=open target=-42 v=0.25 w=1.00
+[31.99s] [STATE] mode=AVOID: color + obstacle target=YELLOW:O cmd(v=+0.25 w=+1.00) sent(v=+0.16 w=+1.00) obstacle=True center_ratio=0.47 x_err=+0.90 last_deg=+13 motor=ON
+[32.08s] [LIDAR] left=0.37m(60) front=2.50m(0) right=0.14m(69)
+[32.08s] [AVOID] gap=1 clear=open target=-37 v=0.25 w=0.97
+[32.08s] [STATE] mode=AVOID: color + obstacle target=YELLOW:O cmd(v=+0.25 w=+0.97) sent(v=+0.20 w=+0.97) obstacle=True center_ratio=0.49 x_err=+0.90 last_deg=+13 motor=ON
+[32.17s] [LIDAR] left=0.36m(58) front=1.39m(3) right=0.15m(62)
+[32.17s] [DETOUR] color_deg=+18 obst=R0.15m(min 0.22) front=1.41m deg=-5 v=0.25 w=+0.13
+[32.17s] [STATE] mode=DETOUR: skirt obstacle to color target=YELLOW:X cmd(v=+0.25 w=+0.13) sent(v=+0.24 w=+0.77) obstacle=True center_ratio=0.49 x_err=+0.90 last_deg=+18 motor=ON
+[32.25s] [ODOM] left=21084 right=17249 arduino_ms=708767
+[32.25s] [LIDAR] left=0.35m(57) front=0.74m(9) right=0.15m(54)
+[32.25s] [DETOUR] color_deg=+25 obst=R0.15m(min 0.22) front=0.74m deg=+4 v=0.25 w=-0.11
+[32.25s] [STATE] mode=DETOUR: skirt obstacle to color target=YELLOW:X cmd(v=+0.25 w=-0.11) sent(v=+0.25 w=+0.57) obstacle=True center_ratio=0.49 x_err=+0.90 last_deg=+25 motor=ON
+[32.34s] [LIDAR] left=0.33m(54) front=0.71m(8) right=0.15m(41)
+[32.34s] [DETOUR] color_deg=+26 obst=R0.15m(min 0.22) front=0.72m deg=+5 v=0.25 w=-0.14
+[32.34s] [STATE] mode=DETOUR: skirt obstacle to color target=YELLOW:X cmd(v=+0.25 w=-0.14) sent(v=+0.25 w=+0.37) obstacle=True center_ratio=0.49 x_err=+0.90 last_deg=+26 motor=ON
+[32.43s] [LIDAR] left=0.33m(54) front=0.71m(8) right=0.15m(41)
+[32.43s] [DETOUR] color_deg=+28 obst=R0.15m(min 0.22) front=0.72m deg=+7 v=0.25 w=-0.18
+[32.43s] [STATE] mode=DETOUR: skirt obstacle to color target=YELLOW:X cmd(v=+0.25 w=-0.18) sent(v=+0.25 w=+0.17) obstacle=True center_ratio=0.49 x_err=+0.90 last_deg=+28 motor=ON
+[32.51s] [LIDAR] left=0.32m(54) front=0.68m(11) right=0.16m(34)
+[32.51s] [DETOUR] color_deg=+28 obst=R0.16m(min 0.22) front=0.68m deg=+10 v=0.25 w=-0.25
+[32.51s] [STATE] mode=DETOUR: skirt obstacle to color target=YELLOW:X cmd(v=+0.25 w=-0.25) sent(v=+0.25 w=-0.03) obstacle=True center_ratio=0.49 x_err=+0.90 last_deg=+28 motor=ON
+[32.59s] [LIDAR] left=0.30m(56) front=0.65m(11) right=0.16m(32)
+[32.59s] [DETOUR] color_deg=+28 obst=R0.16m(min 0.22) front=0.65m deg=+11 v=0.25 w=-0.29
+[32.59s] [STATE] mode=DETOUR: skirt obstacle to color target=YELLOW:X cmd(v=+0.25 w=-0.29) sent(v=+0.25 w=-0.23) obstacle=True center_ratio=0.49 x_err=+0.90 last_deg=+28 motor=ON
+[32.67s] [LIDAR] left=0.29m(58) front=0.62m(10) right=0.17m(30)
+[32.67s] [DETOUR] color_deg=+28 obst=R0.17m(min 0.22) front=0.63m deg=+11 v=0.25 w=-0.29
+[32.67s] [STATE] mode=DETOUR: skirt obstacle to color target=YELLOW:X cmd(v=+0.25 w=-0.29) sent(v=+0.25 w=-0.29) obstacle=True center_ratio=0.49 x_err=+0.90 last_deg=+28 motor=ON
+[32.75s] [LIDAR] left=0.29m(60) front=0.60m(10) right=0.17m(31)
+[32.75s] [DETOUR] color_deg=+26 obst=R0.17m(min 0.22) front=0.60m deg=+11 v=0.25 w=-0.29
+[32.75s] [STATE] mode=DETOUR: skirt obstacle to color target=YELLOW:X cmd(v=+0.25 w=-0.29) sent(v=+0.25 w=-0.29) obstacle=True center_ratio=0.49 x_err=+0.90 last_deg=+26 motor=ON
+[32.83s] [ODOM] left=21819 right=17980 arduino_ms=709322
+[32.83s] [LIDAR] left=0.29m(60) front=0.60m(10) right=0.17m(31)
+[32.83s] [DETOUR] color_deg=+25 obst=R0.17m(min 0.22) front=0.60m deg=+9 v=0.25 w=-0.24
+[32.83s] [STATE] mode=DETOUR: skirt obstacle to color target=YELLOW:X cmd(v=+0.25 w=-0.24) sent(v=+0.25 w=-0.24) obstacle=True center_ratio=0.49 x_err=+0.90 last_deg=+25 motor=ON
+[32.92s] [LIDAR] left=0.29m(64) front=0.59m(6) right=0.18m(31)
+[32.92s] [DETOUR] color_deg=+23 obst=R0.18m(min 0.22) front=0.70m deg=+9 v=0.25 w=-0.24
+[32.92s] [STATE] mode=DETOUR: skirt obstacle to color target=YELLOW:X cmd(v=+0.25 w=-0.24) sent(v=+0.25 w=-0.24) obstacle=True center_ratio=0.49 x_err=+0.90 last_deg=+23 motor=ON
+[33.00s] [LIDAR] left=0.29m(62) front=0.68m(3) right=0.18m(31)
+[33.00s] [STATE] mode=SEARCH: last color direction target=YELLOW:X cmd(v=+0.00 w=-1.00) sent(v=+0.21 w=-0.49) obstacle=False center_ratio=0.49 x_err=+0.90 last_deg=+19 motor=ON
+[33.07s] [LIDAR] left=0.29m(59) front=1.16m(3) right=1.25m(35)
+[33.07s] [STATE] mode=SEARCH: last color direction target=YELLOW:X cmd(v=+0.00 w=-1.00) sent(v=+0.17 w=-0.74) obstacle=False center_ratio=0.49 x_err=+0.90 last_deg=+18 motor=ON
+[33.15s] [LIDAR] left=0.29m(59) front=1.14m(2) right=1.22m(38)
+[33.15s] [STATE] mode=SEARCH: last color direction target=YELLOW:X cmd(v=+0.00 w=-1.00) sent(v=+0.13 w=-0.99) obstacle=False center_ratio=0.49 x_err=+0.90 last_deg=+16 motor=ON
+[33.24s] [LIDAR] left=0.29m(59) front=1.14m(2) right=1.22m(38)
+[33.24s] [STATE] mode=SEARCH: last color direction target=YELLOW:X cmd(v=+0.00 w=-1.00) sent(v=+0.09 w=-1.00) obstacle=False center_ratio=0.49 x_err=+0.90 last_deg=+7 motor=ON
+[33.32s] [LIDAR] left=0.29m(54) front=2.50m(0) right=0.29m(42)
+[33.32s] [STATE] mode=FOLLOW: color only target=YELLOW:O cmd(v=+0.20 w=-0.69) sent(v=+0.13 w=-0.75) obstacle=False center_ratio=0.71 x_err=+0.92 last_deg=+21 motor=ON
+[33.40s] [ODOM] left=22562 right=18294 arduino_ms=709879
+[33.40s] [LIDAR] left=0.50m(46) front=2.50m(0) right=0.23m(50)
+[33.40s] [AVOID] gap=1 clear=open target=-3 v=0.25 w=0.08
+[33.40s] [STATE] mode=AVOID: color + obstacle target=YELLOW:O cmd(v=+0.25 w=+0.08) sent(v=+0.17 w=-0.55) obstacle=True center_ratio=0.67 x_err=+0.84 last_deg=+18 motor=ON
+[33.50s] [LIDAR] left=0.50m(37) front=2.50m(0) right=0.19m(60)
+[33.50s] [AVOID] gap=1 clear=open target=-7 v=0.25 w=0.18
+[33.50s] [STATE] mode=AVOID: color + obstacle target=YELLOW:O cmd(v=+0.25 w=+0.18) sent(v=+0.21 w=-0.35) obstacle=True center_ratio=0.65 x_err=+0.70 last_deg=+15 motor=ON
+[33.60s] [LIDAR] left=0.50m(34) front=2.50m(0) right=0.18m(66)
+[33.60s] [AVOID] gap=1 clear=open target=-10 v=0.25 w=0.27
+[33.60s] [STATE] mode=AVOID: color + obstacle target=YELLOW:O cmd(v=+0.25 w=+0.27) sent(v=+0.25 w=-0.15) obstacle=True center_ratio=0.65 x_err=+0.62 last_deg=+13 motor=ON
+[33.69s] [LIDAR] left=0.49m(33) front=2.50m(0) right=0.18m(73)
+[33.69s] [AVOID] gap=1 clear=open target=-12 v=0.25 w=0.30
+[33.69s] [STATE] mode=AVOID: color + obstacle target=YELLOW:O cmd(v=+0.25 w=+0.30) sent(v=+0.25 w=+0.05) obstacle=True center_ratio=0.67 x_err=+0.58 last_deg=+13 motor=ON
+[33.77s] [LIDAR] left=0.48m(34) front=2.50m(0) right=0.18m(75)
+[33.77s] [AVOID] gap=1 clear=open target=-11 v=0.25 w=0.29
+[33.77s] [STATE] mode=AVOID: color + obstacle target=YELLOW:O cmd(v=+0.25 w=+0.29) sent(v=+0.25 w=+0.25) obstacle=True center_ratio=0.69 x_err=+0.57 last_deg=+13 motor=ON
+[33.86s] [LIDAR] left=0.47m(39) front=2.50m(0) right=0.20m(76)
+[33.86s] [AVOID] gap=1 clear=open target=-9 v=0.25 w=0.24
+[33.86s] [STATE] mode=AVOID: color + obstacle target=YELLOW:O cmd(v=+0.25 w=+0.24) sent(v=+0.25 w=+0.24) obstacle=True center_ratio=0.72 x_err=+0.57 last_deg=+15 motor=ON
+[33.94s] [ODOM] left=23191 right=18703 arduino_ms=710436
+[33.94s] [LIDAR] left=0.46m(39) front=2.50m(0) right=0.23m(76)
+[33.94s] [AVOID] gap=1 clear=open target=-6 v=0.25 w=0.16
+[33.94s] [STATE] mode=AVOID: color + obstacle target=YELLOW:O cmd(v=+0.25 w=+0.16) sent(v=+0.25 w=+0.16) obstacle=True center_ratio=0.74 x_err=+0.58 last_deg=+16 motor=ON
+[34.03s] [LIDAR] left=0.45m(41) front=2.50m(0) right=0.26m(74)
+[34.03s] [AVOID] gap=1 clear=open target=-2 v=0.25 w=0.05
+[34.03s] [STATE] mode=AVOID: color + obstacle target=YELLOW:O cmd(v=+0.25 w=+0.05) sent(v=+0.25 w=+0.05) obstacle=True center_ratio=0.78 x_err=+0.61 last_deg=+19 motor=ON
+[34.12s] [LIDAR] left=0.45m(41) front=2.50m(0) right=0.26m(74)
+[34.12s] [AVOID] gap=1 clear=open target=-2 v=0.25 w=0.05
+[34.12s] [STATE] mode=AVOID: color + obstacle target=YELLOW:O cmd(v=+0.25 w=+0.05) sent(v=+0.25 w=+0.05) obstacle=True center_ratio=0.81 x_err=+0.63 last_deg=+21 motor=ON
+[34.20s] [LIDAR] left=0.45m(45) front=2.50m(0) right=1.10m(71)
+[34.20s] [STATE] mode=FOLLOW: color only target=YELLOW:O cmd(v=+0.19 w=-0.77) sent(v=+0.21 w=-0.20) obstacle=False center_ratio=0.83 x_err=+0.64 last_deg=+23 motor=ON
+[34.28s] [LIDAR] left=0.44m(45) front=2.50m(0) right=1.10m(71)
+[34.28s] [STATE] mode=FOLLOW: color only target=YELLOW:O cmd(v=+0.19 w=-0.81) sent(v=+0.19 w=-0.45) obstacle=False center_ratio=0.84 x_err=+0.65 last_deg=+24 motor=ON
+[34.37s] [LIDAR] left=0.44m(50) front=2.50m(0) right=1.10m(70)
+[34.37s] [STATE] mode=FOLLOW: color only target=YELLOW:O cmd(v=+0.19 w=-0.86) sent(v=+0.19 w=-0.70) obstacle=False center_ratio=0.85 x_err=+0.67 last_deg=+26 motor=ON
+[34.44s] [LIDAR] left=0.44m(51) front=2.50m(0) right=1.10m(70)
+[34.44s] [STATE] mode=FOLLOW: color only target=YELLOW:O cmd(v=+0.18 w=-0.87) sent(v=+0.18 w=-0.87) obstacle=False center_ratio=0.86 x_err=+0.66 last_deg=+26 motor=ON
+[34.53s] [ODOM] left=23914 right=19394 arduino_ms=711054
+[34.53s] [LIDAR] left=0.44m(51) front=2.50m(0) right=1.10m(70)
+[34.53s] [STATE] mode=FOLLOW: color only target=YELLOW:O cmd(v=+0.19 w=-0.85) sent(v=+0.19 w=-0.85) obstacle=False center_ratio=0.86 x_err=+0.62 last_deg=+25 motor=ON
+[34.61s] [LIDAR] left=0.44m(50) front=2.50m(0) right=1.10m(72)
+[34.61s] [STATE] mode=FOLLOW: color only target=YELLOW:O cmd(v=+0.19 w=-0.81) sent(v=+0.19 w=-0.81) obstacle=False center_ratio=0.86 x_err=+0.57 last_deg=+24 motor=ON
+[34.70s] [LIDAR] left=0.46m(42) front=2.50m(0) right=1.09m(78)
+[34.70s] [STATE] mode=FOLLOW: color only target=YELLOW:O cmd(v=+0.20 w=-0.72) sent(v=+0.20 w=-0.72) obstacle=False center_ratio=0.86 x_err=+0.48 last_deg=+22 motor=ON
+[34.77s] [LIDAR] left=0.52m(32) front=2.46m(1) right=1.08m(84)
+[34.77s] [STATE] mode=FOLLOW: color only target=YELLOW:O cmd(v=+0.20 w=-0.67) sent(v=+0.20 w=-0.67) obstacle=False center_ratio=0.86 x_err=+0.43 last_deg=+20 motor=ON
+[34.86s] [LIDAR] left=0.60m(25) front=1.95m(9) right=1.08m(85)
+[34.86s] [STATE] mode=FOLLOW: color only target=YELLOW:O cmd(v=+0.20 w=-0.60) sent(v=+0.20 w=-0.60) obstacle=False center_ratio=0.86 x_err=+0.35 last_deg=+18 motor=ON
+[34.94s] [LIDAR] left=0.60m(25) front=1.95m(9) right=1.08m(85)
+[34.94s] [STATE] mode=FOLLOW: color only target=YELLOW:O cmd(v=+0.21 w=-0.56) sent(v=+0.21 w=-0.56) obstacle=False center_ratio=0.87 x_err=+0.31 last_deg=+17 motor=ON
+[35.02s] [LIDAR] left=0.92m(21) front=1.67m(16) right=0.33m(85)
+[35.02s] [STATE] mode=FOLLOW: color only target=YELLOW:O cmd(v=+0.21 w=-0.53) sent(v=+0.21 w=-0.53) obstacle=False center_ratio=0.88 x_err=+0.27 last_deg=+16 motor=ON
+[35.11s] [ODOM] left=24619 right=19641 arduino_ms=711609
+[35.11s] [LIDAR] left=0.92m(17) front=1.54m(20) right=0.33m(85)
+[35.11s] [STATE] mode=FOLLOW: color only target=YELLOW:O cmd(v=+0.21 w=-0.49) sent(v=+0.21 w=-0.49) obstacle=False center_ratio=0.89 x_err=+0.22 last_deg=+15 motor=ON
+[35.20s] [LIDAR] left=0.91m(12) front=1.42m(26) right=0.33m(85)
+[35.20s] [STATE] mode=ALIGN: bottom color target=YELLOW:O cmd(v=+0.00 w=-0.45) sent(v=+0.00 w=-0.45) obstacle=False center_ratio=0.90 x_err=+0.18 last_deg=+14 motor=ON
+[35.29s] [LIDAR] left=0.89m(7) front=1.35m(27) right=1.03m(84)
+[35.29s] [STATE] mode=ALIGN: bottom color target=YELLOW:O cmd(v=+0.00 w=-0.44) sent(v=+0.00 w=-0.44) obstacle=False center_ratio=0.91 x_err=+0.15 last_deg=+13 motor=ON
+[35.37s] [LIDAR] left=0.89m(7) front=1.27m(31) right=1.01m(85)
+[35.37s] [STATE] mode=FOLLOW: bottom color target=YELLOW:O cmd(v=+0.22 w=-0.44) sent(v=+0.04 w=-0.44) obstacle=False center_ratio=0.92 x_err=+0.14 last_deg=+13 motor=ON
+[35.45s] [LIDAR] left=0.87m(8) front=1.24m(30) right=1.00m(85)
+[35.45s] [STATE] mode=ALIGN: bottom color target=YELLOW:O cmd(v=+0.00 w=-0.48) sent(v=+0.00 w=-0.48) obstacle=False center_ratio=0.92 x_err=+0.16 last_deg=+14 motor=ON
+[35.53s] [LIDAR] left=0.87m(8) front=1.24m(31) right=0.33m(84)
+[35.53s] [STATE] mode=FOLLOW: bottom color target=YELLOW:O cmd(v=+0.22 w=-0.39) sent(v=+0.04 w=-0.39) obstacle=False center_ratio=0.92 x_err=+0.13 last_deg=+12 motor=ON
+[35.62s] [ODOM] left=24712 right=19530 arduino_ms=712103
+[35.62s] [LIDAR] left=0.87m(8) front=1.24m(31) right=0.33m(84)
+[35.62s] [STATE] mode=FOLLOW: bottom color target=YELLOW:O cmd(v=+0.23 w=-0.32) sent(v=+0.08 w=-0.32) obstacle=False center_ratio=0.91 x_err=+0.11 last_deg=+9 motor=ON
+[35.70s] [LIDAR] left=0.93m(9) front=1.20m(30) right=0.33m(84)
+[35.70s] [STATE] mode=FOLLOW: bottom color target=YELLOW:O cmd(v=+0.23 w=-0.21) sent(v=+0.12 w=-0.21) obstacle=False center_ratio=0.91 x_err=+0.07 last_deg=+6 motor=ON
+[35.78s] [LIDAR] left=1.26m(8) front=1.17m(31) right=0.32m(84)
+[35.78s] [STATE] mode=FOLLOW: bottom color target=YELLOW:O cmd(v=+0.24 w=-0.17) sent(v=+0.16 w=-0.17) obstacle=False center_ratio=0.91 x_err=+0.06 last_deg=+5 motor=ON
+[35.86s] [LIDAR] left=1.31m(8) front=1.16m(31) right=0.32m(84)
+[35.86s] [STATE] mode=FOLLOW: bottom color target=YELLOW:O cmd(v=+0.24 w=-0.16) sent(v=+0.20 w=-0.16) obstacle=False center_ratio=0.92 x_err=+0.05 last_deg=+5 motor=ON
+[35.95s] [LIDAR] left=1.97m(7) front=1.14m(29) right=0.32m(85)
+[35.95s] [STATE] mode=FOLLOW: bottom color target=YELLOW:O cmd(v=+0.24 w=-0.16) sent(v=+0.24 w=-0.16) obstacle=False center_ratio=0.92 x_err=+0.05 last_deg=+5 motor=ON
+[36.03s] [LIDAR] left=1.88m(8) front=1.12m(31) right=0.33m(83)
+[36.03s] [STATE] mode=FOLLOW: bottom color target=YELLOW:O cmd(v=+0.24 w=-0.17) sent(v=+0.24 w=-0.17) obstacle=False center_ratio=0.93 x_err=+0.05 last_deg=+5 motor=ON
+[36.12s] [ODOM] left=25044 right=19801 arduino_ms=712597
+[36.12s] [LIDAR] left=1.88m(8) front=1.12m(31) right=0.33m(83)
+[36.12s] [STATE] mode=FOLLOW: bottom color target=YELLOW:O cmd(v=+0.24 w=-0.20) sent(v=+0.24 w=-0.20) obstacle=False center_ratio=0.94 x_err=+0.05 last_deg=+6 motor=ON
+[36.20s] [LIDAR] left=1.85m(8) front=1.10m(31) right=0.97m(80)
+[36.20s] [COLOR] YELLOW done, now tracking BLUE
+[ODOM] move 0.03m target_counts=142
+[ODOM] extra forward done: left=0.04m(176) right=0.04m(173)
+[36.20s] [STATE] mode=SEARCH: next color target=BLUE:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+0.25) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[37.46s] [ODOM] left=25682 right=20464 arduino_ms=713955
+[37.46s] [LIDAR] left=1.77m(6) front=1.00m(30) right=0.87m(85)
+[37.46s] [SPIN] 0/2679 odom_age=0.03
+[37.46s] [STATE] mode=SEARCH: next color target=BLUE:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+0.50) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[37.54s] [LIDAR] left=0.69m(9) front=1.00m(30) right=0.86m(85)
+[37.54s] [SPIN] 2/2679 odom_age=0.05
+[37.54s] [STATE] mode=SEARCH: next color target=BLUE:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+0.75) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[37.63s] [LIDAR] left=0.69m(7) front=1.00m(31) right=0.86m(85)
+[37.63s] [SPIN] 20/2679 odom_age=0.01
+[37.63s] [STATE] mode=SEARCH: next color target=BLUE:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.00) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[37.71s] [LIDAR] left=0.69m(7) front=1.00m(31) right=0.86m(85)
+[37.71s] [SPIN] 44/2679 odom_age=0.03
+[37.71s] [STATE] mode=SEARCH: next color target=BLUE:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.25) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[37.79s] [LIDAR] left=0.68m(8) front=1.04m(29) right=0.87m(85)
+[37.79s] [SPIN] 79/2679 odom_age=0.05
+[37.79s] [STATE] mode=SEARCH: next color target=BLUE:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.50) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[37.88s] [LIDAR] left=0.68m(18) front=1.15m(18) right=0.87m(85)
+[37.88s] [SPIN] 174/2679 odom_age=0.01
+[37.88s] [STATE] mode=SEARCH: next color target=BLUE:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.50) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[37.96s] [LIDAR] left=0.66m(30) front=1.36m(18) right=0.88m(85)
+[37.96s] [SPIN] 232/2679 odom_age=0.03
+[37.96s] [STATE] mode=SEARCH: next color target=BLUE:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.50) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[38.04s] [ODOM] left=25393 right=20757 arduino_ms=714510
+[38.04s] [LIDAR] left=0.65m(40) front=1.95m(8) right=0.89m(85)
+[38.04s] [SPIN] 291/2679 odom_age=0.05
+[38.04s] [STATE] mode=SEARCH: next color target=BLUE:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.50) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[38.12s] [LIDAR] left=0.65m(40) front=1.95m(8) right=0.89m(85)
+[38.12s] [SPIN] 407/2679 odom_age=0.01
+[38.12s] [STATE] mode=SEARCH: next color target=BLUE:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.50) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[38.21s] [LIDAR] left=0.64m(40) front=2.50m(0) right=0.90m(79)
+[38.21s] [SPIN] 462/2679 odom_age=0.04
+[38.21s] [STATE] mode=SEARCH: next color target=BLUE:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.50) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[38.31s] [LIDAR] left=0.63m(41) front=2.50m(0) right=0.92m(66)
+[38.31s] [SPIN] 564/2679 odom_age=0.01
+[38.31s] [STATE] mode=SEARCH: next color target=BLUE:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.50) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[38.38s] [LIDAR] left=0.62m(50) front=2.50m(0) right=0.96m(54)
+[38.38s] [SPIN] 614/2679 odom_age=0.03
+[38.38s] [STATE] mode=SEARCH: next color target=BLUE:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.50) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[38.47s] [LIDAR] left=0.65m(44) front=0.62m(9) right=1.05m(42)
+[38.47s] [SPIN] 662/2679 odom_age=0.05
+[38.47s] [STATE] mode=SEARCH: next color target=BLUE:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.50) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[38.56s] [ODOM] left=24940 right=21230 arduino_ms=715066
+[38.56s] [LIDAR] left=0.79m(47) front=0.63m(14) right=0.04m(33)
+[38.56s] [SPIN] 754/2679 odom_age=0.01
+[38.56s] [STATE] mode=SEARCH: next color target=BLUE:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.50) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[38.64s] [LIDAR] left=0.78m(39) front=0.62m(18) right=0.04m(22)
+[38.64s] [SPIN] 796/2679 odom_age=0.03
+[38.64s] [STATE] mode=SEARCH: next color target=BLUE:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.50) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[38.72s] [LIDAR] left=0.78m(39) front=0.62m(18) right=0.04m(22)
+[38.72s] [SPIN] 836/2679 odom_age=0.05
+[38.72s] [STATE] mode=SEARCH: next color target=BLUE:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.50) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[38.80s] [LIDAR] left=0.77m(39) front=0.62m(30) right=1.70m(12)
+[38.80s] [SPIN] 926/2679 odom_age=0.00
+[38.80s] [STATE] mode=SEARCH: next color target=BLUE:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.50) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[38.88s] [LIDAR] left=0.76m(41) front=0.66m(23) right=0.03m(13)
+[38.88s] [SPIN] 968/2679 odom_age=0.02
+[38.88s] [STATE] mode=SEARCH: next color target=BLUE:X cmd(v=+0.00 w=+1.50) sent(v=+0.00 w=+1.50) obstacle=False center_ratio=0.00 x_err=+0.00 last_deg=+0 motor=ON
+[38.96s] [LIDAR] left=0.43m(50) front=1.04m(17) right=0.05m(20)
+[38.96s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.23 w=+0.25) sent(v=+0.04 w=+1.25) obstacle=False center_ratio=0.17 x_err=-0.80 last_deg=-8 motor=ON
+[39.05s] [LIDAR] left=0.39m(60) front=1.10m(13) right=0.64m(30)
+[39.05s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.24 w=+0.17) sent(v=+0.08 w=+1.00) obstacle=False center_ratio=0.16 x_err=-0.54 last_deg=-5 motor=ON
+[39.13s] [ODOM] left=24574 right=21617 arduino_ms=715622
+[39.13s] [LIDAR] left=0.39m(60) front=1.10m(13) right=0.64m(30)
+[39.13s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.25 w=-0.00) sent(v=+0.12 w=+0.75) obstacle=False center_ratio=0.16 x_err=+0.00 last_deg=+0 motor=ON
+[39.21s] [LIDAR] left=0.37m(66) front=1.11m(7) right=0.64m(39)
+[39.21s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.25 w=-0.00) sent(v=+0.16 w=+0.50) obstacle=False center_ratio=0.16 x_err=+0.26 last_deg=+2 motor=ON
+[39.30s] [LIDAR] left=0.37m(65) front=1.10m(5) right=0.65m(45)
+[39.30s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.24 w=-0.14) sent(v=+0.20 w=+0.25) obstacle=False center_ratio=0.16 x_err=+0.45 last_deg=+4 motor=ON
+[39.38s] [LIDAR] left=0.37m(67) front=1.08m(7) right=0.64m(45)
+[39.38s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.24 w=-0.16) sent(v=+0.24 w=+0.00) obstacle=False center_ratio=0.17 x_err=+0.51 last_deg=+5 motor=ON
+[39.46s] [LIDAR] left=0.38m(65) front=1.05m(6) right=0.63m(46)
+[39.46s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.24 w=-0.15) sent(v=+0.24 w=-0.15) obstacle=False center_ratio=0.18 x_err=+0.48 last_deg=+5 motor=ON
+[39.54s] [LIDAR] left=0.38m(65) front=1.02m(4) right=0.62m(49)
+[39.54s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.24 w=-0.14) sent(v=+0.24 w=-0.14) obstacle=False center_ratio=0.18 x_err=+0.43 last_deg=+4 motor=ON
+[39.62s] [ODOM] left=25091 right=22194 arduino_ms=716115
+[39.62s] [LIDAR] left=0.38m(65) front=1.02m(4) right=0.62m(49)
+[39.62s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.25 w=-0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.18 x_err=+0.36 last_deg=+3 motor=ON
+[39.73s] [LIDAR] left=0.40m(61) front=0.99m(1) right=0.61m(53)
+[39.73s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.25 w=-0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.20 x_err=+0.19 last_deg=+2 motor=ON
+[39.82s] [LIDAR] left=0.42m(62) front=0.83m(2) right=0.59m(54)
+[39.82s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.25 w=-0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.20 x_err=+0.11 last_deg=+1 motor=ON
+[39.89s] [LIDAR] left=0.59m(61) front=0.75m(11) right=0.58m(53)
+[39.89s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.25 w=+0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.22 x_err=-0.12 last_deg=-1 motor=ON
+[39.97s] [LIDAR] left=0.57m(66) front=0.60m(28) right=0.56m(50)
+[39.97s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.25 w=+0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=-3 motor=ON
+[40.05s] [LIDAR] left=0.55m(74) front=0.53m(30) right=0.55m(47)
+[40.05s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=+1.00) sent(v=+0.21 w=+0.25) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=-4 motor=ON
+[40.13s] [LIDAR] left=0.55m(74) front=0.53m(30) right=0.55m(47)
+[40.13s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=+1.00) sent(v=+0.17 w=+0.50) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=-4 motor=ON
+[40.21s] [ODOM] left=26021 right=23012 arduino_ms=716733
+[40.21s] [LIDAR] left=0.48m(77) front=0.48m(31) right=0.53m(46)
+[40.21s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=+1.00) sent(v=+0.13 w=+0.75) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=-5 motor=ON
+[40.30s] [LIDAR] left=0.45m(78) front=0.44m(29) right=0.52m(45)
+[40.30s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=+1.00) sent(v=+0.09 w=+1.00) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=-4 motor=ON
+[40.38s] [LIDAR] left=0.44m(75) front=0.43m(31) right=0.50m(51)
+[40.38s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=+1.00) sent(v=+0.05 w=+1.00) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=-1 motor=ON
+[40.46s] [LIDAR] left=0.44m(71) front=0.42m(31) right=0.49m(53)
+[40.46s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=-1.00) sent(v=+0.01 w=+0.75) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=+3 motor=ON
+[40.54s] [LIDAR] left=0.51m(76) front=0.42m(31) right=0.44m(64)
+[40.54s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=-1.00) sent(v=+0.00 w=+0.50) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=+11 motor=ON
+[40.63s] [LIDAR] left=0.51m(73) front=0.42m(31) right=0.43m(69)
+[40.63s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=-1.00) sent(v=+0.00 w=+0.25) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=+14 motor=ON
+[40.71s] [LIDAR] left=0.51m(73) front=0.42m(31) right=0.43m(69)
+[40.71s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=-1.00) sent(v=+0.00 w=+0.00) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=+18 motor=ON
+[40.80s] [ODOM] left=25898 right=23226 arduino_ms=717288
+[40.80s] [LIDAR] left=0.51m(73) front=0.43m(31) right=0.43m(68)
+[40.80s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=-1.00) sent(v=+0.00 w=-0.25) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=+18 motor=ON
+[40.88s] [LIDAR] left=0.52m(71) front=0.44m(31) right=0.44m(67)
+[40.88s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=-1.00) sent(v=+0.00 w=-0.50) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=+18 motor=ON
+[40.96s] [LIDAR] left=0.47m(74) front=0.44m(31) right=0.45m(67)
+[40.96s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=-1.00) sent(v=+0.00 w=-0.75) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=+18 motor=ON
+[41.04s] [LIDAR] left=0.52m(75) front=0.44m(31) right=0.45m(68)
+[41.04s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=-1.00) sent(v=+0.00 w=-1.00) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=+16 motor=ON
+[41.12s] [LIDAR] left=0.52m(75) front=0.44m(31) right=0.45m(68)
+[41.12s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=-1.00) sent(v=+0.00 w=-1.00) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=+13 motor=ON
+[41.20s] [LIDAR] left=0.47m(72) front=0.44m(31) right=0.45m(69)
+[41.20s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=-1.00) sent(v=+0.00 w=-1.00) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=+9 motor=ON
+[41.28s] [LIDAR] left=0.45m(72) front=0.44m(30) right=0.46m(60)
+[41.28s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=+1.00) sent(v=+0.00 w=-0.75) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=-2 motor=ON
+[41.37s] [ODOM] left=26077 right=23030 arduino_ms=717844
+[41.37s] [LIDAR] left=0.44m(80) front=0.44m(31) right=0.50m(54)
+[41.37s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=+1.00) sent(v=+0.00 w=-0.50) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=-7 motor=ON
+[41.45s] [LIDAR] left=0.45m(82) front=0.45m(31) right=0.53m(47)
+[41.45s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=+1.00) sent(v=+0.00 w=-0.25) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=-15 motor=ON
+[41.53s] [LIDAR] left=0.45m(81) front=0.45m(31) right=0.56m(39)
+[41.53s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=+1.00) sent(v=+0.00 w=+0.00) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=-16 motor=ON
+[41.62s] [LIDAR] left=0.45m(81) front=0.45m(31) right=0.56m(39)
+[41.62s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=+1.00) sent(v=+0.00 w=+0.25) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=-17 motor=ON
+[41.70s] [LIDAR] left=0.45m(81) front=0.45m(28) right=0.60m(37)
+[41.70s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=+1.00) sent(v=+0.00 w=+0.50) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=-17 motor=ON
+[41.78s] [LIDAR] left=0.45m(83) front=0.45m(30) right=0.61m(35)
+[41.78s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=+1.00) sent(v=+0.00 w=+0.75) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=-16 motor=ON
+[41.86s] [LIDAR] left=0.45m(83) front=0.45m(30) right=0.62m(32)
+[41.86s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=+1.00) sent(v=+0.00 w=+1.00) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=-15 motor=ON
+[41.95s] [ODOM] left=26090 right=23023 arduino_ms=718462
+[41.95s] [LIDAR] left=0.44m(79) front=0.44m(31) right=0.62m(35)
+[41.95s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=+1.00) sent(v=+0.00 w=+1.00) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=-9 motor=ON
+[42.03s] [LIDAR] left=0.45m(79) front=0.44m(31) right=0.53m(37)
+[42.03s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=+1.00) sent(v=+0.00 w=+1.00) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=-3 motor=ON
+[42.11s] [LIDAR] left=0.45m(79) front=0.44m(31) right=0.53m(37)
+[42.11s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=-1.00) sent(v=+0.00 w=+0.75) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=+2 motor=ON
+[42.19s] [LIDAR] left=0.46m(73) front=0.44m(29) right=0.50m(47)
+[42.19s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=-1.00) sent(v=+0.00 w=+0.50) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=+12 motor=ON
+[42.29s] [LIDAR] left=0.52m(73) front=0.44m(30) right=0.46m(49)
+[42.29s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=-1.00) sent(v=+0.00 w=+0.25) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=+15 motor=ON
+[42.37s] [LIDAR] left=0.52m(74) front=0.44m(31) right=0.45m(50)
+[42.37s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=-1.00) sent(v=+0.00 w=+0.00) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=+17 motor=ON
+[42.46s] [ODOM] left=25894 right=23220 arduino_ms=718957
+[42.46s] [LIDAR] left=0.52m(74) front=0.44m(28) right=0.45m(50)
+[42.46s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=-1.00) sent(v=+0.00 w=-0.25) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=+18 motor=ON
+[42.54s] [LIDAR] left=0.52m(73) front=0.44m(31) right=0.45m(51)
+[42.54s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=-1.00) sent(v=+0.00 w=-0.50) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=+18 motor=ON
+[42.62s] [LIDAR] left=0.52m(73) front=0.44m(31) right=0.45m(51)
+[42.62s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=-1.00) sent(v=+0.00 w=-0.75) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=+18 motor=ON
+[42.71s] [LIDAR] left=0.52m(73) front=0.44m(30) right=0.45m(52)
+[42.71s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=-1.00) sent(v=+0.00 w=-1.00) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=+14 motor=ON
+[42.79s] [LIDAR] left=0.52m(74) front=0.44m(31) right=0.45m(52)
+[42.79s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=-1.00) sent(v=+0.00 w=-1.00) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=+11 motor=ON
+[42.88s] [LIDAR] left=0.46m(75) front=0.44m(31) right=0.45m(51)
+[42.88s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=-1.00) sent(v=+0.00 w=-1.00) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=+2 motor=ON
+[42.96s] [ODOM] left=26055 right=23068 arduino_ms=719450
+[42.96s] [LIDAR] left=0.44m(78) front=0.44m(30) right=0.47m(45)
+[42.96s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=+1.00) sent(v=+0.00 w=-0.75) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=-3 motor=ON
+[43.04s] [LIDAR] left=0.44m(82) front=0.44m(31) right=0.51m(38)
+[43.04s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=+1.00) sent(v=+0.00 w=-0.50) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=-8 motor=ON
+[43.13s] [LIDAR] left=0.44m(82) front=0.44m(31) right=0.51m(38)
+[43.13s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=+1.00) sent(v=+0.00 w=-0.25) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=-16 motor=ON
+[43.21s] [LIDAR] left=0.45m(81) front=0.45m(30) right=0.55m(33)
+[43.21s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=+1.00) sent(v=+0.00 w=+0.00) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=-17 motor=ON
+[43.29s] [LIDAR] left=0.45m(82) front=0.45m(29) right=0.62m(31)
+[43.29s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=+1.00) sent(v=+0.00 w=+0.25) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=-17 motor=ON
+[43.37s] [LIDAR] left=0.45m(80) front=0.45m(29) right=0.61m(31)
+[43.37s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=+1.00) sent(v=+0.00 w=+0.50) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=-17 motor=ON
+[43.46s] [LIDAR] left=0.45m(81) front=0.45m(28) right=0.61m(34)
+[43.46s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=+1.00) sent(v=+0.00 w=+0.75) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=-17 motor=ON
+[43.54s] [ODOM] left=26153 right=22985 arduino_ms=720006
+[43.54s] [LIDAR] left=0.44m(83) front=0.45m(28) right=0.61m(29)
+[43.54s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=+1.00) sent(v=+0.00 w=+1.00) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=-15 motor=ON
+[43.62s] [LIDAR] left=0.44m(83) front=0.45m(28) right=0.61m(29)
+[43.62s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=+1.00) sent(v=+0.00 w=+1.00) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=-10 motor=ON
+[43.70s] [LIDAR] left=0.44m(78) front=0.44m(31) right=0.55m(34)
+[43.70s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=+1.00) sent(v=+0.00 w=+1.00) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=-5 motor=ON
+[43.78s] [LIDAR] left=0.45m(80) front=0.44m(31) right=0.53m(39)
+[43.78s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=-1.00) sent(v=+0.00 w=+0.75) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=+1 motor=ON
+[43.86s] [LIDAR] left=0.46m(71) front=0.44m(30) right=0.49m(51)
+[43.86s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=-1.00) sent(v=+0.00 w=+0.50) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=+11 motor=ON
+[43.94s] [LIDAR] left=0.52m(74) front=0.44m(31) right=0.45m(58)
+[43.94s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=-1.00) sent(v=+0.00 w=+0.25) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=+14 motor=ON
+[44.03s] [LIDAR] left=0.52m(72) front=0.44m(29) right=0.45m(60)
+[44.03s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=-1.00) sent(v=+0.00 w=+0.00) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=+16 motor=ON
+[44.11s] [ODOM] left=25920 right=23222 arduino_ms=720623
+[44.11s] [LIDAR] left=0.52m(72) front=0.44m(29) right=0.45m(60)
+[44.11s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=-1.00) sent(v=+0.00 w=-0.25) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=+16 motor=ON
+[44.20s] [LIDAR] left=0.52m(73) front=0.44m(31) right=0.45m(52)
+[44.20s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=-1.00) sent(v=+0.00 w=-0.50) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=+16 motor=ON
+[44.28s] [LIDAR] left=0.52m(75) front=0.44m(29) right=0.44m(52)
+[44.28s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=-1.00) sent(v=+0.00 w=-0.75) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=+16 motor=ON
+[44.37s] [LIDAR] left=0.52m(72) front=0.44m(31) right=0.44m(49)
+[44.37s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=-1.00) sent(v=+0.00 w=-1.00) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=+13 motor=ON
+[44.45s] [LIDAR] left=0.46m(74) front=0.44m(31) right=0.45m(52)
+[44.45s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=-1.00) sent(v=+0.00 w=-1.00) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=+9 motor=ON
+[44.53s] [LIDAR] left=0.45m(73) front=0.44m(31) right=0.46m(51)
+[44.53s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=-1.00) sent(v=+0.00 w=-1.00) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=+5 motor=ON
+[44.62s] [ODOM] left=26086 right=23062 arduino_ms=721117
+[44.62s] [LIDAR] left=0.45m(73) front=0.44m(31) right=0.46m(51)
+[44.62s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=+1.00) sent(v=+0.00 w=-0.75) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=-6 motor=ON
+[44.70s] [LIDAR] left=0.44m(81) front=0.44m(31) right=0.49m(42)
+[44.70s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=+1.00) sent(v=+0.00 w=-0.50) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=-11 motor=ON
+[44.78s] [LIDAR] left=0.44m(80) front=0.45m(30) right=0.53m(36)
+[44.78s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=+1.00) sent(v=+0.00 w=-0.25) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=-14 motor=ON
+[44.86s] [LIDAR] left=0.44m(81) front=0.45m(29) right=0.55m(33)
+[44.86s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=+1.00) sent(v=+0.00 w=+0.00) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=-17 motor=ON
+[44.94s] [LIDAR] left=0.44m(80) front=0.45m(29) right=0.62m(32)
+[44.94s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=+1.00) sent(v=+0.00 w=+0.25) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=-17 motor=ON
+[45.02s] [LIDAR] left=0.44m(80) front=0.45m(29) right=0.62m(32)
+[45.02s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=+1.00) sent(v=+0.00 w=+0.50) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=-17 motor=ON
+[45.10s] [LIDAR] left=0.44m(84) front=0.45m(30) right=0.62m(34)
+[45.10s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=+1.00) sent(v=+0.00 w=+0.75) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=-16 motor=ON
+[45.19s] [ODOM] left=26151 right=23000 arduino_ms=721674
+[45.19s] [LIDAR] left=0.44m(81) front=0.45m(27) right=0.62m(34)
+[45.19s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=+1.00) sent(v=+0.00 w=+1.00) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=-14 motor=ON
+[45.28s] [LIDAR] left=0.44m(79) front=0.44m(31) right=0.62m(33)
+[45.28s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=+1.00) sent(v=+0.00 w=+1.00) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=-11 motor=ON
+[45.37s] [LIDAR] left=0.44m(76) front=0.44m(31) right=0.54m(43)
+[45.37s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=+1.00) sent(v=+0.00 w=+1.00) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=-2 motor=ON
+[45.45s] [LIDAR] left=0.46m(74) front=0.44m(31) right=0.50m(48)
+[45.45s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=-1.00) sent(v=+0.00 w=+0.75) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=+4 motor=ON
+[45.53s] [LIDAR] left=0.52m(73) front=0.44m(30) right=0.46m(61)
+[45.53s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=-1.00) sent(v=+0.00 w=+0.50) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=+9 motor=ON
+[45.61s] [LIDAR] left=0.52m(73) front=0.44m(30) right=0.46m(61)
+[45.61s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=-1.00) sent(v=+0.00 w=+0.25) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=+16 motor=ON
+[45.69s] [LIDAR] left=0.52m(68) front=0.44m(31) right=0.44m(61)
+[45.69s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=-1.00) sent(v=+0.00 w=+0.00) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=+18 motor=ON
+[45.78s] [ODOM] left=25920 right=23242 arduino_ms=722230
+[45.78s] [LIDAR] left=0.52m(69) front=0.44m(30) right=0.44m(61)
+[45.78s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=-1.00) sent(v=+0.00 w=-0.25) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=+18 motor=ON
+[45.86s] [LIDAR] left=0.52m(71) front=0.44m(30) right=0.44m(58)
+[45.86s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=-1.00) sent(v=+0.00 w=-0.50) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=+18 motor=ON
+[45.95s] [LIDAR] left=0.52m(68) front=0.44m(31) right=0.44m(59)
+[45.95s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=-1.00) sent(v=+0.00 w=-0.75) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=+17 motor=ON
+[46.03s] [LIDAR] left=0.52m(71) front=0.45m(27) right=0.45m(59)
+[46.03s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=-1.00) sent(v=+0.00 w=-1.00) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=+14 motor=ON
+[46.12s] [LIDAR] left=0.52m(71) front=0.45m(27) right=0.45m(59)
+[46.12s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=-1.00) sent(v=+0.00 w=-1.00) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=+10 motor=ON
+[46.20s] [LIDAR] left=0.52m(70) front=0.44m(23) right=0.46m(62)
+[46.20s] [STATE] mode=SEARCH: last color direction target=BLUE:X cmd(v=+0.00 w=-1.00) sent(v=+0.00 w=-1.00) obstacle=False center_ratio=0.22 x_err=-0.28 last_deg=+6 motor=ON
+[46.28s] [ODOM] left=26088 right=23078 arduino_ms=722786
+[46.28s] [LIDAR] left=0.53m(69) front=0.46m(18) right=0.49m(61)
+[46.28s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.25 w=+0.00) sent(v=+0.04 w=-0.75) obstacle=False center_ratio=0.26 x_err=-0.12 last_deg=-1 motor=ON
+[46.36s] [LIDAR] left=0.53m(68) front=0.52m(21) right=0.57m(56)
+[46.36s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.25 w=+0.00) sent(v=+0.08 w=-0.50) obstacle=False center_ratio=0.26 x_err=-0.25 last_deg=-3 motor=ON
+[46.45s] [LIDAR] left=0.53m(68) front=0.61m(18) right=0.62m(51)
+[46.45s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.24 w=+0.20) sent(v=+0.12 w=-0.25) obstacle=False center_ratio=0.27 x_err=-0.54 last_deg=-6 motor=ON
+[46.53s] [LIDAR] left=0.54m(65) front=0.70m(18) right=0.62m(48)
+[46.53s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.23 w=+0.25) sent(v=+0.16 w=+0.00) obstacle=False center_ratio=0.28 x_err=-0.68 last_deg=-7 motor=ON
+[46.61s] [LIDAR] left=0.54m(65) front=0.70m(18) right=0.62m(48)
+[46.61s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.23 w=+0.28) sent(v=+0.20 w=+0.25) obstacle=False center_ratio=0.29 x_err=-0.75 last_deg=-8 motor=ON
+[46.70s] [LIDAR] left=0.54m(66) front=0.79m(16) right=0.61m(49)
+[46.70s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.23 w=+0.28) sent(v=+0.23 w=+0.28) obstacle=False center_ratio=0.30 x_err=-0.76 last_deg=-8 motor=ON
+[46.78s] [LIDAR] left=0.53m(66) front=0.85m(17) right=0.61m(51)
+[46.78s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.23 w=+0.27) sent(v=+0.23 w=+0.27) obstacle=False center_ratio=0.30 x_err=-0.72 last_deg=-8 motor=ON
+[46.86s] [ODOM] left=26596 right=23437 arduino_ms=723341
+[46.86s] [LIDAR] left=0.53m(67) front=0.86m(13) right=0.60m(56)
+[46.86s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.23 w=+0.26) sent(v=+0.23 w=+0.26) obstacle=False center_ratio=0.31 x_err=-0.68 last_deg=-8 motor=ON
+[46.94s] [LIDAR] left=0.52m(71) front=0.86m(11) right=0.60m(62)
+[46.94s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.23 w=+0.25) sent(v=+0.23 w=+0.25) obstacle=False center_ratio=0.32 x_err=-0.64 last_deg=-7 motor=ON
+[47.02s] [LIDAR] left=0.51m(74) front=0.03m(7) right=0.60m(69)
+[47.02s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.23 w=+0.23) sent(v=+0.23 w=+0.23) obstacle=False center_ratio=0.33 x_err=-0.59 last_deg=-7 motor=ON
+[47.11s] [LIDAR] left=0.51m(74) front=0.03m(7) right=0.60m(69)
+[47.11s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.23 w=+0.22) sent(v=+0.23 w=+0.22) obstacle=False center_ratio=0.34 x_err=-0.55 last_deg=-7 motor=ON
+[47.19s] [LIDAR] left=0.51m(71) front=0.87m(4) right=0.60m(72)
+[47.19s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.24 w=+0.19) sent(v=+0.24 w=+0.19) obstacle=False center_ratio=0.35 x_err=-0.47 last_deg=-6 motor=ON
+[47.28s] [LIDAR] left=0.51m(73) front=0.86m(1) right=0.60m(75)
+[47.28s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.24 w=+0.17) sent(v=+0.24 w=+0.17) obstacle=False center_ratio=0.36 x_err=-0.41 last_deg=-5 motor=ON
+[47.36s] [ODOM] left=27234 right=24217 arduino_ms=723836
+[47.36s] [LIDAR] left=0.50m(72) front=2.50m(0) right=0.60m(73)
+[47.36s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.24 w=+0.15) sent(v=+0.24 w=+0.15) obstacle=False center_ratio=0.37 x_err=-0.35 last_deg=-4 motor=ON
+[47.44s] [LIDAR] left=0.50m(69) front=2.50m(0) right=0.60m(71)
+[47.44s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.24 w=+0.13) sent(v=+0.24 w=+0.13) obstacle=False center_ratio=0.38 x_err=-0.31 last_deg=-4 motor=ON
+[47.53s] [LIDAR] left=0.50m(71) front=2.50m(0) right=0.61m(62)
+[47.53s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.25 w=+0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.39 x_err=-0.25 last_deg=-3 motor=ON
+[47.62s] [LIDAR] left=0.50m(71) front=2.50m(0) right=0.61m(62)
+[47.62s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.25 w=+0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.41 x_err=-0.19 last_deg=-3 motor=ON
+[47.71s] [LIDAR] left=0.50m(71) front=2.50m(0) right=0.61m(58)
+[47.71s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.25 w=+0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.42 x_err=-0.17 last_deg=-2 motor=ON
+[47.79s] [LIDAR] left=0.50m(72) front=2.50m(0) right=0.68m(53)
+[47.79s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.25 w=+0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.44 x_err=-0.17 last_deg=-2 motor=ON
+[47.87s] [ODOM] left=27860 right=24912 arduino_ms=724330
+[47.87s] [LIDAR] left=0.50m(75) front=2.50m(0) right=0.66m(57)
+[47.87s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.25 w=+0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.45 x_err=-0.17 last_deg=-2 motor=ON
+[47.95s] [LIDAR] left=0.51m(76) front=2.50m(0) right=0.64m(59)
+[47.95s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.25 w=+0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.46 x_err=-0.17 last_deg=-3 motor=ON
+[48.03s] [LIDAR] left=0.49m(77) front=2.50m(0) right=0.62m(57)
+[48.03s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.25 w=+0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.48 x_err=-0.17 last_deg=-3 motor=ON
+[48.11s] [LIDAR] left=0.49m(77) front=2.50m(0) right=0.62m(57)
+[48.11s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.25 w=+0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.49 x_err=-0.17 last_deg=-3 motor=ON
+[48.19s] [LIDAR] left=0.47m(76) front=2.50m(0) right=0.60m(58)
+[48.19s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.25 w=+0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.51 x_err=-0.17 last_deg=-3 motor=ON
+[48.27s] [LIDAR] left=0.45m(77) front=2.50m(0) right=0.58m(59)
+[48.27s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.25 w=+0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.53 x_err=-0.17 last_deg=-3 motor=ON
+[48.35s] [LIDAR] left=0.43m(70) front=2.50m(0) right=0.56m(57)
+[48.35s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.25 w=+0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.55 x_err=-0.16 last_deg=-3 motor=ON
+[48.44s] [ODOM] left=28570 right=25641 arduino_ms=724886
+[48.44s] [LIDAR] left=0.42m(68) front=2.50m(1) right=0.55m(62)
+[48.44s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.25 w=+0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.56 x_err=-0.16 last_deg=-3 motor=ON
+[48.52s] [LIDAR] left=0.42m(68) front=2.50m(1) right=0.55m(62)
+[48.52s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.25 w=+0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.58 x_err=-0.16 last_deg=-3 motor=ON
+[48.60s] [LIDAR] left=0.40m(66) front=2.49m(1) right=0.53m(62)
+[48.60s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.25 w=+0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.60 x_err=-0.17 last_deg=-3 motor=ON
+[48.68s] [LIDAR] left=0.39m(68) front=2.47m(3) right=0.51m(61)
+[48.68s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.25 w=+0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.62 x_err=-0.17 last_deg=-4 motor=ON
+[48.76s] [LIDAR] left=0.38m(64) front=2.44m(3) right=0.49m(57)
+[48.76s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.24 w=+0.13) sent(v=+0.24 w=+0.13) obstacle=False center_ratio=0.64 x_err=-0.18 last_deg=-4 motor=ON
+[48.85s] [LIDAR] left=0.37m(61) front=2.41m(4) right=0.47m(55)
+[48.85s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.24 w=+0.14) sent(v=+0.24 w=+0.14) obstacle=False center_ratio=0.66 x_err=-0.18 last_deg=-4 motor=ON
+[48.92s] [LIDAR] left=0.36m(63) front=2.39m(4) right=0.46m(52)
+[48.92s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.24 w=+0.14) sent(v=+0.24 w=+0.14) obstacle=False center_ratio=0.68 x_err=-0.17 last_deg=-4 motor=ON
+[49.01s] [ODOM] left=29303 right=26404 arduino_ms=725503
+[49.01s] [LIDAR] left=0.36m(63) front=2.39m(4) right=0.46m(52)
+[49.01s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.24 w=+0.14) sent(v=+0.24 w=+0.14) obstacle=False center_ratio=0.70 x_err=-0.15 last_deg=-4 motor=ON
+[49.09s] [LIDAR] left=0.35m(64) front=2.36m(3) right=0.44m(54)
+[49.09s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.24 w=+0.13) sent(v=+0.24 w=+0.13) obstacle=False center_ratio=0.72 x_err=-0.13 last_deg=-4 motor=ON
+[49.18s] [LIDAR] left=0.35m(67) front=2.34m(7) right=0.43m(52)
+[49.18s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.25 w=+0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.74 x_err=-0.11 last_deg=-3 motor=ON
+[49.27s] [LIDAR] left=0.34m(68) front=2.32m(6) right=0.41m(48)
+[49.27s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.25 w=+0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.77 x_err=-0.09 last_deg=-3 motor=ON
+[49.36s] [LIDAR] left=0.33m(68) front=2.29m(7) right=0.40m(45)
+[49.36s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.25 w=+0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.80 x_err=-0.08 last_deg=-3 motor=ON
+[49.44s] [LIDAR] left=0.33m(64) front=2.27m(6) right=0.39m(43)
+[49.44s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.25 w=+0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.82 x_err=-0.07 last_deg=-3 motor=ON
+[49.52s] [ODOM] left=29859 right=27000 arduino_ms=725997
+[49.52s] [LIDAR] left=0.33m(63) front=2.23m(7) right=0.38m(39)
+[49.52s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.25 w=+0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.83 x_err=-0.07 last_deg=-3 motor=ON
+[49.61s] [LIDAR] left=0.33m(63) front=2.23m(7) right=0.38m(39)
+[49.61s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.24 w=+0.15) sent(v=+0.24 w=+0.15) obstacle=False center_ratio=0.84 x_err=-0.09 last_deg=-4 motor=ON
+[49.70s] [LIDAR] left=0.33m(59) front=2.21m(7) right=0.37m(39)
+[49.70s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.24 w=+0.18) sent(v=+0.24 w=+0.18) obstacle=False center_ratio=0.85 x_err=-0.10 last_deg=-6 motor=ON
+[49.78s] [LIDAR] left=0.32m(59) front=2.18m(6) right=0.36m(36)
+[49.78s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.24 w=+0.20) sent(v=+0.24 w=+0.20) obstacle=False center_ratio=0.86 x_err=-0.10 last_deg=-6 motor=ON
+[49.86s] [LIDAR] left=0.32m(58) front=2.17m(7) right=0.36m(35)
+[49.86s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.24 w=+0.19) sent(v=+0.24 w=+0.19) obstacle=False center_ratio=0.87 x_err=-0.09 last_deg=-6 motor=ON
+[49.94s] [LIDAR] left=0.32m(54) front=1.54m(7) right=0.35m(31)
+[49.94s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.24 w=+0.18) sent(v=+0.24 w=+0.18) obstacle=False center_ratio=0.88 x_err=-0.08 last_deg=-5 motor=ON
+[50.03s] [LIDAR] left=0.31m(55) front=1.49m(10) right=0.35m(32)
+[50.03s] [STATE] mode=FOLLOW: color only target=BLUE:O cmd(v=+0.24 w=+0.16) sent(v=+0.24 w=+0.16) obstacle=False center_ratio=0.89 x_err=-0.07 last_deg=-5 motor=ON
+[50.11s] [ODOM] left=30519 right=27734 arduino_ms=726615
+[50.11s] [LIDAR] left=0.31m(55) front=1.49m(10) right=0.35m(32)
+[50.11s] [STATE] mode=FOLLOW: bottom color target=BLUE:O cmd(v=+0.25 w=-0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.90 x_err=-0.04 last_deg=-3 motor=ON
+[50.19s] [LIDAR] left=0.31m(54) front=1.45m(10) right=0.35m(32)
+[50.19s] [STATE] mode=FOLLOW: bottom color target=BLUE:O cmd(v=+0.25 w=-0.00) sent(v=+0.25 w=+0.00) obstacle=False center_ratio=0.91 x_err=-0.03 last_deg=-3 motor=ON
+[50.28s] [LIDAR] left=0.31m(49) front=1.43m(12) right=0.36m(28)
+[50.28s] [STATE] mode=FOLLOW: bottom color target=BLUE:O cmd(v=+0.24 w=+0.12) sent(v=+0.24 w=+0.12) obstacle=False center_ratio=0.93 x_err=-0.03 last_deg=-4 motor=ON
+[50.36s] [LIDAR] left=0.30m(49) front=1.41m(10) right=0.05m(33)
+[50.36s] [STATE] mode=FOLLOW: bottom color target=BLUE:O cmd(v=+0.24 w=+0.19) sent(v=+0.24 w=+0.19) obstacle=False center_ratio=0.94 x_err=-0.05 last_deg=-6 motor=ON
+[50.44s] [LIDAR] left=0.29m(49) front=1.38m(11) right=0.37m(40)
+[ODOM] move 0.03m target_counts=142
+[ODOM] extra forward done: left=0.04m(205) right=0.05m(224)
+[50.44s] [COLOR] BLUE done, mission complete
