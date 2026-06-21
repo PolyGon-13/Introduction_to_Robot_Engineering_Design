@@ -88,8 +88,9 @@ RETURN_DONE_M = 0.10  # 원점에 이 거리(m) 안으로 들어오면 복귀 �
 EXPLORE_MAX_W = 1.0  # 탐색 회전 속도 제한
 EXPLORE_TURN_SIGN = 1.0  # 탐색 회전 방향(+1: 좌회전, -1: 우회전)
 EXPLORE_AVOID_D = 0.30  # 나선 탐색 중 정면/좌/우가 이 거리(m) 이내면 척력 발동(포텐셜 필드)
-EXPLORE_REPULSE_GAIN = 1.2  # 나선 추종 중 장애물 척력 가중치(클수록 장애물에서 멀리 비켜감)
+EXPLORE_REPULSE_GAIN = 1.8  # 나선 추종 중 장애물 척력 가중치(클수록 장애물에서 멀리 비켜감)
 EXPLORE_REPULSE_DEG = 60.0  # 좌/우 장애물 척력의 대표 방향각(deg, 로봇 정면=0)
+EXPLORE_BRAKE_D = 0.22  # 나선 중 정면이 이 거리(m) 이내면 포텐셜필드 대신 gap 회피로 폴백
 
 
 
@@ -216,7 +217,8 @@ class SpiralExplorer:
 
         target_w = clamp(SPIRAL_HEADING_KP * steer, -EXPLORE_MAX_W, EXPLORE_MAX_W)
         nominal_v = DRIVE_V * max(0.0, 1.0 - abs(steer) / (np.pi / 2.0))
-        target_v = scale_avoid_speed_for_front_obstacle(nominal_v, ranges)
+        # 회전 중 측면으로 들어오는 장애물에도 감속하도록 정면+좌/우 최단거리로 속도 제한
+        target_v = scale_speed_for_obstacle(nominal_v, nearest_obstacle_distance(ranges))
 
         front_d = front_obstacle_distance(ranges)
         self.detail = (
@@ -370,15 +372,31 @@ def obstacle_repulsion(ranges):
     return rx, ry
 
 
-def scale_avoid_speed_for_front_obstacle(target_v, ranges):
-    front_d = front_obstacle_distance(ranges)
-    if front_d <= AVOID_STOP_D:
+def nearest_obstacle_distance(ranges):
+    """정면 + 좌/우 측면을 통틀어 가장 가까운 장애물 거리(m)."""
+    if ranges is None:
+        return FREE_D
+
+    return min(
+        front_obstacle_distance(ranges),
+        zone_min_distance(ranges, LEFT_ZONE),
+        zone_min_distance(ranges, RIGHT_ZONE),
+    )
+
+
+def scale_speed_for_obstacle(target_v, dist):
+    """장애물 거리(dist)에 따라 속도를 선형 감속한다. AVOID_STOP_D 이내면 0."""
+    if dist <= AVOID_STOP_D:
         return 0.0
-    if front_d >= FREE_D:
+    if dist >= FREE_D:
         return target_v
 
-    scale = (front_d - AVOID_STOP_D) / (FREE_D - AVOID_STOP_D)
+    scale = (dist - AVOID_STOP_D) / (FREE_D - AVOID_STOP_D)
     return target_v * clamp(scale, 0.0, 1.0)
+
+
+def scale_avoid_speed_for_front_obstacle(target_v, ranges):
+    return scale_speed_for_obstacle(target_v, front_obstacle_distance(ranges))
 
 
 def lost_color_obstacle_passed(ranges, last_color_deg):
@@ -685,8 +703,8 @@ def main():
                         dbg(f"[{elapsed:.2f}s] [RETURN] {explorer.detail}")
                     else:
                         mode, target_v, target_w = "RETURN: wait odom", 0.0, 0.0
-                elif front_obstacle_distance(ranges) <= AVOID_STOP_D:
-                    # 정면이 코앞(국소 최소) → 포텐셜 필드로 못 빠져나오므로 gap 회피로 폴백.
+                elif front_obstacle_distance(ranges) <= EXPLORE_BRAKE_D:
+                    # 정면이 가까우면 포텐셜 필드(정면 조향 불가)로 못 빠져나오므로 gap 회피로 폴백.
                     mode, target_v, target_w = avoid_mode("AVOID: explore", "AVOID_EXPLORE", ranges, None, elapsed)
                 elif odom_time > 0.0:
                     mode, target_v, target_w = explorer.command(enc_l, enc_r, ranges)
