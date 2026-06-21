@@ -40,6 +40,7 @@ from lidar import (
     front_ranges,
     lidar_zone_distances,
     obstacle_detected,
+    zone_min_distance,
 )
 
 
@@ -86,7 +87,9 @@ RETURN_KP = 1.0  # 원점 복귀 시 헤딩 오차(rad)에 대한 회전 비례�
 RETURN_DONE_M = 0.10  # 원점에 이 거리(m) 안으로 들어오면 복귀 완료로 보고 나선 재시작
 EXPLORE_MAX_W = 1.0  # 탐색 회전 속도 제한
 EXPLORE_TURN_SIGN = 1.0  # 탐색 회전 방향(+1: 좌회전, -1: 우회전)
-EXPLORE_AVOID_D = 0.30  # 나선 탐색 중 정면/좌/우가 이 거리(m) 이내로 막히면 회피 발동
+EXPLORE_AVOID_D = 0.30  # 나선 탐색 중 정면/좌/우가 이 거리(m) 이내면 척력 발동(포텐셜 필드)
+EXPLORE_REPULSE_GAIN = 1.2  # 나선 추종 중 장애물 척력 가중치(클수록 장애물에서 멀리 비켜감)
+EXPLORE_REPULSE_DEG = 60.0  # 좌/우 장애물 척력의 대표 방향각(deg, 로봇 정면=0)
 
 
 
@@ -199,18 +202,28 @@ class SpiralExplorer:
             tx, ty, radius = self.spiral_point(theta)
         self.spiral_theta = theta
 
-        # 목표점 방향과 현재 헤딩의 오차로 회전, 오차 크면 전진속도 줄여 회전 우선
+        # 목표점 방향과 현재 헤딩의 오차(로봇 기준 방향)
         desired_heading = np.arctan2(ty - self.y, tx - self.x)
         err = (desired_heading - self.theta + np.pi) % (2.0 * np.pi) - np.pi  # [-pi, pi]
-        target_w = clamp(SPIRAL_HEADING_KP * err, -EXPLORE_MAX_W, EXPLORE_MAX_W)
-        nominal_v = DRIVE_V * max(0.0, 1.0 - abs(err) / (np.pi / 2.0))
+
+        # 포텐셜 필드: 목표점 인력(단위벡터) + 장애물 척력을 로봇 기준에서 합성한다.
+        # 장애물이 멀면 척력 0 → 순수 나선 추종, 가까우면 합성 방향으로 부드럽게 비켜감.
+        attract_x, attract_y = np.cos(err), np.sin(err)
+        rx, ry = obstacle_repulsion(ranges)
+        cmd_x = attract_x + EXPLORE_REPULSE_GAIN * rx
+        cmd_y = attract_y + EXPLORE_REPULSE_GAIN * ry
+        steer = np.arctan2(cmd_y, cmd_x)  # 합성된 진행 방향(로봇 기준, 정면=0)
+
+        target_w = clamp(SPIRAL_HEADING_KP * steer, -EXPLORE_MAX_W, EXPLORE_MAX_W)
+        nominal_v = DRIVE_V * max(0.0, 1.0 - abs(steer) / (np.pi / 2.0))
         target_v = scale_avoid_speed_for_front_obstacle(nominal_v, ranges)
 
         front_d = front_obstacle_distance(ranges)
         self.detail = (
             f"pos=({self.x:+.2f},{self.y:+.2f}) tgt=({tx:+.2f},{ty:+.2f}) "
             f"sp_theta={np.degrees(theta):.0f}deg radius={radius:.3f}m "
-            f"err={np.degrees(err):+.0f} front={front_d:.2f}m v={target_v:.3f} w={target_w:+.3f}"
+            f"err={np.degrees(err):+.0f} rep=({rx:+.2f},{ry:+.2f}) steer={np.degrees(steer):+.0f} "
+            f"front={front_d:.2f}m v={target_v:.3f} w={target_w:+.3f}"
         )
         mode = f"EXPLORE: spiral r={radius:.2f}m"
         return mode, target_v, target_w
@@ -330,6 +343,31 @@ def front_obstacle_distance(ranges):
         return FREE_D
 
     return float(np.min(ranges[FRONT_LOG_ZONE]))
+
+
+def obstacle_repulsion(ranges):
+    """라이다 좌/정면/우 최소거리로 로봇 기준 척력 벡터 (rx, ry)를 만든다.
+    좌표계: x=전방, y=좌측(+). 장애물이 가까울수록 크고, 장애물 반대 방향을 가리킨다.
+    EXPLORE_AVOID_D 밖의 장애물은 무시(0)."""
+    if ranges is None:
+        return 0.0, 0.0
+
+    rx = ry = 0.0
+    # (존, 대표 방향각[deg]) — 라이다 음수각=왼쪽=수학각 +, 양수각=오른쪽=수학각 -
+    zones = (
+        (LEFT_ZONE, +EXPLORE_REPULSE_DEG),
+        (FRONT_LOG_ZONE, 0.0),
+        (RIGHT_ZONE, -EXPLORE_REPULSE_DEG),
+    )
+    for zone, math_deg in zones:
+        d = zone_min_distance(ranges, zone)
+        if d >= EXPLORE_AVOID_D:
+            continue
+        strength = (EXPLORE_AVOID_D - d) / EXPLORE_AVOID_D  # 0~1, 가까울수록 1
+        a = np.radians(math_deg)
+        rx -= strength * np.cos(a)  # 장애물 반대 방향으로
+        ry -= strength * np.sin(a)
+    return rx, ry
 
 
 def scale_avoid_speed_for_front_obstacle(target_v, ranges):
@@ -452,7 +490,10 @@ def log_odom(elapsed, odom):
 
 def color_cmd(target, frame, ranges, has_obstacle, color_deg, elapsed):
     if has_obstacle:
-        # 색 추종 중 장애물이 감지되면 무조건 회피
+        if color_path_clear(ranges, color_deg):
+            target_v, target_w = follow_cmd(target, frame.shape, DRIVE_V)
+            return "FOLLOW: color path clear", target_v, target_w
+
         target_v, target_w, target_deg, gap_count = avoid_cmd(ranges, color_deg, DRIVE_V)
         target_v = scale_avoid_speed_for_front_obstacle(target_v, ranges)
         log_avoid(elapsed, "AVOID", target_deg, target_v, target_w, gap_count)
@@ -644,9 +685,8 @@ def main():
                         dbg(f"[{elapsed:.2f}s] [RETURN] {explorer.detail}")
                     else:
                         mode, target_v, target_w = "RETURN: wait odom", 0.0, 0.0
-                elif explore_blocked:
-                    # 나선 중 정면/좌/우가 EXPLORE_AVOID_D 이내로 막히면 회피.
-                    # (나선 기준 엔코더는 유지 → 회피 후에도 반경이 0으로 안 떨어지고 이어짐)
+                elif front_obstacle_distance(ranges) <= AVOID_STOP_D:
+                    # 정면이 코앞(국소 최소) → 포텐셜 필드로 못 빠져나오므로 gap 회피로 폴백.
                     mode, target_v, target_w = avoid_mode("AVOID: explore", "AVOID_EXPLORE", ranges, None, elapsed)
                 elif odom_time > 0.0:
                     mode, target_v, target_w = explorer.command(enc_l, enc_r, ranges)
