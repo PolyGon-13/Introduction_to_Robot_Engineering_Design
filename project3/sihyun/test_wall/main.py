@@ -533,9 +533,10 @@ def log_lidar(elapsed, lidar_dist):
     )
 
 
-def log_avoid(elapsed, tag, target_deg, target_v, target_w, gap_count):
+def log_avoid(elapsed, tag, target_deg, target_v, target_w, gap_count, gap_clear):
     print(
         f"[{elapsed:.2f}s] [{tag}] gap={gap_count} "
+        f"clear={gap_clear:.2f}m "
         f"target={target_deg:.0f} "
         f"v={target_v:.2f} "
         f"w={target_w:.2f}"
@@ -558,9 +559,9 @@ def color_cmd(target, frame, ranges, has_obstacle, color_deg, elapsed):
             target_w = apply_color_side_repulsion(target_w, ranges, color_deg)
             return "FOLLOW: color path clear + repulse", target_v, target_w
 
-        target_v, target_w, target_deg, gap_count = avoid_cmd(ranges, color_deg, DRIVE_V, color_follow=True)
+        target_v, target_w, target_deg, gap_count, gap_clear = avoid_cmd(ranges, color_deg, DRIVE_V, color_follow=True)
         target_v = scale_avoid_speed_for_front_obstacle(target_v, ranges)
-        log_avoid(elapsed, "AVOID", target_deg, target_v, target_w, gap_count)
+        log_avoid(elapsed, "AVOID", target_deg, target_v, target_w, gap_count, gap_clear)
         return "AVOID: color + obstacle", target_v, target_w
 
     target_v, target_w = follow_cmd(target, frame.shape, DRIVE_V)
@@ -584,9 +585,9 @@ def search_last_cmd(last_color_deg):
 
 
 def avoid_mode(mode, tag, ranges, color_deg, elapsed):
-    target_v, target_w, target_deg, gap_count = avoid_cmd(ranges, color_deg, DRIVE_V)
+    target_v, target_w, target_deg, gap_count, gap_clear = avoid_cmd(ranges, color_deg, DRIVE_V)
     target_v = scale_avoid_speed_for_front_obstacle(target_v, ranges)
-    log_avoid(elapsed, tag, target_deg, target_v, target_w, gap_count)
+    log_avoid(elapsed, tag, target_deg, target_v, target_w, gap_count, gap_clear)
     return mode, target_v, target_w
 
 
