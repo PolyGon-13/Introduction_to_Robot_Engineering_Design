@@ -126,25 +126,6 @@ def wait_ms(duration_ms):
         time.sleep(0.001)
 
 
-class Tee:
-    """터미널(stdout)에 출력하면서 동시에 같은 내용을 로그 파일에도 기록한다."""
-
-    def __init__(self, *streams):
-        self.streams = streams
-        self.lock = threading.Lock()
-
-    def write(self, data):
-        with self.lock:
-            for s in self.streams:
-                s.write(data)
-                s.flush()
-
-    def flush(self):
-        with self.lock:
-            for s in self.streams:
-                s.flush()
-
-
 class NullWriter:
     """log_control이 False일 때 모든 print 출력을 버리는 stdout 대체."""
 
@@ -623,14 +604,7 @@ def avoid_mode(mode, tag, ranges, color_deg, elapsed):
 def main():
     cam = lidar = motor = None
     original_stdout = sys.stdout
-    log_file = None
-    if log_control:  # 로그가 켜져 있을 때만 터미널+txt 로그를 남긴다.
-        log_dir = THIS_DIR / "log"
-        log_dir.mkdir(exist_ok=True)
-        log_file = open(log_dir / f"robot_log_{time.strftime('%Y%m%d_%H%M%S')}.txt", "w", encoding="utf-8")
-        sys.stdout = Tee(original_stdout, log_file)
-        print(f"[LOG] logging to {log_file.name}")
-    else:  # 로그가 꺼져 있으면 모든 print 출력을 버린다(DEBUG로 안 거르는 출력까지 전부).
+    if not log_control:  # 로그가 꺼져 있으면 모든 print 출력을 버린다(DEBUG로 안 거르는 출력까지 전부).
         sys.stdout = NullWriter()
         # libcamera(C++)가 stderr로 찍는 INFO 로그는 stdout 리다이렉트로 못 막으므로
         # 카메라 매니저 생성 전에 환경변수로 로그 레벨을 올려 INFO 출력을 끈다.
@@ -918,8 +892,6 @@ def main():
         close_camera(cam)
 
         sys.stdout = original_stdout
-        if log_file is not None:
-            log_file.close()
 
 
 if __name__ == "__main__":

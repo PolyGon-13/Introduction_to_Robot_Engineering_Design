@@ -1,4 +1,0 @@
-[LOG] logging to /home/pi/Introduction_to_Robot_Engineering_Design/project3/src/log/robot_log_20260622_072948.txt
-[ARDUINO] RESET
-
-[INFO] stop

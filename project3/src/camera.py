@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import threading
-
 import cv2
 import numpy as np
 from picamera2 import Picamera2
@@ -41,52 +39,15 @@ def clamp(value, low, high):
     return float(max(low, min(value, high)))
 
 
-class CameraReader:
-    """라이다처럼 백그라운드 스레드가 계속 최신 프레임만 덮어쓴다.
-    메인 루프가 블로킹(엔코더 전진·색전환 정지·엔터 대기)되어 한동안 안 읽어도
-    프레임이 쌓이지 않고 항상 최신 한 장만 유지된다(stale 방지)."""
-
-    def __init__(self):
-        self.cam = Picamera2()
-        self.cam.configure(self.cam.create_preview_configuration(main={"format": "RGB888", "size": (640, 400)}))
-        self.cam.start()
-        self.lock = threading.Lock()
-        self.running = True
-        self.frame = self.cam.capture_array()  # 첫 프레임 동기 확보(None 방지)
-        self.thread = threading.Thread(target=self._read, daemon=True)
-        self.thread.start()
-
-    def _read(self):
-        while self.running:
-            try:
-                f = self.cam.capture_array()  # 다음 프레임까지 블로킹(카메라 fps로 페이싱)
-            except Exception:
-                continue
-
-            with self.lock:
-                self.frame = f  # 새 배열로 교체(in-place 아님 → get은 참조만 넘겨도 안전)
-
-    def get(self):
-        with self.lock:
-            return self.frame
-
-    def close(self):
-        self.running = False
-        if hasattr(self, "thread"):
-            self.thread.join(timeout=0.5)
-        self.cam.stop()
-
-
 def open_camera():
-    return CameraReader()
+    cam = Picamera2()
+    cam.configure(cam.create_preview_configuration(main={"format": "RGB888", "size": (640, 400)}))
+    cam.start()
+    return cam
 
 
 def read_frame(cam):
-    raw = cam.get()
-    if raw is None:
-        return False, None
-
-    frame = cv2.cvtColor(raw, cv2.COLOR_RGB2BGR)
+    frame = cv2.cvtColor(cam.capture_array(), cv2.COLOR_RGB2BGR)
     return True, rotate_frame(frame)
 
 
@@ -101,7 +62,7 @@ def close_camera(cam):
     if cam is None:
         return
 
-    cam.close()
+    cam.stop()
     cv2.destroyAllWindows()
 
 
