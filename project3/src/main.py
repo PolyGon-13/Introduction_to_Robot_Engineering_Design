@@ -550,7 +550,11 @@ def rotate_180_by_encoder(motor, cam=None, lidar=None, current_target=None, turn
         # 회전 도중 추적색이 보이면 즉시 멈춤(다음 루프에서 색 추종)
         if cam is not None and current_target is not None:
             ok, frame = read_frame(cam)
-            if ok and pick(detect(frame), current_target) is not None:
+            target = pick(detect(frame), current_target) if ok else None
+            if SHOW_WINDOW and ok:
+                # 회전 중에도 미리보기 창을 갱신해 화면이 멈춘 것처럼 보이지 않게 함
+                draw(frame, [target] if target is not None else [], "TURN 180")
+            if target is not None:
                 motor.stop()
                 print("[ODOM] rotate 180 stop: color found")
                 return "color"
