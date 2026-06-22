@@ -529,9 +529,11 @@ def drive_forward_by_encoder(motor, distance_m=POST_COLOR_FORWARD_M, start_v=0.0
     return ok
 
 
-def rotate_180_by_encoder(motor, turn_sign=1.0, w=SWITCH_SEARCH_W):
-    """제자리에서 엔코더 기준 180도 회전한다(완료 시 정지).
-    좌/우 바퀴 누적 카운트 평균이 360도(TURN_360_COUNTS)의 절반에 도달하면 멈춘다."""
+def rotate_180_by_encoder(motor, cam=None, lidar=None, current_target=None, turn_sign=1.0, w=SWITCH_SEARCH_W):
+    """제자리에서 엔코더 기준 180도 회전한다.
+    좌/우 바퀴 누적 카운트 평균이 360도(TURN_360_COUNTS)의 절반에 도달하면 멈춘다.
+    회전 도중 카메라로 추적색을 발견하거나 라이다로 장애물을 감지하면 즉시 멈춘다.
+    반환값: "color"(색 발견), "obstacle"(장애물), "done"(180도 완료), "timeout"(엔코더 끊김)."""
     while True:
         odom = motor.get_odom()
         if odom[3] != 0.0:
@@ -545,11 +547,28 @@ def rotate_180_by_encoder(motor, turn_sign=1.0, w=SWITCH_SEARCH_W):
 
     current_w = 0.0
     while True:
+        # 회전 도중 추적색이 보이면 즉시 멈춤(다음 루프에서 색 추종)
+        if cam is not None and current_target is not None:
+            ok, frame = read_frame(cam)
+            if ok and pick(detect(frame), current_target) is not None:
+                motor.stop()
+                print("[ODOM] rotate 180 stop: color found")
+                return "color"
+
+        # 회전 도중 장애물이 감지되면 즉시 멈춤
+        if lidar is not None:
+            scan, _, _ = lidar.get()
+            ranges = front_ranges(scan) if scan is not None else None
+            if obstacle_detected(ranges):
+                motor.stop()
+                print("[ODOM] rotate 180 stop: obstacle")
+                return "obstacle"
+
         enc_l, enc_r, _, odom_time = motor.get_odom()
         if odom_time == 0.0 or time.time() - odom_time > 0.5:
             motor.stop()
             print("[ODOM] encoder data timeout during 180 rotate")
-            return False
+            return "timeout"
 
         left_counts = abs(enc_l - start_l)
         right_counts = abs(enc_r - start_r)
@@ -562,7 +581,7 @@ def rotate_180_by_encoder(motor, turn_sign=1.0, w=SWITCH_SEARCH_W):
 
     motor.stop()
     print("[ODOM] rotate 180 done")
-    return True
+    return "done"
 
 
 def log_lidar(elapsed, lidar_dist):
@@ -840,13 +859,18 @@ def main():
                 if completed_one_encoder_turn(motor, switch_search_start_odom):
                     switch_search_active = False
                     switch_search_start_odom = None
-                    explore_active = True
-                    # 나선 시작 전, 엔코더 기준 180도 제자리 회전 후 나선 진입
-                    rotate_180_by_encoder(motor)
                     last_v, last_w = 0.0, 0.0
+                    # 나선 시작 전, 엔코더 기준 180도 제자리 회전(도중 색·장애물 보면 즉시 멈춤)
+                    turn_result = rotate_180_by_encoder(motor, cam, lidar, current_target)
+                    if turn_result == "color":
+                        # 회전 중 색 발견 → 나선 진입 취소, 다음 루프에서 색 추종
+                        explore_active, explorer = False, None
+                        print(f"[{elapsed:.2f}s] [EXPLORE] 180 turn aborted: color found, follow")
+                        continue
+                    explore_active = True
                     enc_l, enc_r, _, _ = motor.get_odom()
                     explorer = SpiralExplorer(enc_l, enc_r)
-                    print(f"[{elapsed:.2f}s] [EXPLORE] 360 search failed, 180 turn done, spiral explore (max r={SPIRAL_MAX_RADIUS}m)")
+                    print(f"[{elapsed:.2f}s] [EXPLORE] 360 search failed, 180 turn ({turn_result}), spiral explore (max r={SPIRAL_MAX_RADIUS}m)")
                     mode, target_v, target_w = explorer.command(enc_l, enc_r, ranges)
                     dbg(f"[{elapsed:.2f}s] [EXPLORE] {explorer.detail}")
                 else:
