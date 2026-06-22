@@ -16,7 +16,7 @@ CAMERA_ROTATION = cv2.ROTATE_90_COUNTERCLOCKWISE
 
 HSV_RANGES = {
     "RED": [([165, 110, 80], [179, 255, 255])],
-    "YELLOW": [([20, 50, 110], [23, 255, 255])],
+    "YELLOW": [([20, 50, 110], [30, 255, 255])],
     "BLUE": [([104, 80, 45], [116, 255, 255])],
 }
 HSV_RANGES = {
