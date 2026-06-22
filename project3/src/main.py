@@ -262,13 +262,14 @@ class SpiralExplorer:
             tx, ty, radius = self.spiral_point(theta)
         self.spiral_theta = theta
 
-        # 단계 전환:
-        #  - 바깥 나선이 최대 반경 도달 → 180° 반전 + 반대 방향 수축 나선으로
-        #  - 수축 나선이 중심 도달 → 다시 반대 방향 바깥 나선으로 재시작
-        if not self.shrinking and radius >= SPIRAL_MAX_RADIUS:
+        # 단계 전환(오도메트리 실제 거리 기준):
+        #  - 바깥 나선이 원점에서 SPIRAL_MAX_RADIUS 벗어남 → 180° 반전 + 수축 나선으로
+        #  - 수축 나선이 원점 RETURN_DONE_M 안으로 복귀 → 다시 반대 방향 바깥 나선 재시작
+        dist_origin = float(np.hypot(self.x, self.y))
+        if not self.shrinking and dist_origin >= SPIRAL_MAX_RADIUS:
             self.shrinking = True
             self.turn_sign = -self.turn_sign  # 감기는 방향 반전(목표점이 반대편→로봇 180° 회전)
-        elif self.shrinking and theta <= 0.05:
+        elif self.shrinking and dist_origin <= RETURN_DONE_M:
             self.shrinking = False
             self.turn_sign = -self.turn_sign  # 다시 반전
             self.spiral_theta = 0.0
@@ -282,10 +283,10 @@ class SpiralExplorer:
         phase = "in" if self.shrinking else "out"
         self.detail = (
             f"pos=({self.x:+.2f},{self.y:+.2f}) tgt=({tx:+.2f},{ty:+.2f}) phase={phase} "
-            f"sp_theta={np.degrees(theta):.0f}deg radius={radius:.3f}m "
+            f"dist={dist_origin:.2f}m sp_theta={np.degrees(theta):.0f}deg radius={radius:.3f}m "
             f"err={np.degrees(err):+.0f} v={target_v:.3f} w={target_w:+.3f}"
         )
-        mode = f"EXPLORE: spiral {phase} r={radius:.2f}m"
+        mode = f"EXPLORE: spiral {phase} d={dist_origin:.2f}m"
         return mode, target_v, target_w
 
 
