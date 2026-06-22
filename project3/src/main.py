@@ -529,6 +529,42 @@ def drive_forward_by_encoder(motor, distance_m=POST_COLOR_FORWARD_M, start_v=0.0
     return ok
 
 
+def rotate_180_by_encoder(motor, turn_sign=1.0, w=SWITCH_SEARCH_W):
+    """제자리에서 엔코더 기준 180도 회전한다(완료 시 정지).
+    좌/우 바퀴 누적 카운트 평균이 360도(TURN_360_COUNTS)의 절반에 도달하면 멈춘다."""
+    while True:
+        odom = motor.get_odom()
+        if odom[3] != 0.0:
+            break
+        wait_ms(int(LOOP_DT * 1000))
+
+    start_l, start_r, _, _ = odom
+    target_counts = TURN_360_COUNTS / 2.0
+    target_w = turn_sign * abs(w)
+    print(f"[ODOM] rotate 180deg target_counts={target_counts:.0f}")
+
+    current_w = 0.0
+    while True:
+        enc_l, enc_r, _, odom_time = motor.get_odom()
+        if odom_time == 0.0 or time.time() - odom_time > 0.5:
+            motor.stop()
+            print("[ODOM] encoder data timeout during 180 rotate")
+            return False
+
+        left_counts = abs(enc_l - start_l)
+        right_counts = abs(enc_r - start_r)
+        if 0.5 * (left_counts + right_counts) >= target_counts:
+            break
+
+        current_w = rate_limit(current_w, target_w, AVOID_W_STEP)
+        motor.vw(0.0, current_w)
+        wait_ms(int(LOOP_DT * 1000))
+
+    motor.stop()
+    print("[ODOM] rotate 180 done")
+    return True
+
+
 def log_lidar(elapsed, lidar_dist):
     if lidar_dist is None:
         print(f"[{elapsed:.2f}s] [LIDAR] waiting...")
@@ -805,9 +841,12 @@ def main():
                     switch_search_active = False
                     switch_search_start_odom = None
                     explore_active = True
+                    # 나선 시작 전, 엔코더 기준 180도 제자리 회전 후 나선 진입
+                    rotate_180_by_encoder(motor)
+                    last_v, last_w = 0.0, 0.0
                     enc_l, enc_r, _, _ = motor.get_odom()
                     explorer = SpiralExplorer(enc_l, enc_r)
-                    print(f"[{elapsed:.2f}s] [EXPLORE] 360 search failed, spiral explore (max r={SPIRAL_MAX_RADIUS}m)")
+                    print(f"[{elapsed:.2f}s] [EXPLORE] 360 search failed, 180 turn done, spiral explore (max r={SPIRAL_MAX_RADIUS}m)")
                     mode, target_v, target_w = explorer.command(enc_l, enc_r, ranges)
                     dbg(f"[{elapsed:.2f}s] [EXPLORE] {explorer.detail}")
                 else:
