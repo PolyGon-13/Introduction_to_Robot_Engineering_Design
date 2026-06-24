@@ -8,6 +8,8 @@ import time
 import sys
 from pathlib import Path
 
+
+
 import numpy as np
 import serial
 
@@ -49,63 +51,80 @@ from lidar import (
     zone_min_distance,
 )
 
-TARGET_SEQUENCE = ("RED", "YELLOW", "BLUE")
-log_control = False
-SHOW_WINDOW = log_control
-DEBUG = log_control
-BOTTOM_LOST_RATIO = 0.90
-COLOR_SWITCH_PAUSE_MS = 1000
-COLOR_FORWARD_CENTER_RATIO = 0.95
-COLOR_EXIT_CENTER_ERR = 0.15
 
-ARDU_PORT = "/dev/ttyS0"
-ARDU_BAUD = 9600
-DRIVE_V = 0.25
-V_STEP = 0.04
-FOLLOW_W_STEP = 0.25
-AVOID_W_STEP = 0.20
-LOOP_DT = 0.05
-SEARCH_MAX_W = 1.0
-SWITCH_SEARCH_W = -1.5
-ODOM_LOG_INTERVAL = 0.5
-WHEEL_R = 0.034
-ENC_PPR = 1012.0
+
+# ==============================
+# HSV color following settings
+# ==============================
+
+TARGET_SEQUENCE = ("RED", "YELLOW", "BLUE")  # Follow colors in this order.
+log_control = False  # True면 로그·화면 출력 그대로, False면 로그·화면 출력 전부 끔(동작 로직은 동일)
+SHOW_WINDOW = log_control  # 카메라 인식 화면을 띄울지 여부
+DEBUG = log_control  # 디버그 로그 출력 켜고 끄기 (False면 상세 로그 전부 끔)
+BOTTOM_LOST_RATIO = 0.90  # 색상이 화면 아래 1/10 지점 아래에서 사라지면 정지로 판단
+COLOR_SWITCH_PAUSE_MS = 1000  # 다음 색 추적 전 정지 시간(ms)
+COLOR_FORWARD_CENTER_RATIO = 0.95  # 색상 중심이 화면 하단 1/20 구역에 들어오면 전진
+COLOR_EXIT_CENTER_ERR = 0.15  # 이 가로 오차 안에서 아래로 사라질 때만 다음 색으로 전환
+
+# ==============================
+# Motor settings
+# ==============================
+
+ARDU_PORT = "/dev/ttyS0"  # 아두이노 모터 제어 시리얼 포트
+ARDU_BAUD = 9600  # 아두이노 시리얼 통신 속도
+DRIVE_V = 0.25  # 색 추적, 장애물 회피, 색 완료 후 추가 전진에 공통으로 쓰는 전진 속도
+V_STEP = 0.04  # 전진 속도 명령의 루프당 최대 변화량
+FOLLOW_W_STEP = 0.25  # 색 추적 모드 회전 속도 명령의 루프당 최대 변화량
+AVOID_W_STEP = 0.20  # 장애물 회피 모드 회전 속도 명령의 루프당 최대 변화량
+LOOP_DT = 0.05  # 메인 루프 대기 시간(초)
+SEARCH_MAX_W = 1.0  # 색 재탐색 모드 최대 회전 속도
+SWITCH_SEARCH_W = -1.5  # 다음 색이 안 보일 때 제자리 탐색 회전 속도
+ODOM_LOG_INTERVAL = 0.5  # 엔코더 누적값 로그 출력 주기(초)
+WHEEL_R = 0.034  # Arduino encoder distance calculation wheel radius(m)
+ENC_PPR = 1012.0  # Arduino encoder counts per wheel revolution
 ENC_COUNTS_PER_M = ENC_PPR / (2.0 * np.pi * WHEEL_R)
-POST_COLOR_FORWARD_M = 0.02
-TURN_360_WHEEL_BASE_M = 0.18
+POST_COLOR_FORWARD_M = 0.02  # Move forward after a color exits bottom before pause(m)
+TURN_360_WHEEL_BASE_M = 0.18  # Distance between left/right wheels for encoder-based 360 turn(m)
 TURN_360_COUNTS = np.pi * TURN_360_WHEEL_BASE_M * ENC_COUNTS_PER_M
-AVOID_STOP_D = 0.15
-SPIRAL_GROWTH = 0.1
-SPIRAL_MAX_RADIUS = 1.5
-SPIRAL_LOOKAHEAD_M = 0.15
-SPIRAL_MAX_ADVANCE = 0.5
-SPIRAL_HEADING_KP = 1.5
-SPIRAL_SKIP_ON_BLOCK = 1.0
-SPIRAL_AVOID_ADVANCE = 0.025
-RETURN_KP = 1.0
-RETURN_DONE_M = 0.10
-EXPLORE_MAX_W = 1.0
-EXPLORE_TURN_SIGN = 1.0
-EXPLORE_AVOID_D = 0.28
+AVOID_STOP_D = 0.15  # Stop avoid forward speed when a front obstacle is this close(m)
+SPIRAL_GROWTH = 0.1  # 아르키메데스 나선 계수 b: 각도 1rad당 반경 증가량(m, 작을수록 촘촘)
+SPIRAL_MAX_RADIUS = 1.5  # 나선 최대 반경(m), 원점에서 이 거리 넘으면 복귀
+SPIRAL_LOOKAHEAD_M = 0.15  # 나선 경로에서 바라볼 목표점까지의 전방주시 거리(m)
+SPIRAL_MAX_ADVANCE = 0.5  # 한 루프에 나선 각도를 최대 이만큼(rad)만 전진(목표점 점프 방지)
+SPIRAL_HEADING_KP = 1.5  # 나선 목표점 방향으로 향하는 회전 비례계수
+SPIRAL_SKIP_ON_BLOCK = 1.0  # 장애물로 막힐 때마다 나선 진행각을 이만큼(rad) 앞으로 건너뜀(같은 장애물 왕복 방지)
+SPIRAL_AVOID_ADVANCE = 0.025  # 회피·앵커복귀 중 한 루프에 나선 진행각을 늘리는 양(rad). 정상 나선 진행(루프당 약 0.05rad)의 1/2로, 회피 중에도 반경이 계속 커지게 함
+RETURN_KP = 1.0  # 원점 복귀 시 헤딩 오차(rad)에 대한 회전 비례계수
+RETURN_DONE_M = 0.10  # 원점에 이 거리(m) 안으로 들어오면 복귀 완료로 보고 나선 재시작
+EXPLORE_MAX_W = 1.0  # 탐색 회전 속도 제한
+EXPLORE_TURN_SIGN = 1.0  # 탐색 회전 방향(+1: 좌회전, -1: 우회전)
+EXPLORE_AVOID_D = 0.28  # 원점 복귀 중 정면/좌/우가 이 거리(m) 이내로 막히면 회피 발동
+
+
 
 def dbg(*args, **kwargs):
     """DEBUG가 True일 때만 출력한다(디버그 로그 토글)."""
     if DEBUG:
         print(*args, **kwargs)
 
+
 def clamp(value, low, high):
     return float(max(low, min(value, high)))
+
 
 def rate_limit(prev, target, step):
     return prev + clamp(target - prev, -step, step)
 
+
 def millis():
     return int(time.monotonic() * 1000)
+
 
 def wait_ms(duration_ms):
     deadline = millis() + int(duration_ms)
     while millis() < deadline:
         time.sleep(0.001)
+
 
 class NullWriter:
     """log_control이 False일 때 모든 print 출력을 버리는 stdout 대체."""
@@ -116,6 +135,7 @@ class NullWriter:
     def flush(self):
         pass
 
+
 class SpiralExplorer:
     """달팽이집(아르키메데스 나선)으로 탐색한다.
     오도메트리로 추적한 위치(x, y)를 기준으로, 원점(0,0)에 중심이 고정된
@@ -123,15 +143,16 @@ class SpiralExplorer:
     반경은 SPIRAL_MAX_RADIUS(m)에서 멈추고, 회피로 밀려나도 원래 중심 나선으로 복귀한다."""
 
     def __init__(self, enc_l, enc_r, turn_sign=EXPLORE_TURN_SIGN):
+        # 오도메트리 위치 추적 (시작점이 원점 0,0, 헤딩 0)
         self.prev_l = enc_l
         self.prev_r = enc_r
         self.x = 0.0
         self.y = 0.0
         self.theta = 0.0
-        self.spiral_theta = 0.0
-        self.shrinking = False
+        self.spiral_theta = 0.0  # 원점 고정 나선 경로상의 진행 각도(rad)
+        self.shrinking = False  # True면 바깥→중심으로 좁아지는 역나선(반경 감소) 단계
         self.avoid_anchor = None
-        self.turn_sign = turn_sign
+        self.turn_sign = turn_sign  # 나선 감기는 방향(+1 좌, -1 우). 인스턴스별 지정 가능
         self.detail = ""
 
     def update_pose(self, enc_l, enc_r):
@@ -150,6 +171,9 @@ class SpiralExplorer:
         if self.avoid_anchor is not None:
             return
 
+        # 장애물 직전 위치가 아니라, 나선 진행각을 SPIRAL_SKIP_ON_BLOCK만큼 진행방향으로
+        # 건너뛴 지점을 복귀점으로 삼는다(수축 단계면 줄이는 방향). 그래야 복귀 후 재개한
+        # 나선이 같은 장애물 방향으로 다시 향하지 않는다(매 막힘마다 누적되어 빠져나감).
         step = -SPIRAL_SKIP_ON_BLOCK if self.shrinking else SPIRAL_SKIP_ON_BLOCK
         resume_theta = max(0.0, self.spiral_theta + step)
         tx, ty, radius = self.spiral_point(resume_theta)
@@ -176,7 +200,7 @@ class SpiralExplorer:
         target_heading = np.arctan2(dy, dx)
         err = (target_heading - self.theta + np.pi) % (2.0 * np.pi) - np.pi
         target_w = clamp(RETURN_KP * err, -EXPLORE_MAX_W, EXPLORE_MAX_W)
-        target_w = apply_symmetric_side_repulsion(target_w, ranges)
+        target_w = apply_symmetric_side_repulsion(target_w, ranges)  # 측면 벽 스침 방지
         nominal_v = DRIVE_V * max(0.0, 1.0 - abs(err) / (np.pi / 2.0))
         target_v = scale_avoid_speed_for_front_obstacle(nominal_v, ranges)
         self.detail = (
@@ -219,10 +243,12 @@ class SpiralExplorer:
     def spiral_point(self, theta):
         """원점(0,0) 중심 아르키메데스 나선 위의 점. r = b·theta, 최대 반경 제한."""
         r = min(SPIRAL_GROWTH * theta, SPIRAL_MAX_RADIUS)
-        ang = self.turn_sign * theta
+        ang = self.turn_sign * theta  # 회전 방향(+1 좌, -1 우), 인스턴스별
         return r * np.cos(ang), r * np.sin(ang), r
 
     def command(self, enc_l, enc_r, ranges):
+        # 현재 위치(원점 기준 x, y)에서 나선 경로상 전방주시 목표점을 추종한다.
+        # 바깥(반경↑)일 땐 theta 증가, 수축(반경↓)일 땐 theta 감소로 전방주시.
         step = -0.05 if self.shrinking else 0.05
         theta = self.spiral_theta
         advanced = 0.0
@@ -230,23 +256,27 @@ class SpiralExplorer:
         while np.hypot(tx - self.x, ty - self.y) < SPIRAL_LOOKAHEAD_M and advanced < SPIRAL_MAX_ADVANCE:
             theta += step
             advanced += 0.05
-            if self.shrinking and theta <= 0.0:
+            if self.shrinking and theta <= 0.0:  # 수축 단계는 중심(theta=0)에서 멈춤
                 theta = 0.0
                 break
             tx, ty, radius = self.spiral_point(theta)
         self.spiral_theta = theta
 
+        # 단계 전환(오도메트리 실제 거리 기준):
+        #  - 바깥 나선이 원점에서 SPIRAL_MAX_RADIUS 벗어남 → 180° 반전 + 수축 나선으로
+        #  - 수축 나선이 원점 RETURN_DONE_M 안으로 복귀 → 다시 반대 방향 바깥 나선 재시작
         dist_origin = float(np.hypot(self.x, self.y))
         if not self.shrinking and dist_origin >= SPIRAL_MAX_RADIUS:
             self.shrinking = True
-            self.turn_sign = -self.turn_sign
+            self.turn_sign = -self.turn_sign  # 감기는 방향 반전(목표점이 반대편→로봇 180° 회전)
         elif self.shrinking and dist_origin <= RETURN_DONE_M:
             self.shrinking = False
-            self.turn_sign = -self.turn_sign
+            self.turn_sign = -self.turn_sign  # 다시 반전
             self.spiral_theta = 0.0
 
+        # 순수 나선 추종: 목표점 방향과 현재 헤딩의 오차로만 회전/전진(장애물 회피 없음).
         desired_heading = np.arctan2(ty - self.y, tx - self.x)
-        err = (desired_heading - self.theta + np.pi) % (2.0 * np.pi) - np.pi
+        err = (desired_heading - self.theta + np.pi) % (2.0 * np.pi) - np.pi  # [-pi, pi]
         target_w = clamp(SPIRAL_HEADING_KP * err, -EXPLORE_MAX_W, EXPLORE_MAX_W)
         target_v = DRIVE_V * max(0.0, 1.0 - abs(err) / (np.pi / 2.0))
 
@@ -258,6 +288,7 @@ class SpiralExplorer:
         )
         mode = f"EXPLORE: spiral {phase} d={dist_origin:.2f}m"
         return mode, target_v, target_w
+
 
 class Motor:
     def __init__(self):
@@ -305,6 +336,7 @@ class Motor:
             self.ser.write(f"V{v:.3f},{w:.3f}\n".encode("ascii"))
 
     def pivot(self, w):
+        # 색 정렬용 피벗 회전: 한쪽 바퀴 정지, 한쪽 바퀴만 후진 (아두이노에서 처리)
         with self.write_lock:
             self.ser.write(f"P{w:.3f}\n".encode("ascii"))
 
@@ -327,6 +359,7 @@ class Motor:
         if self.ser.is_open:
             self.ser.close()
 
+
 def color_angle_from_target(target, frame_shape):
     if target is None:
         return 0.0
@@ -334,22 +367,27 @@ def color_angle_from_target(target, frame_shape):
     err = bottom_center_error(target, frame_shape)
     return clamp(err * COLOR_TO_LIDAR_DEG, ANG_MIN, ANG_MAX)
 
+
 def update_color_memory(target, frame):
     last_color_deg = color_angle_from_target(target, frame.shape)
     center_ratio = float(target[7]) / frame.shape[0]
     return last_color_deg, time.time(), center_ratio, x_center_error(target, frame.shape)
 
+
 def clear_color_memory():
     return 0.0, 0.0, 0.0, 0.0
 
+
 def search_next_cmd():
     return "SEARCH: next color", 0.0, SWITCH_SEARCH_W
+
 
 def obstacle_in_zone(ranges, zone, clear_d=FREE_D):
     if ranges is None:
         return False
 
     return zone_min_distance(ranges, zone) < clear_d
+
 
 def color_path_clear(ranges, color_deg, clear_d=FREE_D):
     if ranges is None:
@@ -359,6 +397,7 @@ def color_path_clear(ranges, color_deg, clear_d=FREE_D):
     front_clear = not obstacle_in_zone(ranges, FRONT_LOG_ZONE, clear_d)
     side_clear = not obstacle_in_zone(ranges, color_side_zone, clear_d)
     return front_clear and side_clear
+
 
 def apply_color_side_repulsion(target_w, ranges, color_deg):
     if ranges is None:
@@ -376,6 +415,7 @@ def apply_color_side_repulsion(target_w, ranges, color_deg):
     repel_w = AVOID_TURN_SIGN * AVOID_TURN_GAIN * np.deg2rad(side_correct_deg)
     return clamp(target_w + repel_w, -AVOID_MAX_W, AVOID_MAX_W)
 
+
 def apply_symmetric_side_repulsion(target_w, ranges):
     """복귀 주행용 대칭 측면 반발 조향. 좌/우 벽이 SIDE_CLEAR_D 안으로 들어오면
     가까운 쪽에서 멀어지는 방향으로 회전량을 더한다(양쪽 위험 차이로 보정)."""
@@ -391,11 +431,13 @@ def apply_symmetric_side_repulsion(target_w, ranges):
     repel_w = AVOID_TURN_SIGN * AVOID_TURN_GAIN * np.deg2rad(side_correct_deg)
     return clamp(target_w + repel_w, -AVOID_MAX_W, AVOID_MAX_W)
 
+
 def front_obstacle_distance(ranges):
     if ranges is None:
         return FREE_D
 
     return zone_min_distance(ranges, FRONT_LOG_ZONE)
+
 
 def scale_speed_for_obstacle(target_v, dist):
     """장애물 거리(dist)에 따라 속도를 선형 감속한다. AVOID_STOP_D 이내면 0."""
@@ -407,8 +449,10 @@ def scale_speed_for_obstacle(target_v, dist):
     scale = (dist - AVOID_STOP_D) / (FREE_D - AVOID_STOP_D)
     return target_v * clamp(scale, 0.0, 1.0)
 
+
 def scale_avoid_speed_for_front_obstacle(target_v, ranges):
     return scale_speed_for_obstacle(target_v, front_obstacle_distance(ranges))
+
 
 def lost_color_obstacle_passed(ranges, last_color_deg):
     if last_color_deg >= 0.0:
@@ -420,11 +464,13 @@ def lost_color_obstacle_passed(ranges, last_color_deg):
     side_clear = not obstacle_in_zone(ranges, color_side_zone, SIDE_CLEAR_D)
     return front_clear and side_clear
 
+
 def get_turn_start_odom(motor):
     enc_l, enc_r, _, odom_time = motor.get_odom()
     if odom_time == 0.0:
         return None
     return enc_l, enc_r
+
 
 def completed_one_encoder_turn(motor, start_odom):
     if start_odom is None:
@@ -438,6 +484,7 @@ def completed_one_encoder_turn(motor, start_odom):
     left_counts = abs(enc_l - start_l)
     right_counts = abs(enc_r - start_r)
     return 0.5 * (left_counts + right_counts) >= TURN_360_COUNTS
+
 
 def drive_forward_by_encoder(motor, distance_m=POST_COLOR_FORWARD_M, start_v=0.0):
     while True:
@@ -453,7 +500,7 @@ def drive_forward_by_encoder(motor, distance_m=POST_COLOR_FORWARD_M, start_v=0.0
     print(f"[ODOM] move {distance_m:.2f}m target_counts={target_counts:.0f}")
 
     left_counts = right_counts = 0.0
-    current_v = start_v
+    current_v = start_v  # 직전 속도에서 이어받아 램프(0으로 리셋하지 않아 불연속 제거)
     while True:
         enc_l, enc_r, _, odom_time = motor.get_odom()
         if odom_time == 0.0 or time.time() - odom_time > 0.5:
@@ -481,6 +528,7 @@ def drive_forward_by_encoder(motor, distance_m=POST_COLOR_FORWARD_M, start_v=0.0
     )
     return ok
 
+
 def rotate_180_by_encoder(motor, cam=None, lidar=None, current_target=None, turn_sign=1.0, w=SWITCH_SEARCH_W):
     """제자리에서 엔코더 기준 180도 회전한다.
     좌/우 바퀴 누적 카운트 평균이 360도(TURN_360_COUNTS)의 절반에 도달하면 멈춘다.
@@ -499,16 +547,19 @@ def rotate_180_by_encoder(motor, cam=None, lidar=None, current_target=None, turn
 
     current_w = 0.0
     while True:
+        # 회전 도중 추적색이 보이면 즉시 멈춤(다음 루프에서 색 추종)
         if cam is not None and current_target is not None:
             ok, frame = read_frame(cam)
             target = pick(detect(frame), current_target) if ok else None
             if SHOW_WINDOW and ok:
+                # 회전 중에도 미리보기 창을 갱신해 화면이 멈춘 것처럼 보이지 않게 함
                 draw(frame, [target] if target is not None else [], "TURN 180")
             if target is not None:
                 motor.stop()
                 print("[ODOM] rotate 180 stop: color found")
                 return "color"
 
+        # 회전 도중 장애물이 감지되면 즉시 멈춤
         if lidar is not None:
             scan, _, _ = lidar.get()
             ranges = front_ranges(scan) if scan is not None else None
@@ -536,6 +587,7 @@ def rotate_180_by_encoder(motor, cam=None, lidar=None, current_target=None, turn
     print("[ODOM] rotate 180 done")
     return "done"
 
+
 def log_lidar(elapsed, lidar_dist):
     if lidar_dist is None:
         print(f"[{elapsed:.2f}s] [LIDAR] waiting...")
@@ -549,6 +601,7 @@ def log_lidar(elapsed, lidar_dist):
         f"right={right_d:.2f}m({right_n})"
     )
 
+
 def log_avoid(elapsed, tag, target_deg, target_v, target_w, gap_count, gap_clear):
     clear_str = "open" if gap_clear == float("inf") else f"{gap_clear:.2f}m"
     print(
@@ -559,6 +612,7 @@ def log_avoid(elapsed, tag, target_deg, target_v, target_w, gap_count, gap_clear
         f"w={target_w:.2f}"
     )
 
+
 def log_odom(elapsed, odom):
     enc_l, enc_r, arduino_ms, odom_time = odom
     if odom_time == 0.0:
@@ -566,6 +620,7 @@ def log_odom(elapsed, odom):
         return
 
     print(f"[{elapsed:.2f}s] [ODOM] left={enc_l} right={enc_r} arduino_ms={arduino_ms}")
+
 
 def color_cmd(target, frame, ranges, has_obstacle, color_deg, elapsed):
     if has_obstacle:
@@ -583,17 +638,21 @@ def color_cmd(target, frame, ranges, has_obstacle, color_deg, elapsed):
     target_w = apply_color_side_repulsion(target_w, ranges, color_deg)
     return "FOLLOW: color only", target_v, target_w
 
+
 def bottom_color_cmd(target, frame):
     if abs(x_center_error(target, frame.shape)) > COLOR_EXIT_CENTER_ERR:
+        # 속도 0으로 방향만 보정: ALIGN 전용 Kp로 회전량 계산
         _, align_w = follow_cmd(target, frame.shape, DRIVE_V, ALIGN_KP)
         return "ALIGN: bottom color", 0.0, align_w
 
     target_v, target_w = follow_cmd(target, frame.shape, DRIVE_V)
     return "FOLLOW: bottom color", target_v, target_w
 
+
 def search_last_cmd(last_color_deg):
     w = -SEARCH_MAX_W if last_color_deg >= 0.0 else SEARCH_MAX_W
     return "SEARCH: last color direction", 0.0, w
+
 
 def avoid_mode(mode, tag, ranges, color_deg, elapsed):
     target_v, target_w, target_deg, gap_count, gap_clear = avoid_cmd(ranges, color_deg, DRIVE_V)
@@ -601,11 +660,14 @@ def avoid_mode(mode, tag, ranges, color_deg, elapsed):
     log_avoid(elapsed, tag, target_deg, target_v, target_w, gap_count, gap_clear)
     return mode, target_v, target_w
 
+
 def main():
     cam = lidar = motor = None
     original_stdout = sys.stdout
-    if not log_control:
+    if not log_control:  # 로그가 꺼져 있으면 모든 print 출력을 버린다(DEBUG로 안 거르는 출력까지 전부).
         sys.stdout = NullWriter()
+        # libcamera(C++)가 stderr로 찍는 INFO 로그는 stdout 리다이렉트로 못 막으므로
+        # 카메라 매니저 생성 전에 환경변수로 로그 레벨을 올려 INFO 출력을 끈다.
         os.environ["LIBCAMERA_LOG_LEVELS"] = "*:4"
     last_v = last_w = 0.0
     last_color_deg = last_color_time = last_color_center_ratio = last_color_x_err = 0.0
@@ -615,7 +677,7 @@ def main():
     explorer = None
     switch_search_active = False
     switch_search_start_odom = None
-    last_search_start_odom = None
+    last_search_start_odom = None  # 마지막 색 방향 제자리 회전의 한바퀴 감지용 엔코더 시작값
     target_index = 0
     current_target = TARGET_SEQUENCE[target_index]
 
@@ -625,11 +687,14 @@ def main():
         motor = Motor()
         motor.stop()
         motor.reset_encoders()
+        # 엔터를 누르기 전까지는 장치만 준비하고 로직(색 인식·주행)은 시작하지 않는다.
+        # 입력 대기(input)는 log_control과 무관하게 항상 하되, 안내 프롬프트는 log_control일 때만 출력한다.
         if log_control:
             original_stdout.write("[READY] Press Enter to start...")
             original_stdout.flush()
 
         if SHOW_WINDOW:
+            # 로그가 켜져 있으면 엔터 전부터 카메라 화면을 미리 띄운다(주행 로직은 시작 안 함).
             start_pressed = threading.Event()
 
             def wait_enter():
@@ -649,21 +714,21 @@ def main():
         else:
             input()
 
-        start_time = time.time()
+        start_time = time.time()  # 로그 출력용 시작 시각
 
         while True:
-            elapsed = time.time() - start_time
+            elapsed = time.time() - start_time  # 프로그램 시작 후 경과 시간
             ok, frame = read_frame(cam)
             if not ok:
                 break
 
-            found = detect(frame)
-            target = pick(found, current_target)
+            found = detect(frame)  # 현재 프레임에서 찾은 색상 물체 목록
+            target = pick(found, current_target)  # 따라갈 대상 색상 물체
             found = [target] if target is not None else []
-            scan, _, _ = lidar.get()
-            ranges = front_ranges(scan) if scan is not None else None
-            lidar_dist = lidar_zone_distances(ranges)
-            has_obstacle = obstacle_detected(ranges)
+            scan, _, _ = lidar.get()  # 최신 라이다 스캔 데이터
+            ranges = front_ranges(scan) if scan is not None else None  # 각도별 전방 거리 배열
+            lidar_dist = lidar_zone_distances(ranges)  # 좌/정면/우측 로그용 최소 거리
+            has_obstacle = obstacle_detected(ranges)  # 장애물 감지 여부
 
             if target is not None:
                 last_color_deg, last_color_time, last_color_center_ratio, last_color_x_err = update_color_memory(target, frame)
@@ -746,7 +811,7 @@ def main():
             elif target is None and explore_active:
                 enc_l, enc_r, _, odom_time = motor.get_odom()
                 if odom_time > 0.0:
-                    explorer.update_pose(enc_l, enc_r)
+                    explorer.update_pose(enc_l, enc_r)  # 원점 기준 위치 적산
 
                 explore_blocked = (
                     front_obstacle_distance(ranges) <= EXPLORE_AVOID_D
@@ -754,9 +819,11 @@ def main():
                     or obstacle_in_zone(ranges, RIGHT_ZONE, EXPLORE_AVOID_D)
                 )
 
+                # 원점 복귀 단계 없음: 바깥 나선→최대 반경→180° 반전→수축 나선→중심→재시작
+                # 전환은 explorer.command() 내부에서 처리한다.
                 if explore_blocked:
                     explorer.save_avoid_anchor()
-                    explorer.grow_spiral_while_avoiding()
+                    explorer.grow_spiral_while_avoiding()  # 회피 중에도 반경을 1/2 속도로 키움
                     mode, target_v, target_w = avoid_mode("AVOID: explore", "AVOID_EXPLORE", ranges, None, elapsed)
                 elif explorer.has_avoid_anchor():
                     if explorer.reached_avoid_anchor():
@@ -764,12 +831,13 @@ def main():
                         mode, target_v, target_w = "EXPLORE: resume spiral", 0.0, 0.0
                         dbg(f"[{elapsed:.2f}s] [EXPLORE] resumed at saved spiral radius")
                     elif odom_time > 0.0:
-                        explorer.grow_spiral_while_avoiding()
+                        explorer.grow_spiral_while_avoiding()  # 앵커 복귀 중에도 반경을 1/2 속도로 키움
                         mode, target_v, target_w = explorer.return_to_avoid_anchor_command(ranges)
                         dbg(f"[{elapsed:.2f}s] [ANCHOR] {explorer.detail}")
                     else:
                         mode, target_v, target_w = "RETURN: wait odom", 0.0, 0.0
                 elif odom_time > 0.0:
+                    # 순수 나선 회전(장애물 회피 없음)
                     mode, target_v, target_w = explorer.command(enc_l, enc_r, ranges)
                     dbg(f"[{elapsed:.2f}s] [EXPLORE] {explorer.detail}")
                 else:
@@ -796,8 +864,10 @@ def main():
                     switch_search_active = False
                     switch_search_start_odom = None
                     last_v, last_w = 0.0, 0.0
+                    # 나선 시작 전, 엔코더 기준 180도 제자리 회전(도중 색·장애물 보면 즉시 멈춤)
                     turn_result = rotate_180_by_encoder(motor, cam, lidar, current_target)
                     if turn_result == "color":
+                        # 회전 중 색 발견 → 나선 진입 취소, 다음 루프에서 색 추종
                         explore_active, explorer = False, None
                         print(f"[{elapsed:.2f}s] [EXPLORE] 180 turn aborted: color found, follow")
                         continue
@@ -825,12 +895,15 @@ def main():
                     mode, target_v, target_w = search_last_cmd(last_color_deg)
                     color_lost_during_avoid, switch_search_active = True, False
                 else:
+                    # 처음부터 빨간색을 한 번도 못 봤으면 장애물 회피로 돌아다니며 찾는다.
                     switch_search_active, explore_active, switch_search_start_odom = False, False, None
                     mode, target_v, target_w = avoid_mode("AVOID: no initial color", "AVOID_INITIAL", ranges, None, elapsed)
 
+            # 마지막 색 방향 제자리 회전(SEARCH: last color direction)이 장애물 없이
+            # 연속으로 한 바퀴를 채우면 나선 탐색으로 넘어간다(장애물 만나면 카운트 리셋).
             if mode.startswith("SEARCH: last color direction"):
                 if has_obstacle:
-                    last_search_start_odom = None
+                    last_search_start_odom = None  # 장애물 발생 → 한바퀴 카운트 리셋
                 else:
                     if last_search_start_odom is None:
                         last_search_start_odom = get_turn_start_odom(motor)
@@ -839,19 +912,21 @@ def main():
                         color_lost_during_avoid, switch_search_active = False, False
                         explore_active = True
                         enc_l, enc_r, _, _ = motor.get_odom()
+                        # 마지막 색이 오른쪽(>=0)이면 우(-1), 왼쪽이면 좌(+1)로 나선 감기
                         spin_sign = -1.0 if last_color_deg >= 0.0 else 1.0
                         explorer = SpiralExplorer(enc_l, enc_r, turn_sign=spin_sign)
                         print(f"[{elapsed:.2f}s] [EXPLORE] last-color spin 360 done, spiral explore (turn={spin_sign:+.0f}, max r={SPIRAL_MAX_RADIUS}m)")
                         mode, target_v, target_w = explorer.command(enc_l, enc_r, ranges)
                         dbg(f"[{elapsed:.2f}s] [EXPLORE] {explorer.detail}")
             else:
-                last_search_start_odom = None
+                last_search_start_odom = None  # 다른 모드로 빠지면 회전 카운트 리셋
 
             if target is not None or mode.startswith("AVOID") or mode.startswith("SEARCH") or mode.startswith("EXPLORE") or mode.startswith("RETURN") or mode.startswith("ESCAPE") or mode.startswith("FORWARD"):
                 last_v = 0.0 if mode.startswith("ALIGN") else rate_limit(last_v, target_v, V_STEP)
                 w_step = AVOID_W_STEP if (mode.startswith("AVOID") or mode.startswith("EXPLORE") or mode.startswith("ESCAPE")) else FOLLOW_W_STEP
                 last_w = rate_limit(last_w, target_w, w_step)
                 if mode.startswith("ALIGN"):
+                    # 색 정렬은 한 바퀴 정지 + 한 바퀴 후진 피벗으로 회전
                     motor.pivot(last_w)
                 else:
                     motor.vw(last_v, last_w)
@@ -886,6 +961,7 @@ def main():
 
         sys.stdout = original_stdout
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="색상영역 추적 로봇")
     parser.add_argument(
@@ -894,7 +970,7 @@ if __name__ == "__main__":
         help="로그·화면 출력 켜기 (지정하지 않으면 기본값: 꺼짐)",
     )
     args = parser.parse_args()
-    log_control = args.log
+    log_control = args.log  # 명령단 인자로 로그/화면 출력 토글(기본 False)
     SHOW_WINDOW = log_control
     DEBUG = log_control
     main()
