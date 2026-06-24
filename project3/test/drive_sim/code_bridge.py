@@ -20,7 +20,7 @@ import types
 import numpy as np
 
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT3_DIR = os.path.dirname(_THIS_DIR)
+PROJECT3_DIR = os.path.join(_THIS_DIR, "src")
 PY_PATH = os.path.join(PROJECT3_DIR, "project3.py")
 INO_PATH = os.path.join(PROJECT3_DIR, "project3.ino")
 
@@ -175,3 +175,5 @@ if __name__ == "__main__":
           " WHEEL_BASE =", b.ino.get("WHEEL_BASE"),
           " CMD_TIMEOUT_MS =", b.ino.get("CMD_TIMEOUT_MS"),
           " WHEEL_SPEED_MAX =", b.ino.get("WHEEL_SPEED_MAX"))
+
+

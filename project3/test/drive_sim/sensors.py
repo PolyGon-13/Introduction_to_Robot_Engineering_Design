@@ -344,3 +344,5 @@ def simulate_camera(world, p3, target_color, cam_max=2.5, cam_far=1.5,
         float(center_x_robot),
         float(center_y_robot),
     )
+
+

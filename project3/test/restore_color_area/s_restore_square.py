@@ -741,7 +741,6 @@ def restore_target(frame, target, projector, ranges, args, previous_center):
         status = f"lidar restored {lidar_angle:.0f}deg {lidar_distance:.2f}m"
         return selected, candidates, status
 
-    # 라이다 확인이 안 돼도 기하학적 최적 후보로 복원 추정을 표시한다.
     selected = choose_candidate(candidates, previous_center, observed_center)
     selected = filtered_candidate(selected, previous_center, args.smooth)
     reason = "no lidar" if ranges is None else "no obstacle"
@@ -883,3 +882,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+

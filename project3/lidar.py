@@ -7,8 +7,6 @@ import time
 import numpy as np
 import serial
 
-
-
 LIDAR_PORT = "/dev/ttyUSB0"
 LIDAR_BAUD = 460800
 
@@ -27,7 +25,7 @@ ANG_MIN = -100.0
 ANG_MAX = 100.0
 ANG_STEP = 1.0
 FREE_D = 0.28
-ROBOT_PASS_WIDTH = 0.24  # 로봇이 통과 가능한 최소 갭 실제 폭(m). 갭 각폭×가장자리거리로 환산해 이 폭 미만 갭은 버림
+ROBOT_PASS_WIDTH = 0.24
 OBSTACLE_FRONT_DEG = 100.0
 FRONT_HALF_DEG = 15.0
 
@@ -38,8 +36,8 @@ AVOID_TURN_SIGN = -1.0
 SIDE_CLEAR_D = 0.28
 SIDE_CORRECT_MAX_DEG = 30.0
 COLOR_TO_LIDAR_DEG = 45.0
-OPPOSITE_WALL_GAIN = 1.5  # 색 추적 회피 시 색 반대쪽 벽에서 멀어지는 반발 가중치
-MIN_OBSTACLE_BINS = 3  # 노이즈 제거: 가까운 측정이 이 개수 이상 모일 때만 장애물로 인정(단일 헛값 무시)
+OPPOSITE_WALL_GAIN = 1.5
+MIN_OBSTACLE_BINS = 3
 
 GRID = np.arange(ANG_MIN, ANG_MAX + 0.5 * ANG_STEP, ANG_STEP, dtype=np.float32)
 LEFT_ZONE = (GRID >= ANG_MIN) & (GRID < -FRONT_HALF_DEG)
@@ -47,14 +45,11 @@ FRONT_LOG_ZONE = (GRID >= -FRONT_HALF_DEG) & (GRID <= FRONT_HALF_DEG)
 RIGHT_ZONE = (GRID > FRONT_HALF_DEG) & (GRID <= ANG_MAX)
 OBSTACLE_ZONE = (GRID >= -OBSTACLE_FRONT_DEG) & (GRID <= OBSTACLE_FRONT_DEG)
 
-
 def clamp(value, low, high):
     return float(max(low, min(value, high)))
 
-
 def norm_deg(angle):
     return (angle + 180.0) % 360.0 - 180.0
-
 
 class RPLidarC1:
     def __init__(self):
@@ -134,7 +129,6 @@ class RPLidarC1:
         if self.ser.is_open:
             self.ser.close()
 
-
 def front_ranges(scan):
     ranges = np.full(len(GRID), MAX_D, dtype=np.float32)
 
@@ -153,7 +147,6 @@ def front_ranges(scan):
     np.minimum.at(ranges, bins[in_grid], dists_valid[in_grid])
     return ranges
 
-
 def find_gaps(free):
     gaps = []
     start = None
@@ -170,13 +163,11 @@ def find_gaps(free):
 
     return gaps
 
-
 def obstacle_detected(ranges):
     if ranges is None:
         return False
 
     return zone_min_distance(ranges, OBSTACLE_ZONE) < FREE_D
-
 
 def lidar_zone_distances(ranges):
     if ranges is None:
@@ -195,7 +186,6 @@ def lidar_zone_distances(ranges):
         zone_distance(RIGHT_ZONE),
     )
 
-
 def zone_min_distance(ranges, zone):
     """존 내 최단 거리. 단, 단일/이중 헛값에 안 흔들리도록 MIN_OBSTACLE_BINS번째로
     가까운 측정값을 사용한다(가까운 측정이 그만큼 안 모이면 장애물 없음=MAX_D)."""
@@ -205,16 +195,11 @@ def zone_min_distance(ranges, zone):
         return MAX_D
     return float(measured[MIN_OBSTACLE_BINS - 1])
 
-
 def avoid_cmd(ranges, color_deg=None, base_v=AVOID_BASE_V, color_follow=False):
     if ranges is None:
         return 0.0, 0.0, 0.0, 0, 0.0
 
     def gap_clearance(gap):
-        # 갭을 막은 양옆 장애물 점 사이의 실제 직선 거리(코사인법칙):
-        #   width = sqrt(da² + db² - 2·da·db·cos(Δθ))
-        # da, db = 양쪽 가장자리 장애물까지 거리, Δθ = 두 장애물 사이 각도.
-        # 한쪽이 FOV 끝으로 트였으면 벽 제약이 없으므로 통과 가능(inf).
         start, end = gap
         if start - 1 < 0 or end >= len(ranges):
             return float("inf")
@@ -238,9 +223,7 @@ def avoid_cmd(ranges, color_deg=None, base_v=AVOID_BASE_V, color_follow=False):
         start, end = gap
         return 0.5 * (GRID[start] + GRID[end - 1])
 
-    if color_deg is not None:
-        # safe_gaps는 이미 ROBOT_PASS_WIDTH 이상(통과 가능)인 갭만 남은 후보다.
-        # 더 넓은 갭이 있어도, 통과 가능한 갭이면 색 방향에 가장 가까운 쪽을 우선 선택한다.
+    if color_deg is not None and len(safe_gaps) >= 2:
         start, end = min(safe_gaps, key=lambda gap: abs(norm_deg(gap_center(gap) - color_deg)))
     else:
         start, end = max(safe_gaps, key=lambda gap: (gap_width(gap), -abs(gap_center(gap))))
@@ -251,18 +234,15 @@ def avoid_cmd(ranges, color_deg=None, base_v=AVOID_BASE_V, color_follow=False):
     left_risk = max(0.0, SIDE_CLEAR_D - left_d)
     right_risk = max(0.0, SIDE_CLEAR_D - right_d)
     if color_follow and color_deg is not None:
-        # 색 추적 회피: 색 반대쪽 벽에서만 멀어지도록 비대칭 반발(색 쪽은 보정 안 함).
-        # target_deg는 양수=오른쪽. 색이 오른쪽(>=0)이면 반대쪽 왼쪽 벽 → 오른쪽(+)으로 밀기.
         if color_deg >= 0.0:
             side_correct_deg = OPPOSITE_WALL_GAIN * left_risk / SIDE_CLEAR_D * SIDE_CORRECT_MAX_DEG
         else:
             side_correct_deg = -OPPOSITE_WALL_GAIN * right_risk / SIDE_CLEAR_D * SIDE_CORRECT_MAX_DEG
     else:
-        # 일반 회피: 양쪽 벽 거리 차이에 따른 대칭 보정
         side_correct_deg = (left_risk - right_risk) / SIDE_CLEAR_D * SIDE_CORRECT_MAX_DEG
     side_correct_deg = clamp(side_correct_deg, -SIDE_CORRECT_MAX_DEG, SIDE_CORRECT_MAX_DEG)
     target_deg = clamp(target_deg + side_correct_deg, ANG_MIN, ANG_MAX)
 
     w = clamp(AVOID_TURN_SIGN * AVOID_TURN_GAIN * np.deg2rad(target_deg), -AVOID_MAX_W, AVOID_MAX_W)
-    sel_clearance = gap_clearance((start, end))  # 선택한 갭의 실제 통과 폭(m)
+    sel_clearance = gap_clearance((start, end))
     return base_v, w, target_deg, len(safe_gaps), sel_clearance

@@ -1,3 +1,4 @@
+
 #include <Arduino.h>
 
 #define PI_F 3.1416f
@@ -41,6 +42,7 @@ const float WHEEL_FF = 1.0f;
 
 float V_cmd = 0.0f;
 float W_cmd = 0.0f;
+bool pivotMode = false;
 
 const unsigned long PID_INTERVAL_MS = 20;
 const unsigned long CMD_TIMEOUT_MS = 300;
@@ -113,6 +115,7 @@ void resetWheelPID(WheelPID &p) {
 void stopMotion() {
   V_cmd = 0.0f;
   W_cmd = 0.0f;
+  pivotMode = false;
   resetWheelPID(pidR);
   resetWheelPID(pidL);
   writeDriver_r(0.0f);
@@ -129,6 +132,17 @@ float computePID(WheelPID &p, float dt) {
 }
 
 void resolveWheelTargets(float v, float w) {
+  if (pivotMode) {
+    float spd = constrain(WHEEL_BASE * fabs(w) / WHEEL_R, 0.0f, WHEEL_SPEED_MAX);
+    if (w >= 0.0f) {
+      pidL.target = -spd;
+      pidR.target = 0.0f;
+    } else {
+      pidR.target = -spd;
+      pidL.target = 0.0f;
+    }
+    return;
+  }
   float wL = (v - WHEEL_BASE * w * 0.5f) / WHEEL_R;
   float wR = (v + WHEEL_BASE * w * 0.5f) / WHEEL_R;
   pidL.target = constrain(wL, -WHEEL_SPEED_MAX, WHEEL_SPEED_MAX);
@@ -153,6 +167,13 @@ void processCommand(String s) {
     if (comma <= 1 || comma >= s.length() - 1) return;
     V_cmd = s.substring(1, comma).toFloat();
     W_cmd = s.substring(comma + 1).toFloat();
+    pivotMode = false;
+    lastCmdMs = millis();
+  } else if (c0 == 'P' || c0 == 'p') {
+    if (s.length() < 2) return;
+    V_cmd = 0.0f;
+    W_cmd = s.substring(1).toFloat();
+    pivotMode = true;
     lastCmdMs = millis();
   }
 }
@@ -244,3 +265,5 @@ void loop() {
     sendOdomSerial(now, enc_l, enc_r);
   }
 }
+
+
