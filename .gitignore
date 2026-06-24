@@ -1,0 +1,29 @@
+# Local assistant/tool state
+.claude/
+.codex/
+.agents/
+
+# Editor settings
+.vscode/
+
+# Python cache/build artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Generated project data
+project3/drive_sim/data/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
