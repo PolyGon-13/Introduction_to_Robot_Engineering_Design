@@ -66,6 +66,8 @@ RPLiDAR C1으로 주변 장애물을 인식해, 목표지점까지 충돌 없이
 
 카메라와 LiDAR를 함께 사용해 RED → YELLOW → BLUE 순서로 색상 영역을 찾아 진입하는 자율 탐색 프로젝트
 
+<img src="project3/image/robot.png" width="200"/>
+
 [![YouTube](https://img.shields.io/badge/YouTube-FF0000?logo=youtube&logoColor=white)](https://youtu.be/zBimeyyJ538?si=_1wbqzK4HlpdR3By)
 
 ### 파일 구성
