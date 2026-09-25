@@ -1,6 +1,6 @@
 # Introduction_to_Robot_Engineering_Design
 
-로봇공학설계입문 수업에서 진행한 자율주행 로봇 프로젝트
+로봇공학입문설계 수업에서 진행한 자율주행 로봇 프로젝트
 RaspberryPi4 + Arduino R4 Minima로 구성된 차동 구동 로봇을 사용하며,
 두 보드는 UART Serial로 통신
 
